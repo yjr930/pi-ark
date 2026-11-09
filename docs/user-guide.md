@@ -233,7 +233,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-number>
 
 Composer 为空时显示 `Send message here`。在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
 
-输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。上一条已经滚出顶部的 user message 会固定显示在 conversation 顶部；点击 User 头像或名称可以返回原 message。
+输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。当前 turn 的 user message 越过顶部后会固定显示在 conversation 顶部；向上滚动到原 message 时，顶部 bar 会立即切换到前一个 user message。点击顶部 User bar 的任意位置可以返回原 message。
 
 ### 选择当前 Session 的 model
 
@@ -256,11 +256,11 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
-AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量。展开 run 后，每个单 tool call 与对应 result 显示为一行，顺序为工具头像、工具名称与 message number、Execution details、两个 copy link 按钮。连续工具行之间没有 message 分隔线。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量。每个单 tool call 与对应 result 都显示为同一种一行工具消息，包括 run 内外的工具消息。顺序为工具头像、工具名称与 message number、可展开执行条、两个 copy link 按钮。执行条显示 bash command、文件 path 或其他 arguments 摘要；包含多个 tool calls 的 message 与独立 tool result 也会显示 arguments 或 result 文本摘要，空 arguments 显示 `{}`；连续工具行之间没有 message 分隔线。
 
-展开 Execution details 可以查看 Process、Arguments 和 Result。Process 保留 reasoning 与 commentary，Result 显示工具输出，Failed 表示工具返回错误。展开 run 后，用时 summary 会固定显示在顶部 User bar 下方。
+展开执行条可以查看 Process、Arguments 和 Result。Process 保留 reasoning 与 commentary，Result 显示工具输出，Failed 表示工具返回错误。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
 
-Agent settled 后，如果历史 turn 在 final assistant response 之前停止，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过 Execution details 查看。
+Agent settled 后，如果历史 turn 在 final assistant response 之前停止，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过执行条查看。
 
 ### Queue
 

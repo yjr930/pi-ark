@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type ReactNode } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { ArrowDown, ArrowUp, Braces, Check, CircleStop, Clock3, Code2, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { api, websocketUrl } from "../api";
 import { buildConversationSegments } from "../conversation";
@@ -33,8 +33,30 @@ function matchesToolResult(call: ContentBlock, result: AgentMessage | undefined)
   return call.id && result.toolCallId ? call.id === result.toolCallId : true;
 }
 
+function toolCallPreview(call: ContentBlock): string {
+  const argumentsValue = call.arguments || {};
+  for (const key of ["command", "path", "filePath", "file_path", "query", "pattern", "url"]) {
+    const value = argumentsValue[key];
+    if (typeof value === "string" && value.trim()) return value.trim().replace(/\s+/g, " ");
+  }
+  return JSON.stringify(argumentsValue);
+}
+
+function toolResultPreview(message: AgentMessage): string {
+  const text = blocks(message.content).find((block) => block.type === "text" && block.text?.trim())?.text;
+  if (text) return text.trim().replace(/\s+/g, " ");
+  if (blocks(message.content).some((block) => block.type === "image")) return "Image result";
+  return "Empty result";
+}
+
+function ToolCall({ call }: { call: ContentBlock }) {
+  const preview = toolCallPreview(call);
+  return <details className="tool-activity tool-call-activity"><summary><Code2 size={13} /><strong>{call.name || "Tool"}</strong><code title={preview}>{preview}</code><span>Call</span></summary><pre>{JSON.stringify(call.arguments || {}, null, 2)}</pre></details>;
+}
+
 function ToolResult({ message, onImageOpen }: { message: AgentMessage; onImageOpen: (source: string, alt: string) => void }) {
-  return <details className={`tool-activity tool-result ${message.isError ? "error" : ""}`}><summary><Wrench size={13} /><strong>{message.toolName || "Tool"}</strong><span>{message.isError ? "Failed" : "Result"}</span></summary><div className="tool-activity-content">{blocks(message.content).map((block, index) => {
+  const preview = toolResultPreview(message);
+  return <details className={`tool-activity tool-result ${message.isError ? "error" : ""}`}><summary><Wrench size={13} /><strong>{message.toolName || "Tool"}</strong><code title={preview}>{preview}</code><span>{message.isError ? "Failed" : "Result"}</span></summary><div className="tool-activity-content">{blocks(message.content).map((block, index) => {
     if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
     if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool result image")} key={index}><img className="message-image" src={source} alt="Tool result" /></button>; }
     return null;
@@ -46,12 +68,13 @@ function SingleToolCallMessage({ message, result, messageNumber, resultMessageNu
   const [internalLinkCopied, setInternalLinkCopied] = useState(false);
   const call = singleToolCall(message)!;
   const toolName = call.name || result?.toolName || "Tool";
+  const preview = toolCallPreview(call);
   const status = result?.isError ? "Failed" : result ? "Completed" : "Running";
   return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`single-tool-call-message ${target ? "permalink-target" : ""}`}>
     {resultMessageNumber && <span id={`message-${resultMessageNumber}`} data-message-number={resultMessageNumber} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
     <div className="message-avatar"><Wrench size={16} /></div>
     <div className="single-tool-label"><strong>{toolName}</strong><span>#{messageNumber}</span></div>
-    <details className={`single-tool-execution ${result?.isError ? "error" : ""}`} open={target || undefined}><summary><Code2 size={13} /><strong>Execution</strong><span>{status}</span></summary><div>{blocks(message.content).some((block) => block.type !== "toolCall") && <section><strong>Process</strong><div>{blocks(message.content).map((block, index) => {
+    <details className={`single-tool-execution ${result?.isError ? "error" : ""}`} open={target || undefined}><summary><Code2 size={13} /><code title={preview}>{preview}</code><span>{status}</span></summary><div>{blocks(message.content).some((block) => block.type !== "toolCall") && <section><strong>Process</strong><div>{blocks(message.content).map((block, index) => {
       if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
       if (block.type === "thinking") return block.thinking ? <details className="thinking" key={index}><summary>Reasoning</summary><Markdown source={block.thinking} className="message-markdown thinking-markdown" onImageOpen={onImageOpen} /></details> : null;
       if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool message image")} key={index}><img className="message-image" src={source} alt="Tool message" /></button>; }
@@ -85,7 +108,7 @@ function Message({ message, messageNumber, target, canRollback, onImageOpen, onC
         if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
         if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Attached image")} key={index}><img className="message-image" src={source} alt="Attached image" /></button>; }
         if (block.type === "thinking") return block.thinking ? <details className="thinking" key={index}><summary>Reasoning</summary><Markdown source={block.thinking} className="message-markdown thinking-markdown" onImageOpen={onImageOpen} /></details> : null;
-        if (block.type === "toolCall") return <details className="tool-activity tool-call-activity" key={index}><summary><Code2 size={13} /><strong>{block.name || "Tool"}</strong><span>Call</span></summary><pre>{JSON.stringify(block.arguments || {}, null, 2)}</pre></details>;
+        if (block.type === "toolCall") return <ToolCall call={block} key={index} />;
         return null;
       })}
       {showFooter && <div className="message-footer">
@@ -98,30 +121,31 @@ function Message({ message, messageNumber, target, canRollback, onImageOpen, onC
 
 function TurnMessages({ messages, active, targetMessageNumber, rollbackEntryId, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; active: boolean; targetMessageNumber?: number; rollbackEntryId?: string; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number, kind: "url" | "internal") => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
   const numberByMessage = new Map(messages.map((message, index) => [message, index + 1]));
+  const resultBySingleToolCall = new Map<AgentMessage, AgentMessage | undefined>();
+  const pairedToolResults = new Set<AgentMessage>();
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    const call = singleToolCall(message);
+    if (!call) continue;
+    const result = matchesToolResult(call, messages[index + 1]) ? messages[index + 1] : undefined;
+    resultBySingleToolCall.set(message, result);
+    if (result) pairedToolResults.add(result);
+  }
   let latestUserMessage: AgentMessage | undefined;
   if (rollbackEntryId) for (let index = messages.length - 1; index >= 0; index -= 1) { const candidate = messages[index]; if (candidate.role === "user") { latestUserMessage = candidate; break; } }
-  const render = (message: AgentMessage, key: string) => { const messageNumber = numberByMessage.get(message) || 0; return <Message message={message} messageNumber={messageNumber} target={messageNumber === targetMessageNumber} canRollback={message === latestUserMessage} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={() => { if (rollbackEntryId) onRollback(rollbackEntryId); }} key={key} />; };
-  const renderRunMessages = (runMessages: AgentMessage[], key: string): ReactNode[] => {
-    const items: ReactNode[] = [];
-    let index = 0;
-    while (index < runMessages.length) {
-      const message = runMessages[index];
-      const call = singleToolCall(message);
-      if (call) {
-        const result = matchesToolResult(call, runMessages[index + 1]) ? runMessages[index + 1] : undefined;
-        const messageNumber = numberByMessage.get(message) || 0;
-        const resultMessageNumber = result ? numberByMessage.get(result) : undefined;
-        const target = messageNumber === targetMessageNumber || resultMessageNumber === targetMessageNumber;
-        items.push(<SingleToolCallMessage message={message} result={result} messageNumber={messageNumber} resultMessageNumber={resultMessageNumber} target={target} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={`${key}-tool-${index}`} />);
-        index += result ? 2 : 1;
-        continue;
-      }
-      items.push(render(message, `${key}-message-${index}`));
-      index += 1;
+  const render = (message: AgentMessage, key: string) => {
+    if (pairedToolResults.has(message)) return null;
+    const messageNumber = numberByMessage.get(message) || 0;
+    const call = singleToolCall(message);
+    if (call) {
+      const result = resultBySingleToolCall.get(message);
+      const resultMessageNumber = result ? numberByMessage.get(result) : undefined;
+      const target = messageNumber === targetMessageNumber || resultMessageNumber === targetMessageNumber;
+      return <SingleToolCallMessage message={message} result={result} messageNumber={messageNumber} resultMessageNumber={resultMessageNumber} target={target} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={key} />;
     }
-    return items;
+    return <Message message={message} messageNumber={messageNumber} target={messageNumber === targetMessageNumber} canRollback={message === latestUserMessage} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={() => { if (rollbackEntryId) onRollback(rollbackEntryId); }} key={key} />;
   };
-  return <>{buildConversationSegments(messages, active).map((segment) => segment.type === "message" ? render(segment.message, segment.key) : segment.type === "collapsed" ? <details className={`run-collapse ${segment.active ? "active" : ""}`} open={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber) || undefined} key={segment.key}><summary><Clock3 size={13} />{segment.active ? "Running" : segment.duration}<span>{segment.toolMessages} tool messages</span></summary><div>{renderRunMessages(segment.messages, segment.key)}</div></details> : <div className="turn-warning" role="status" key={segment.key}><TriangleAlert size={14} /><strong>{segment.title}</strong></div>)}</>;
+  return <>{buildConversationSegments(messages, active).map((segment) => segment.type === "message" ? render(segment.message, segment.key) : segment.type === "collapsed" ? <details className={`run-collapse ${segment.active ? "active" : ""}`} open={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber) || undefined} key={segment.key}><summary><Clock3 size={13} />{segment.active ? "Running" : segment.duration}<span>{segment.toolMessages} tool messages</span></summary><div>{segment.messages.map((message, index) => render(message, `${segment.key}-${index}`))}</div></details> : <div className="turn-warning" role="status" key={segment.key}><TriangleAlert size={14} /><strong>{segment.title}</strong></div>)}</>;
 }
 
 function number(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value); }
@@ -251,7 +275,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
     const containerTop = element.getBoundingClientRect().top;
     let nextUserMessageNumber: number | undefined;
     for (const userMessage of element.querySelectorAll<HTMLElement>(".message-user[data-message-number]")) {
-      if (userMessage.getBoundingClientRect().bottom > containerTop + 1) break;
+      if (userMessage.getBoundingClientRect().top > containerTop + 1) break;
       nextUserMessageNumber = Number(userMessage.dataset.messageNumber);
     }
     setStickyUserMessageNumber((current) => current === nextUserMessageNumber ? current : nextUserMessageNumber);
@@ -261,7 +285,9 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
     const message = document.getElementById(`message-${messageNumber}`);
     if (!conversation || !message) return;
     followOutputRef.current = false;
-    conversation.scrollTo({ top: Math.max(0, message.offsetTop - 8), behavior: "smooth" });
+    const conversationTop = conversation.getBoundingClientRect().top;
+    const messageTop = message.getBoundingClientRect().top;
+    conversation.scrollTo({ top: Math.max(0, conversation.scrollTop + messageTop - conversationTop - 8), behavior: "smooth" });
   }
   function addFiles(files: FileList | File[] | null) {
     if (!files) return;
@@ -369,9 +395,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
       <div className="chat-header-actions"><button className="subtle-icon-button" title="Copy session URL" disabled={isLoading} onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={15} /> : <Link2 size={15} />}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} disabled={isLoading} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.stats?.totalMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{snapshot?.stats?.contextUsage?.percent == null ? "Unknown" : `${snapshot.stats.contextUsage.percent.toFixed(1)}% · ${number(snapshot.stats.contextUsage.tokens || 0)} / ${number(snapshot.stats.contextUsage.contextWindow)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl></div>}</div></div>
     </header>
     <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : visibleMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => updateConversationPosition(event.currentTarget)}>
-      {stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><div><button type="button" className="sticky-user-avatar" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><UserRound size={15} /></button><button type="button" className="sticky-user-label" onClick={() => locateMessage(stickyUserMessageNumber)}>User <span>#{stickyUserMessageNumber}</span></button><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></div></div>}
-      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : visibleMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <TurnMessages messages={visibleMessages} active={active} targetMessageNumber={targetMessageNumber} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber, kind) => void navigator.clipboard.writeText(kind === "url" ? sessionPermalink(workspace.id, session.id, messageNumber) : internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />}
-      {!isLoading && active && <div className="working-row"><span /><span /><span /></div>}
+      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : visibleMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>#{stickyUserMessageNumber}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content"><TurnMessages messages={visibleMessages} active={active} targetMessageNumber={targetMessageNumber} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber, kind) => void navigator.clipboard.writeText(kind === "url" ? sessionPermalink(workspace.id, session.id, messageNumber) : internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
     </div>
     {!isLoading && <form className="composer" onSubmit={(event) => void submit(event)}>
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}

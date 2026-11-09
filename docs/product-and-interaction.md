@@ -89,11 +89,11 @@ Agent settled 且缺少 final assistant response 的历史 turn 在 run collapse
 
 ### 工具展示
 
-Run collapse 展开后，包含一个 tool call 的 assistant message 与紧随其后的对应 tool result 合并为一行 tool call projection。该行依次显示工具头像、工具名称与 assistant message number、Execution details 和两个 message link 按钮。连续 tool call 行之间不显示 message 分隔线，run 边界继续区分工具过程与普通消息。
+Conversation renderer 对所有包含一个 tool call 的 assistant message 使用统一的一行 tool call projection，包括 run collapse 内部与普通 message segment。该行依次显示工具头像、工具名称与 assistant message number、可展开执行条和两个 message link 按钮。执行条显示当前 tool arguments 的实际摘要；bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL 或紧凑 arguments。连续 tool call 行之间不显示 message 分隔线，run 边界继续区分工具过程与普通消息。
 
-Execution details 默认关闭。展开后按 Process、Arguments 和 Result 显示原始 thinking/commentary、格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。
+执行条默认关闭。展开后按 Process、Arguments 和 Result 显示原始 thinking/commentary、格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。包含多个 tool calls 的 assistant message 与未配对的 tool result 继续使用独立 details，并同样显示 arguments 或 result 文本摘要；空 arguments 显示 `{}`。
 
-Tool call message 与 tool result message 继续保留各自的 message number、source entry ID 和 permalink anchor。Permalink 指向其中任一 message 时，外层 run collapse 和对应 Execution details 自动展开。
+Tool call message 与 tool result message 继续保留各自的 message number、source entry ID 和 permalink anchor。Permalink 指向其中任一 message 时，外层 run collapse 和对应执行条自动展开。
 
 Message header 使用 User 与 AI 角色名称。普通 message 使用紧凑的垂直间距。
 
@@ -109,7 +109,7 @@ Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只�
 
 Composer 提供当前 Session 的 model 与 thinking 选择器，选择器直接显示当前值，不显示 `MODEL` 与 `THINKING` 提示文字。Model 列表来自当前可用凭证，Thinking 选项来自所选 model 的 pi capability。选择结果只影响当前 Session。
 
-Conversation 在用户位于底部附近时跟随新输出；用户向上滚动后，后续 event 保留当前阅读位置。滚出顶部的上一条 user message 显示为 sticky User bar，点击头像或 User 名称会定位到原 message。已经展开的 run collapse summary 固定在 User bar 下方。Message permalink 继续使用平滑定位。
+Conversation 在用户位于底部附近时跟随新输出；用户向上滚动后，后续 event 保留当前阅读位置。User message 的顶部越过 conversation 顶部时，该 message 显示为不透明的 sticky User bar；向上滚动并让原 message 重新进入顶部后，bar 立即切换到前一个 user message。点击 sticky User bar 的任意位置会定位到原 message。已经展开的 run collapse summary 以不透明的 sticky row 固定在 User bar 下方。Message permalink 继续使用平滑定位。
 
 ### Queue
 

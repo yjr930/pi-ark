@@ -232,11 +232,11 @@ Server shutdown 会依次清空所有 queue、中止 active Agent、释放 runti
 - 已完成 tool turn 将 final assistant response 之前的过程放入 run collapse。
 - Idle 且缺少 final assistant response 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Run collapse 内保留原始 projection message 与 source entry ID。Chat renderer 识别包含一个 tool call 的 assistant message，并通过 `toolCall.id` 与下一条 tool result 的 `toolCallId` 配对。Web 将该 assistant/tool result pair 显示为一行 tool call projection；展开的 Execution details 显示原 thinking/commentary、arguments 和 result。两条原 message 继续保留各自的 message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
+Turn renderer 在 segment 渲染前扫描全部 projection messages，识别包含一个 tool call 的 assistant message，并通过 `toolCall.id` 与下一条 tool result 的 `toolCallId` 配对。该统一 map 同时服务 collapsed segments 与普通 message segments。Web 将 assistant/tool result pair 显示为一行 tool call projection；折叠条摘要来自 command、path、query、pattern、URL 或紧凑 arguments，展开内容显示原 thinking/commentary、arguments 和 result。包含多个 tool calls 的 assistant message 与未配对 tool result 使用通用 details renderer，该 renderer 也通过相同 helper 显示 arguments 或 result 摘要。两条原 message 继续保留各自的 message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
 
-Message permalink 指向 tool call 或 tool result 时，外层 run 与对应 Execution details 自动打开。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
+Message permalink 指向 tool call 或 tool result 时，外层 run 与对应执行条自动打开。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
 
-Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Web 根据滚动位置选择已经离开 viewport 的上一条 user message，并显示 sticky User bar；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
+Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Message content 位于独立的 padding wrapper 中。Web 根据 user message top 与 scroll container top 的关系选择 sticky User bar，因此向上和向下滚动都会在 message 越过顶部时切换。User bar 使用真实高度与等量负 margin 保持布局位置，并使用覆盖整条 bar 的 button 与不透明背景遮住下方内容；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
 
 ## Settings 与 pi resources
 
