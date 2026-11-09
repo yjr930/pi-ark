@@ -10,7 +10,7 @@ import { AuthService } from "./auth.js";
 import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadWorkspaceSettings, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveWorkspacePreferences, saveWorkspaceSystemPrompt, type ArkUiSettings, type WorkspaceSettings, type WorkspaceTool } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { PiCoreService } from "./pi-core.js";
-import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput } from "./settings.js";
+import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput, type ModelPreferencesInput } from "./settings.js";
 import { openTerminal } from "./terminal.js";
 import { WorkspaceService } from "./workspaces.js";
 
@@ -94,7 +94,11 @@ app.get<{ Querystring: { latest?: string } }>("/api/settings/release", async (re
 app.post("/api/settings/release/update", async () => piCore.update());
 app.post("/api/settings/release/rollback", async () => piCore.rollback());
 app.get<{ Querystring: { provider: string } }>("/api/settings/models", async (request) => ({ models: settings.getModels(request.query.provider) }));
-app.get("/api/settings/session-models", async () => ({ models: settings.getSessionModels() }));
+app.get("/api/settings/model-preferences", async () => settings.getModelPreferences());
+app.put<{ Body: ModelPreferencesInput }>("/api/settings/model-preferences", async (request) => settings.saveModelPreferences(request.body));
+app.get("/api/settings/session-models", async () => ({ models: await settings.getSessionModels() }));
+app.post<{ Params: { providerId: string }; Body: { apiKey: string } }>("/api/settings/providers/:providerId/api-key", async (request) => settings.loginApiKey(request.params.providerId, request.body?.apiKey));
+app.delete<{ Params: { providerId: string } }>("/api/settings/providers/:providerId/credential", async (request) => settings.disconnectProvider(request.params.providerId));
 app.post<{ Body: { providerId: string } }>("/api/settings/subscription-logins", async (request, reply) => reply.code(201).send(authFlows.start(request.body?.providerId)));
 app.get<{ Params: { flowId: string } }>("/api/settings/subscription-logins/:flowId", async (request) => authFlows.get(request.params.flowId));
 app.post<{ Params: { flowId: string }; Body: { promptId: string; value: string } }>("/api/settings/subscription-logins/:flowId/answer", async (request) => authFlows.answer(request.params.flowId, request.body?.promptId, request.body?.value));

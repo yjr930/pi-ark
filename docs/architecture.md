@@ -154,6 +154,9 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 - Pi-Ark agent directory 中的 Global resources。
 - Workspace system prompt append。
 - 已有 SessionManager。
+- `enabledModels` 解析出的 scoped models。
+
+新 Session 使用已勾选模型中的 Global default；Global default 不在当前 scope 中时，使用 scope 中的第一个模型。恢复已有 Session 时，pi SDK 优先恢复 Session JSONL 记录的当前模型，scoped models 用于后续模型选择。
 
 ### Snapshot
 
@@ -253,11 +256,15 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
 - Theme 和 Workspace registry：`PI_ARK_HOME/config.json`。
-- Default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
+- Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
 
-API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。Settings response 只返回 credential 状态和来源，不返回 credential 内容。
+API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。保存 credential 的断开操作调用 `ModelRuntime.logout(provider)`。Settings response 返回 credential 状态、来源和是否可以断开；credential 内容保留在服务端。
+
+模型 checkbox 使用 `SettingsManager.getEnabledModels()/setEnabledModels()`。SettingsService 通过 pi 的 `resolveModelScopeWithDiagnostics()` 解析 exact reference、glob 和 thinking suffix；Session model API、模型切换校验和新 Session 创建使用同一 scope。全部当前可用模型均勾选时，Pi-Ark 将 `enabledModels` 保存为 `undefined`，沿用 pi 的“全部可用模型”语义。模型偏好保存要求至少一个当前可用模型，并要求 default 属于已勾选模型。
+
+断开 Provider 后，SettingsService 从断开前的已勾选模型中保留仍可用的模型。没有剩余已勾选模型且还有其他可用模型时，SettingsService 选择第一个可用模型，并同步 default 与 thinking level。
 
 ### Subscription OAuth
 
@@ -378,10 +385,13 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 
 | Method | Path | 用途 |
 |---|---|---|
-| GET/PUT | `/api/settings/global` | Provider、model、thinking 与 credential 确认 |
+| GET/PUT | `/api/settings/global` | Global defaults 与兼容的 credential 保存入口 |
 | PUT | `/api/settings/agent-defaults` | 立即保存 message queue、compaction 和 retry defaults |
-| GET | `/api/settings/models` | Provider model list |
-| GET | `/api/settings/session-models` | 当前可用 Session models |
+| GET | `/api/settings/models` | Provider catalog model list |
+| GET/PUT | `/api/settings/model-preferences` | 已认证 Provider 的模型清单、checkbox、default 和 thinking level |
+| POST | `/api/settings/providers/:providerId/api-key` | 保存指定 Provider 的 API key |
+| DELETE | `/api/settings/providers/:providerId/credential` | 删除指定 Provider 的保存 credential |
+| GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |
 | GET | `/api/settings/system-prompt` | Effective prompt preview |
 | GET | `/api/settings/release` | Pi-Ark、bundled pi core、安装状态、路径、命令和 latest release |
 | POST | `/api/settings/release/update` | 安装并切换到 latest Pi-Ark release |
@@ -484,4 +494,4 @@ npm run check:ui
 npm run release:build
 ```
 
-Behavior scripts 覆盖 conversation segmentation、attachments、OAuth flow、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、loading snapshot、tool details、interrupted warning、Files 图片/超限下载和 Settings 自动保存。
+Behavior scripts 覆盖 conversation segmentation、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、loading snapshot、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

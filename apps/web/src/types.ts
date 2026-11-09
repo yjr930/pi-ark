@@ -86,6 +86,7 @@ export interface ProviderOption {
   configured: boolean;
   authSource?: string;
   authLabel?: string;
+  canDisconnect: boolean;
   supportsSubscription: boolean;
   subscriptionName?: string;
   subscriptionLoginLabel?: string;
@@ -124,6 +125,18 @@ export interface ModelOption {
 
 export interface SessionModelOption extends Omit<ModelOption, "input"> {
   provider: string;
+}
+
+export interface ModelPreferenceOption extends SessionModelOption {
+  providerName: string;
+  enabled: boolean;
+}
+
+export interface ModelPreferences {
+  models: ModelPreferenceOption[];
+  defaultProvider: string;
+  defaultModel: string;
+  thinkingLevel: GlobalSettings["thinkingLevel"];
 }
 
 export type ThemeId = "ark-dark" | "graphite" | "midnight" | "paper" | "snow";

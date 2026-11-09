@@ -158,12 +158,12 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限。Workspace 是启动�
 Global configuration 对所有 Workspace 生效，并使用以下主题分类：
 
 - Interface：Appearance，包含 Ark Dark、Graphite、Midnight、Paper 和 Snow。
-- AI runtime：Provider and model，包含 provider、default model、model-specific thinking level、write-only API key 和可用的 subscription login。
+- AI runtime：Provider and model，包含 Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
 - Installation and maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及 status/logs/restart 等 service commands。
 - Agent instructions and behavior：System prompt 和 Agent defaults，包含可选 replacement/append 文件路径、effective prompt preview、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Account and security：Sign out。
 
-Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；provider、model、thinking 和 Agent defaults 在选择后保存。API key 与 Workspace system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。API key 和 OAuth credential 由 pi 保存，浏览器不会读取已经保存的 credential 内容。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面不要求用户输入该值。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，避免页面刷新后遗留的 flow 阻塞新登录。
+Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；模型 checkbox、default model、default thinking level 和 Agent defaults 在选择后保存。Manage Provider 选择器用于切换当前管理的 Provider；新 Session 的 default 由模型行右侧的星标决定。API key 与 Workspace system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。pi 保存 API key 和 OAuth credential，浏览器接收 credential 状态与来源。使用保存 credential 的 Provider 显示 Disconnect；确认后，Pi-Ark 删除该 credential，并从仍可用的已勾选模型中保留 default，或选择第一个仍可用模型。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面省略该输入项。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，使新的登录 flow 可以继续。
 
 Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent 和 pi-ai。更新过程保留 Global data 与 Workspace data，将 `current` symlink 切换到新 release，并在延迟重启前保留上一 release。Roll back 将 `current` 和 `previous` 对调。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
 
@@ -185,6 +185,6 @@ Agent tools 在 Pi-Ark 新建或重新打开 Session 时进入 agent runtime。F
 
 ## 对话框与反馈
 
-普通对话框共享紧凑的 card、header、field 和 action 样式。Delete 等会删除数据的操作使用 danger 样式；Rollback 使用 neutral secondary 样式。
+普通对话框共享紧凑的 card、header、field 和 action 样式。Delete 与 Disconnect Provider 等会删除数据的操作使用 danger 样式；Rollback 使用 neutral secondary 样式。
 
 异步操作通过页面 status、Settings notice、dialog error 或全局错误提示反馈。Copy URL、Copy Markdown、Copy internal link 和 device code copy 使用短暂的 Copied 状态确认操作完成。

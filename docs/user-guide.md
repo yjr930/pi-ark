@@ -237,9 +237,9 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-number>
 
 ### 选择当前 Session 的 model
 
-Composer 底部提供 Model 和 Thinking 选择器。选项来自已经配置凭证的 model，以及 pi 为所选 model 声明的 thinking capability。
+Composer 底部提供 Model 和 Thinking 选择器。Model 选项来自 Settings → Global → Provider and model 中已经勾选且当前具有可用认证的模型；Thinking 选项来自 pi 为当前模型声明的 capability。
 
-这里的选择只更新当前 Session。新 Session 的默认值在 Settings → Global 中设置。
+这里的选择只更新当前 Session。新 Session 使用 Settings → Global → Provider and model 中带星标的 default model。
 
 ### 添加附件
 
@@ -338,12 +338,15 @@ Theme 选择会立即预览，保存后对该 Pi-Ark 服务的浏览器生效。
 
 ### Global → Provider and model
 
-1. 选择 Provider。
+1. 在 Manage Provider 中选择需要认证或断开的 Provider。模型行右侧的星标继续决定新 Session 的 default。
 2. 通过 API key 或 subscription account 完成认证。
-3. 选择 Model。
-4. 选择该 Model 支持的 Thinking level。
+3. 在 Models shown in Pi-Ark 中勾选需要出现在模型菜单中的模型。列表按 Provider 分组，并支持搜索。
+4. 点击模型行右侧的星标，将已勾选模型指定为新 Session 的 default。选择尚未勾选的模型作为 default 时，Pi-Ark 会同时勾选该模型。
+5. 选择 default model 支持的 Default thinking level。
 
-已经认证的 Provider、Model 和 Thinking level 在选择后立即保存。API key 输入是 write-only；输入后使用该区域内的 Save API key 或 Cancel。已经保存的 credential 不会返回浏览器。
+模型 checkbox、default 和 Default thinking level 在选择后立即保存。至少需要保留一个已勾选模型，default 必须属于已勾选模型。已有 Session 会继续恢复它记录的当前模型；如果该模型后来取消勾选，composer 仍显示当前的 `provider/model` reference，模型菜单显示当前已勾选的模型。API key 输入是 write-only；输入后使用该区域内的 Save API key 或 Cancel。浏览器接收 credential 状态与来源，credential 内容保存在服务端。
+
+使用保存 credential 的 Provider 会显示 Disconnect。确认后，Pi-Ark 删除 `auth.json` 中该 Provider 的 credential。环境变量或 `models.json` 提供的认证继续由对应配置管理；Disconnect 的显示条件是 credential source 为 stored。断开后，Pi-Ark 保留仍可用的已勾选模型；如果没有剩余的已勾选模型，Pi-Ark 选择第一个仍可用模型作为模型清单和 default。
 
 支持 subscription OAuth 的 Provider 会显示 Use subscription account。登录区可能显示授权链接、device code、文本输入、选择项或进度。Device code 可以使用旁边的 Copy 按钮复制。OpenAI 的 Sign in with ChatGPT 会自动使用当前 Pi-Ark 安装实例的 UUID，用户不需要输入该标识。同一个 Provider 重新开始登录时，Pi-Ark 会取消此前仍在等待的登录；页面刷新后可以直接重新开始。
 
@@ -462,7 +465,7 @@ Workspace data：
 
 ### Provider 显示 Authentication required
 
-在 Settings 中输入 API key，或为支持 subscription 的 Provider 完成 subscription login，然后保存 Global settings。
+在 Settings → Global → Provider and model 中输入 API key，或为支持 subscription 的 Provider 完成 subscription login。认证完成后，在模型清单中勾选需要使用的模型并指定 default。
 
 ### Session 长时间显示 Loading conversation
 

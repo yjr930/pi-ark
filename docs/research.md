@@ -30,10 +30,13 @@ Pi-Ark 使用以下公开 API：
 
 Pi-Ark 使用以下能力：
 
-- `SettingsManager.create(cwd, agentDir)`：读取和写入 default provider/model/thinking、queue modes、compaction 和 retry。
+- `SettingsManager.create(cwd, agentDir)`：读取和写入 enabled models、default provider/model/thinking、queue modes、compaction 和 retry。
+- `SettingsManager.getEnabledModels()/setEnabledModels()`：读取和保存模型可见清单。
 - `ModelRuntime.create(...)`：读取 provider catalog、credentials 和 custom model config。
 - `ModelRuntime.login(provider, "api_key", interaction)`：保存 API key。
 - `ModelRuntime.login(provider, "oauth", interaction, { getDeviceId })`：执行 pi 原生 OAuth 或 device code flow，并向需要安装实例标识的 Provider 提供 `SettingsManager.getOrCreateDeviceId()`。
+- `ModelRuntime.logout(provider)`：删除指定 Provider 的保存 credential。
+- `resolveModelScopeWithDiagnostics(patterns, modelRuntime)`：将 `enabledModels` pattern 解析为当前可用的 scoped models。
 - `getSupportedThinkingLevels(model)`：获得 model-specific thinking options。
 - `clampThinkingLevel(model, level)`：在读取 Global settings 时处理 model capability 变化。
 

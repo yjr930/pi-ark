@@ -1,8 +1,8 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Settings2, SlidersHorizontal, Wrench } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Search, Settings2, SlidersHorizontal, Star, Unplug, Wrench } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { applyTheme, themes } from "../theme";
-import type { GlobalSettings, ModelOption, ReleaseInfo, SubscriptionAuthFlow, ThemeId, Workspace, WorkspaceSettings } from "../types";
+import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, Workspace, WorkspaceSettings } from "../types";
 import { Select } from "./Select";
 import { SubscriptionLogin } from "./SubscriptionLogin";
 
@@ -31,7 +31,10 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
   const [tab, setTab] = useState<SettingsTab>("global");
   const [global, setGlobal] = useState<GlobalSettings | null>(null);
   const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceSettings | null>(null);
-  const [models, setModels] = useState<ModelOption[]>([]);
+  const [providerId, setProviderId] = useState("");
+  const [modelPreferences, setModelPreferences] = useState<ModelPreferences | null>(null);
+  const [modelSearch, setModelSearch] = useState("");
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [release, setRelease] = useState<ReleaseInfo | null>(null);
   const [releaseChecking, setReleaseChecking] = useState(false);
   const [releaseUpdating, setReleaseUpdating] = useState(false);
@@ -48,8 +51,10 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const globalSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const modelSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const workspaceSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const globalSaveRevision = useRef(0);
+  const modelSaveRevision = useRef(0);
   const workspaceSaveRevision = useRef(0);
   const workspaceIdRef = useRef(workspace?.id);
   workspaceIdRef.current = workspace?.id;
@@ -59,18 +64,23 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
     ++workspaceSaveRevision.current;
     setLoading(true); setSaving(false); setNotice(null);
     if (!workspace && tab === "workspace") setTab("global");
-    Promise.all([api.globalSettings(), workspace ? api.workspaceSettings(workspace.id) : Promise.resolve(null), api.globalSystemPrompt(workspace?.id), api.releaseInfo()]).then(async ([globalResult, workspaceResult, promptPreview, releaseInfo]) => {
-      const nextModels = (await api.providerModels(globalResult.provider)).models;
+    Promise.all([api.globalSettings(), api.modelPreferences(), workspace ? api.workspaceSettings(workspace.id) : Promise.resolve(null), api.globalSystemPrompt(workspace?.id), api.releaseInfo()]).then(([globalResult, preferences, workspaceResult, promptPreview, releaseInfo]) => {
       if (!active) return;
-      setGlobal(globalResult); setWorkspaceSettings(workspaceResult); setWorkspacePromptDraft(workspaceResult?.agent.systemPrompt.append || ""); setGlobalSystemPrompt(promptPreview); setRelease(releaseInfo); applyTheme(globalResult.theme);
+      setGlobal(globalResult); setProviderId(globalResult.provider); setModelPreferences(preferences); setWorkspaceSettings(workspaceResult); setWorkspacePromptDraft(workspaceResult?.agent.systemPrompt.append || ""); setGlobalSystemPrompt(promptPreview); setRelease(releaseInfo); applyTheme(globalResult.theme);
       setSubscriptionMode(Boolean(globalResult.providers.find((provider) => provider.id === globalResult.provider)?.usingSubscription));
-      setModels(nextModels);
     }).catch((reason) => { if (active) setNotice({ kind: "error", text: reason.message }); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [workspace?.id]);
 
-  const selectedProvider = useMemo(() => global?.providers.find((provider) => provider.id === global.provider), [global]);
-  const selectedModel = useMemo(() => models.find((model) => model.id === global?.model), [global?.model, models]);
+  const selectedProvider = useMemo(() => global?.providers.find((provider) => provider.id === providerId), [global, providerId]);
+  const selectedDefaultModel = useMemo(() => modelPreferences?.models.find((model) => model.provider === modelPreferences.defaultProvider && model.id === modelPreferences.defaultModel), [modelPreferences]);
+  const groupedModels = useMemo(() => {
+    const query = modelSearch.trim().toLowerCase();
+    const visible = (modelPreferences?.models || []).filter((model) => !query || `${model.providerName} ${model.provider} ${model.name} ${model.id}`.toLowerCase().includes(query));
+    const groups = new Map<string, typeof visible>();
+    for (const model of visible) groups.set(model.providerName, [...(groups.get(model.providerName) || []), model]);
+    return [...groups.entries()];
+  }, [modelPreferences, modelSearch]);
 
   useEffect(() => {
     if (!subscriptionFlow || subscriptionFlow.status !== "pending") return;
@@ -79,27 +89,6 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
     }, 700);
     return () => window.clearTimeout(timer);
   }, [subscriptionFlow]);
-
-  function persistGlobal(next: GlobalSettings, options: { apiKey?: string; success?: string; clearApiKey?: boolean } = {}): Promise<void> {
-    const revision = ++globalSaveRevision.current;
-    setGlobal(next); setSaving(true); setNotice(null);
-    const task = globalSaveQueue.current.catch(() => undefined).then(async () => {
-      const saved = await api.saveGlobalSettings({ theme: next.theme, provider: next.provider, model: next.model, thinkingLevel: next.thinkingLevel, steeringMode: next.steeringMode, followUpMode: next.followUpMode, compactionEnabled: next.compactionEnabled, retryEnabled: next.retryEnabled, apiKey: options.apiKey });
-      if (revision === globalSaveRevision.current) {
-        setGlobal(saved); applyTheme(saved.theme);
-        if (options.clearApiKey) setApiKey("");
-        setNotice({ kind: "success", text: options.success || "Setting saved." });
-      }
-    }).catch(async (reason) => {
-      if (revision === globalSaveRevision.current) {
-        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save setting" });
-        const restored = await api.globalSettings().catch(() => null);
-        if (restored) { setGlobal(restored); applyTheme(restored.theme); }
-      }
-    }).finally(() => { if (revision === globalSaveRevision.current) setSaving(false); });
-    globalSaveQueue.current = task;
-    return task;
-  }
 
   function persistAgentDefaults(next: GlobalSettings, success: string): Promise<void> {
     const revision = ++globalSaveRevision.current;
@@ -118,34 +107,20 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
     return task;
   }
 
-  function updateProviderDefault(next: GlobalSettings, success: string) {
-    if (selectedProvider?.configured) void persistGlobal(next, { success });
-    else setGlobal(next);
-  }
-
   async function selectProvider(provider: string) {
     if (!global) return;
     if (subscriptionFlow?.status === "pending") await api.cancelSubscriptionLogin(subscriptionFlow.id).catch(() => undefined);
     const providerOption = global.providers.find((item) => item.id === provider);
-    setSubscriptionFlow(null); setSubscriptionMode(Boolean(providerOption?.usingSubscription)); setApiKey(""); setNotice(null);
-    try {
-      const nextModels = (await api.providerModels(provider)).models;
-      const model = nextModels.find((item) => item.id === global.model) || nextModels[0];
-      const next = { ...global, provider, model: model?.id || "", thinkingLevel: closestThinkingLevel(model?.thinkingLevels || ["off"], global.thinkingLevel) };
-      setModels(nextModels); setGlobal(next);
-      if (providerOption?.configured && model) await persistGlobal(next, { success: "Provider and model saved." });
-    } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot load models" }); }
+    setProviderId(provider); setSubscriptionFlow(null); setSubscriptionMode(Boolean(providerOption?.usingSubscription)); setApiKey(""); setNotice(null);
+  }
+
+  async function refreshProviderAndModels(success: string) {
+    const [refreshed, preferences] = await Promise.all([api.globalSettings(), api.modelPreferences()]);
+    setGlobal(refreshed); setModelPreferences(preferences); setSubscriptionMode(Boolean(refreshed.providers.find((provider) => provider.id === providerId)?.usingSubscription)); setSubscriptionBusy(false); setNotice({ kind: "success", text: success });
   }
 
   async function subscriptionCompleted() {
-    if (!global) return;
-    const provider = global.provider;
-    const refreshed = await api.globalSettings();
-    const nextModels = (await api.providerModels(provider)).models;
-    const model = nextModels.find((item) => item.id === global.model) || nextModels[0];
-    const next = { ...refreshed, provider, model: model?.id || "", thinkingLevel: closestThinkingLevel(model?.thinkingLevels || ["off"], global.thinkingLevel) };
-    setSubscriptionMode(true); setSubscriptionBusy(false); setModels(nextModels);
-    if (model) await persistGlobal(next, { success: "Subscription connected and provider defaults saved." });
+    await refreshProviderAndModels("Subscription connected.");
   }
 
   async function startSubscriptionLogin() {
@@ -175,23 +150,70 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
     if (!selectedProvider?.usingSubscription) await startSubscriptionLogin();
   }
 
-  function selectDefaultModel(modelId: string) {
-    if (!global) return;
-    const model = models.find((item) => item.id === modelId);
-    const next = { ...global, model: modelId, thinkingLevel: closestThinkingLevel(model?.thinkingLevels || ["off"], global.thinkingLevel) };
-    updateProviderDefault(next, "Model default saved.");
+  function persistModelPreferences(next: ModelPreferences, success: string): Promise<void> {
+    const revision = ++modelSaveRevision.current;
+    setModelPreferences(next); setSaving(true); setNotice(null);
+    const task = modelSaveQueue.current.catch(() => undefined).then(async () => {
+      const saved = await api.saveModelPreferences({ enabledModels: next.models.filter((model) => model.enabled).map((model) => `${model.provider}/${model.id}`), defaultProvider: next.defaultProvider, defaultModel: next.defaultModel, thinkingLevel: next.thinkingLevel });
+      if (revision === modelSaveRevision.current) {
+        setModelPreferences(saved);
+        setGlobal((current) => current ? { ...current, provider: saved.defaultProvider, model: saved.defaultModel, thinkingLevel: saved.thinkingLevel } : current);
+        setNotice({ kind: "success", text: success });
+      }
+    }).catch(async (reason) => {
+      if (revision === modelSaveRevision.current) {
+        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save model preferences" });
+        const restored = await api.modelPreferences().catch(() => null);
+        if (restored) setModelPreferences(restored);
+      }
+    }).finally(() => { if (revision === modelSaveRevision.current) setSaving(false); });
+    modelSaveQueue.current = task;
+    return task;
   }
 
-  function saveApiKey() {
-    if (!global || !apiKey.trim()) return;
-    void persistGlobal(global, { apiKey: apiKey.trim(), clearApiKey: true, success: "API key and provider defaults saved." });
+  function toggleModel(provider: string, modelId: string) {
+    if (!modelPreferences) return;
+    const reference = `${provider}/${modelId}`;
+    const selected = modelPreferences.models.find((model) => `${model.provider}/${model.id}` === reference);
+    if (!selected) return;
+    const enabled = !selected.enabled;
+    const models = modelPreferences.models.map((model) => `${model.provider}/${model.id}` === reference ? { ...model, enabled } : model);
+    const remaining = models.filter((model) => model.enabled);
+    if (remaining.length === 0) { setNotice({ kind: "error", text: "Select at least one model." }); return; }
+    const wasDefault = provider === modelPreferences.defaultProvider && modelId === modelPreferences.defaultModel;
+    const replacement = wasDefault && !enabled ? remaining[0] : selected;
+    const next = { ...modelPreferences, models, defaultProvider: replacement.provider, defaultModel: replacement.id, thinkingLevel: wasDefault && !enabled ? closestThinkingLevel(replacement.thinkingLevels, modelPreferences.thinkingLevel) : modelPreferences.thinkingLevel };
+    void persistModelPreferences(next, "Model visibility saved.");
   }
 
-  async function cancelApiKeyEdit() {
+  function selectDefaultModel(provider: string, modelId: string) {
+    if (!modelPreferences) return;
+    const selected = modelPreferences.models.find((model) => model.provider === provider && model.id === modelId);
+    if (!selected) return;
+    const next = { ...modelPreferences, models: modelPreferences.models.map((model) => model === selected ? { ...model, enabled: true } : model), defaultProvider: provider, defaultModel: modelId, thinkingLevel: closestThinkingLevel(selected.thinkingLevels, modelPreferences.thinkingLevel) };
+    void persistModelPreferences(next, "Default model saved.");
+  }
+
+  async function saveApiKey() {
+    if (!apiKey.trim() || !providerId) return;
+    setSaving(true); setNotice(null);
+    try { await api.saveProviderApiKey(providerId, apiKey.trim()); setApiKey(""); await refreshProviderAndModels("API key saved."); }
+    catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save API key" }); }
+    finally { setSaving(false); }
+  }
+
+  function cancelApiKeyEdit() {
     setApiKey(""); setNotice(null);
-    const restored = await api.globalSettings();
-    const restoredModels = (await api.providerModels(restored.provider)).models;
-    setGlobal(restored); setModels(restoredModels); setSubscriptionMode(Boolean(restored.providers.find((provider) => provider.id === restored.provider)?.usingSubscription));
+  }
+
+  async function disconnectProvider() {
+    if (!providerId) return;
+    setSaving(true); setNotice(null);
+    try {
+      if (subscriptionFlow?.status === "pending") await api.cancelSubscriptionLogin(subscriptionFlow.id).catch(() => undefined);
+      await api.disconnectProvider(providerId); setDisconnectOpen(false); setSubscriptionFlow(null); setSubscriptionMode(false); await refreshProviderAndModels("Provider disconnected.");
+    } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot disconnect provider" }); }
+    finally { setSaving(false); }
   }
 
   async function checkReleaseUpdate() {
@@ -308,16 +330,19 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
           </section>
           <div className="settings-category-title"><span>AI runtime</span><p>Provider credentials and defaults for new sessions.</p></div>
           <section className="settings-section">
-            <div className="settings-section-title"><Cpu size={17} /><div><h3>Provider and model</h3><p>Default AI connection for new sessions in every workspace.</p></div></div>
-            <div className="settings-grid settings-grid-three">
-              <label className="settings-field"><span>Provider</span><Select ariaLabel="Provider" value={global.provider} onChange={(value) => void selectProvider(value)} options={global.providers.map((provider) => ({ value: provider.id, label: provider.name, status: provider.configured ? "Configured" : undefined, description: provider.configured ? provider.authLabel || provider.authSource : "Authentication required" }))} /></label>
-              <label className="settings-field"><span>Model</span><Select ariaLabel="Model" value={global.model} onChange={selectDefaultModel} options={models.map((model) => ({ value: model.id, label: model.name || model.id, description: `${model.contextWindow.toLocaleString()} context${model.reasoning ? " · reasoning" : ""}` }))} /></label>
-              <label className="settings-field"><span>Thinking level</span><Select ariaLabel="Default model thinking level" value={global.thinkingLevel} onChange={(value) => updateProviderDefault({ ...global, thinkingLevel: value as GlobalSettings["thinkingLevel"] }, "Thinking default saved.")} options={(selectedModel?.thinkingLevels || ["off"]).map((level) => ({ value: level, label: level }))} /></label>
+            <div className="settings-section-title"><Cpu size={17} /><div><h3>Provider and model</h3><p>Manage Provider credentials, choose the models shown in model menus, and set the default for new sessions.</p></div></div>
+            <div className="settings-grid">
+              <label className="settings-field"><span>Manage Provider</span><Select ariaLabel="Provider" value={providerId} onChange={(value) => void selectProvider(value)} options={global.providers.map((provider) => ({ value: provider.id, label: provider.name, status: provider.configured ? "Configured" : undefined, description: provider.configured ? provider.authLabel || provider.authSource : "Authentication required" }))} /></label>
+              <label className="settings-field"><span>Default thinking level</span><Select ariaLabel="Default model thinking level" value={modelPreferences?.thinkingLevel || "off"} disabled={!selectedDefaultModel} onChange={(value) => { if (modelPreferences) void persistModelPreferences({ ...modelPreferences, thinkingLevel: value as GlobalSettings["thinkingLevel"] }, "Thinking default saved."); }} options={(selectedDefaultModel?.thinkingLevels || ["off"]).map((level) => ({ value: level, label: level }))} /></label>
             </div>
-            <div className="provider-status"><i className={selectedProvider?.configured ? "configured" : ""} /><span>{selectedProvider?.configured ? `Authenticated${selectedProvider.authLabel ? ` · ${selectedProvider.authLabel}` : selectedProvider.authSource ? ` · ${selectedProvider.authSource}` : ""}` : "Authentication required"}</span></div>
+            <div className="provider-status-row"><div className="provider-status"><i className={selectedProvider?.configured ? "configured" : ""} /><span>{selectedProvider?.configured ? `Authenticated${selectedProvider.authLabel ? ` · ${selectedProvider.authLabel}` : selectedProvider.authSource ? ` · ${selectedProvider.authSource}` : ""}` : "Authentication required"}</span></div>{selectedProvider?.canDisconnect && <button type="button" className="secondary-button provider-disconnect" disabled={saving} onClick={() => setDisconnectOpen(true)}><Unplug size={13} />Disconnect</button>}</div>
             {selectedProvider?.supportsSubscription && <div className="subscription-mode"><div><strong>Use subscription account</strong><span>{selectedProvider.subscriptionName}</span></div><Toggle checked={subscriptionMode} onChange={(checked) => void toggleSubscription(checked)} /></div>}
             {selectedProvider?.supportsSubscription && subscriptionMode && <SubscriptionLogin provider={selectedProvider} flow={subscriptionFlow} busy={subscriptionBusy} onStart={() => void startSubscriptionLogin()} onAnswer={answerSubscriptionLogin} onCancel={() => void cancelSubscriptionLogin()} />}
-            {!subscriptionMode && <div className="settings-confirm-field"><label className="settings-field settings-api-key"><span><KeyRound size={14} />API key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && apiKey.trim()) saveApiKey(); }} placeholder={selectedProvider?.configured ? "Leave empty to keep the current credential" : "Enter an API key"} /><small>Write-only. Saved by pi in its global credential store and never returned to the browser.</small></label>{(apiKey || !selectedProvider?.configured) && <div className="inline-setting-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => void cancelApiKeyEdit()}>Cancel</button><button type="button" className="primary-button" disabled={saving || !apiKey.trim()} onClick={saveApiKey}>{saving ? <LoaderCircle size={14} /> : <Save size={14} />}Save API key</button></div>}</div>}
+            {!subscriptionMode && <div className="settings-confirm-field"><label className="settings-field settings-api-key"><span><KeyRound size={14} />API key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && apiKey.trim()) void saveApiKey(); }} placeholder={selectedProvider?.configured ? "Leave empty to keep the current credential" : "Enter an API key"} /><small>Write-only. Saved by pi in its global credential store and never returned to the browser.</small></label>{(apiKey || !selectedProvider?.configured) && <div className="inline-setting-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelApiKeyEdit}>Cancel</button><button type="button" className="primary-button" disabled={saving || !apiKey.trim()} onClick={() => void saveApiKey()}>{saving ? <LoaderCircle size={14} /> : <Save size={14} />}Save API key</button></div>}</div>}
+            <div className="model-preferences">
+              <div className="model-preferences-heading"><div><strong>Models shown in Pi-Ark</strong><span>Checked models appear in new and existing Session model menus. The starred model is the default for new Sessions.</span></div><label><Search size={13} /><input aria-label="Search models" value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder="Search models" /></label></div>
+              <div className="model-preferences-list">{groupedModels.map(([providerName, providerModels]) => <div className="model-provider-group" key={providerName}><div className="model-provider-heading"><strong>{providerName}</strong><span>{providerModels.filter((model) => model.enabled).length} selected</span></div>{providerModels.map((model) => { const isDefault = model.provider === modelPreferences?.defaultProvider && model.id === modelPreferences.defaultModel; return <div className={`model-preference-row ${model.enabled ? "enabled" : ""}`} key={`${model.provider}/${model.id}`}><button type="button" className="model-visibility" role="checkbox" aria-checked={model.enabled} aria-label={`${model.enabled ? "Hide" : "Show"} ${model.name || model.id} in model menus`} disabled={saving} onClick={() => toggleModel(model.provider, model.id)}><span>{model.enabled && <Check size={12} />}</span></button><div><strong>{model.name || model.id}</strong><small>{model.provider}/{model.id} · {model.contextWindow.toLocaleString()} context{model.reasoning ? " · reasoning" : ""}</small></div><button type="button" className={`model-default ${isDefault ? "selected" : ""}`} aria-label={isDefault ? `${model.name || model.id} is the default model` : `Use ${model.name || model.id} as default`} aria-pressed={isDefault} disabled={saving} onClick={() => selectDefaultModel(model.provider, model.id)}><Star size={14} fill={isDefault ? "currentColor" : "none"} /></button></div>; })}</div>)}{groupedModels.length === 0 && <div className="model-preferences-empty">{modelPreferences?.models.length ? "No models match this search." : "Connect a Provider to choose models."}</div>}</div>
+            </div>
           </section>
           <div className="settings-category-title"><span>Installation and maintenance</span><p>Release status, paths, updates, rollback, logs, and service commands.</p></div>
           {release && <section className="settings-section pi-core-section">
@@ -367,6 +392,7 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
         </>}
       </main>
     </div>
+    {disconnectOpen && selectedProvider && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setDisconnectOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="disconnect-provider-title"><div className="dialog-header no-close"><div className="dialog-icon danger"><Unplug size={18} /></div><div><h2 id="disconnect-provider-title">Disconnect {selectedProvider.name}?</h2><p>Pi-Ark will remove this Provider's saved credential. Sessions that need this Provider will require authentication again.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setDisconnectOpen(false)}>Cancel</button><button type="button" className="danger-button" disabled={saving} onClick={() => void disconnectProvider()}>{saving ? <LoaderCircle size={14} /> : <Unplug size={14} />}Disconnect Provider</button></div></div></div>}
     {releaseUpdateOpen && release && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !releaseUpdating) setReleaseUpdateOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="release-update-title"><div className="dialog-header no-close"><div className="dialog-icon"><Download size={18} /></div><div><h2 id="release-update-title">Update Pi-Ark?</h2><p>Pi-Ark will install release {release.latestVersion}, switch the current release atomically, preserve this data directory, and restart the service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseUpdateOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={releaseUpdating} onClick={() => void updateRelease()}>{releaseUpdating ? <LoaderCircle size={14} /> : <Download size={14} />}Update Pi-Ark</button></div></div></div>}
     {releaseRollbackOpen && release && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !releaseUpdating) setReleaseRollbackOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="release-rollback-title"><div className="dialog-header no-close"><div className="dialog-icon"><RotateCcw size={18} /></div><div><h2 id="release-rollback-title">Roll back Pi-Ark?</h2><p>Pi-Ark will switch from {release.version} to {release.previousVersion}, preserve this data directory, and restart the service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseRollbackOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={releaseUpdating} onClick={() => void rollbackRelease()}>{releaseUpdating ? <LoaderCircle size={14} /> : <RotateCcw size={14} />}Roll back</button></div></div></div>}
   </section>;

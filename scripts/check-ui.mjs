@@ -21,6 +21,16 @@ const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });
 const page = await context.newPage();
 let mockedSubscriptionFlow = null;
+let mockedModelPreferences = {
+  models: [
+    { provider: "openai-codex", providerName: "OpenAI Codex (legacy)", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", reasoning: true, contextWindow: 200000, thinkingLevels: ["low", "medium", "high"], enabled: true },
+    { provider: "openai-codex", providerName: "OpenAI Codex (legacy)", id: "gpt-6-sol", name: "GPT-6 Sol", reasoning: true, contextWindow: 200000, thinkingLevels: ["low", "medium", "high", "xhigh"], enabled: true },
+    { provider: "openai", providerName: "OpenAI", id: "chat-latest", name: "ChatGPT latest", reasoning: false, contextWindow: 128000, thinkingLevels: ["off"], enabled: false },
+  ],
+  defaultProvider: "openai-codex",
+  defaultModel: "gpt-5.6-sol",
+  thinkingLevel: "high",
+};
 async function assertDialogChrome(dialog, { input = false } = {}) {
   const metrics = await dialog.evaluate((card) => { const style = getComputedStyle(card); const title = card.querySelector("h2"); const buttons = [...card.querySelectorAll(".dialog-actions > button")]; return { padding: style.padding, gap: style.gap, radius: Number.parseFloat(style.borderRadius), titleSize: title ? Number.parseFloat(getComputedStyle(title).fontSize) : 0, buttonHeights: buttons.map((button) => button.getBoundingClientRect().height) }; });
   assert.equal(metrics.padding, "16px");
@@ -35,6 +45,18 @@ await page.route("**/api/settings/release?latest=true", async (route) => {
   const response = await route.fetch();
   const info = await response.json();
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...info, installedRelease: true, channel: "stable", latestVersion: "99.0.0", updateAvailable: true }) });
+});
+await page.route("**/api/settings/model-preferences", async (route) => {
+  if (route.request().method() === "PUT") {
+    const input = route.request().postDataJSON();
+    const enabled = new Set(input.enabledModels);
+    mockedModelPreferences = { ...mockedModelPreferences, models: mockedModelPreferences.models.map((model) => ({ ...model, enabled: enabled.has(`${model.provider}/${model.id}`) })), defaultProvider: input.defaultProvider, defaultModel: input.defaultModel, thinkingLevel: input.thinkingLevel };
+  }
+  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(mockedModelPreferences) });
+});
+await page.route("**/api/settings/session-models", async (route) => {
+  const models = mockedModelPreferences.models.filter((model) => model.enabled).map(({ providerName: _providerName, enabled: _enabled, ...model }) => model);
+  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ models }) });
 });
 await page.route("**/api/settings/subscription-logins**", async (route) => {
   const request = route.request();
@@ -442,14 +464,8 @@ try {
   await page.locator(".account-section").getByRole("button", { name: "Sign out" }).waitFor();
   await page.getByLabel("Provider").click();
   await page.locator(".ark-select.open .ark-select-menu").getByText(/^OpenAI Codex/).click();
-  const modelSelector = page.getByRole("button", { name: "Model", exact: true });
-  await modelSelector.waitFor();
-  const selectedModelName = (await modelSelector.locator("span").first().textContent())?.trim();
-  const expectedThinkingLevels = await page.evaluate(async (modelName) => {
-    const modelsUrl = new URL("api/settings/models?provider=openai-codex", document.baseURI);
-    const models = await fetch(modelsUrl).then((response) => response.json());
-    return models.models.find((model) => (model.name || model.id) === modelName).thinkingLevels;
-  }, selectedModelName);
+  await page.locator(".model-preferences").waitFor();
+  const expectedThinkingLevels = mockedModelPreferences.models.find((model) => model.provider === mockedModelPreferences.defaultProvider && model.id === mockedModelPreferences.defaultModel).thinkingLevels;
   await page.getByLabel("Default model thinking level").click();
   const visibleThinkingLevels = await page.locator('.ark-select.open [role="option"] .ark-select-copy strong').allTextContents();
   assert.deepEqual(visibleThinkingLevels, expectedThinkingLevels);
@@ -470,7 +486,7 @@ try {
   await releaseSection.getByRole("heading", { name: "Pi-Ark release", exact: true }).waitFor();
   assert.ok((await releaseSection.textContent()).includes("Bundled pi core"));
   assert.ok((await releaseSection.textContent()).includes("pi-agent"));
-  assert.ok((await releaseSection.textContent()).includes("pi-ark logs"));
+  assert.ok((await releaseSection.locator(".maintenance-commands code").allTextContents()).some((command) => command.endsWith(" logs")));
   await releaseSection.getByRole("button", { name: "Check for updates", exact: true }).click();
   await releaseSection.getByRole("button", { name: "Update to 99.0.0", exact: true }).click();
   const releaseUpdateDialog = page.getByRole("dialog", { name: "Update Pi-Ark?" });
@@ -508,6 +524,26 @@ try {
   assert.equal(await previewSizeInput.inputValue(), "10");
   assert.equal(await page.getByRole("button", { name: "Save workspace settings", exact: true }).count(), 0);
   await page.locator(".settings-tabs > button").first().click();
+  const modelPreferences = page.locator(".model-preferences");
+  await modelPreferences.waitFor();
+  assert.equal(await modelPreferences.getByRole("checkbox").count(), 3);
+  assert.equal(await modelPreferences.getByRole("button", { name: "GPT-5.6 Sol is the default model" }).count(), 1);
+  const modelSave = page.waitForResponse((response) => response.url().endsWith("/api/settings/model-preferences") && response.request().method() === "PUT");
+  await modelPreferences.getByRole("button", { name: "Use GPT-6 Sol as default" }).click();
+  await modelSave;
+  await page.getByText("Default model saved.", { exact: true }).waitFor();
+  assert.equal(await modelPreferences.getByRole("button", { name: "GPT-6 Sol is the default model" }).count(), 1);
+  await modelPreferences.getByLabel("Search models").fill("chatgpt");
+  assert.equal(await modelPreferences.getByRole("checkbox").count(), 1);
+  await modelPreferences.getByLabel("Search models").fill("");
+  const disconnectButton = page.getByRole("button", { name: "Disconnect", exact: true });
+  if (await disconnectButton.count()) {
+    await disconnectButton.click();
+    const disconnectDialog = page.getByRole("dialog", { name: /Disconnect .+\?/ });
+    await disconnectDialog.waitFor();
+    await assertDialogChrome(disconnectDialog);
+    await disconnectDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  }
   const subscriptionMode = page.locator(".subscription-mode");
   await subscriptionMode.waitFor();
   const subscriptionSwitch = subscriptionMode.getByRole("switch");

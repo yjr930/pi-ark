@@ -85,7 +85,7 @@ export class AgentService {
 
   async setModel(workspace: WorkspaceDefinition, sessionId: string, provider: string, modelId: string): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
-    await handle.session.setModel(this.settings.resolveModel(provider, modelId));
+    await handle.session.setModel(await this.settings.resolveModel(provider, modelId));
     this.sendSnapshot(handle);
   }
 
@@ -266,7 +266,9 @@ export class AgentService {
   private async instantiate(workspace: WorkspaceDefinition, manager: SessionManager): Promise<AgentHandle> {
     const workspaceSettings = await loadWorkspaceSettings(workspace);
     const resourceLoader = await this.createResourceLoader(workspace, workspaceSettings.agent.systemPrompt.append);
-    const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, tools: workspaceSettings.agent.tools, resourceLoader });
+    const modelConfiguration = await this.settings.getSessionModelConfiguration();
+    const hasExistingSession = manager.buildSessionContext().messages.length > 0;
+    const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, tools: workspaceSettings.agent.tools, resourceLoader, model: hasExistingSession ? undefined : modelConfiguration.model, scopedModels: modelConfiguration.scopedModels });
     const handle: AgentHandle = {
       session,
       clients: new Set(),
