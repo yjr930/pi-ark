@@ -191,7 +191,7 @@ Session idle 时调用 `session.prompt()`。Session streaming 时，Pi-Ark 将�
 
 Runtime 启动时，Pi-Ark 从 pi 的 steering/follow-up queues 建立带随机 ID 的 UI metadata。Queue update event 会按 mode 和 text 复用已有 ID。
 
-重新排序或切换 mode 时，AgentService 执行以下步骤：
+重新排序、切换 mode、取回编辑或合并 Follow-up 时，AgentService 先修改 Pi-Ark queue metadata，然后执行以下步骤：
 
 1. 复制当前 queue。
 2. `clearQueue()`。
@@ -199,7 +199,7 @@ Runtime 启动时，Pi-Ark 从 pi 的 steering/follow-up queues 建立带随机 
 4. 按新顺序重新提交 Follow-up items。
 5. 重新同步 metadata 并发送 snapshot。
 
-该流程保留 Pi-Ark queue item 中的 image content。
+该流程保留 Pi-Ark queue item 中的 image content。取回编辑会删除指定 queue item，并将其 text 返回给 Web；Web 在 composer 已有文字或 attachments 时先显示覆盖确认。合并 Follow-up 会按照当前 Follow-up 顺序使用两个换行符连接 text、连接对应 image content，并将这些 items 替换为一条 Follow-up item。
 
 ### Fork
 
@@ -232,9 +232,11 @@ Server shutdown 会依次清空所有 queue、中止 active Agent、释放 runti
 - 已完成 tool turn 将 final assistant response 之前的过程放入 run collapse。
 - Idle 且缺少 final assistant response 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Run collapse 内保留原始 projection message 与 source entry ID。Tool call 与 tool result 由 Chat renderer 生成嵌套 details。Message permalink 指向内部 message 时，外层 run 自动打开；内层 details 默认保持关闭。pi JSONL tree 继续保留原始 entry。
+Run collapse 内保留原始 projection message 与 source entry ID。Chat renderer 识别包含一个 tool call 的 assistant message，并通过 `toolCall.id` 与下一条 tool result 的 `toolCallId` 配对。Web 将该 assistant/tool result pair 显示为一行 tool call projection；展开的 Execution details 显示原 thinking/commentary、arguments 和 result。两条原 message 继续保留各自的 message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
 
-Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
+Message permalink 指向 tool call 或 tool result 时，外层 run 与对应 Execution details 自动打开。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
+
+Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Web 根据滚动位置选择已经离开 viewport 的上一条 user message，并显示 sticky User bar；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
 
 ## Settings 与 pi resources
 
@@ -409,6 +411,8 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback` | Rollback |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback/restore` | Restore rollback |
 | PATCH | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/:itemId` | Queue reorder/mode |
+| DELETE | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/:itemId` | 从 queue 取回 message 进行编辑 |
+| POST | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/merge-follow-ups` | 按顺序合并全部 Follow-up |
 | GET/POST | `/api/workspaces/:workspaceId/session-groups` | List 或 create group |
 | PATCH/DELETE | `/api/workspaces/:workspaceId/session-groups/:groupId` | Rename 或 delete group |
 

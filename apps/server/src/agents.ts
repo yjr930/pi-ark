@@ -177,6 +177,28 @@ export class AgentService {
     await this.rebuildQueue(handle);
   }
 
+  async takeQueuedMessage(workspace: WorkspaceDefinition, sessionId: string, itemId: string): Promise<{ text: string }> {
+    const handle = await this.getOrOpen(workspace, sessionId);
+    if (handle.rebuildingQueue) throw Object.assign(new Error("Queue update is already in progress"), { statusCode: 409 });
+    const index = handle.queue.findIndex((item) => item.id === itemId);
+    if (index < 0) throw Object.assign(new Error("Queued message is no longer available"), { statusCode: 404 });
+    const [item] = handle.queue.splice(index, 1);
+    await this.rebuildQueue(handle);
+    return { text: item.text };
+  }
+
+  async mergeFollowUps(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
+    const handle = await this.getOrOpen(workspace, sessionId);
+    if (handle.rebuildingQueue) throw Object.assign(new Error("Queue update is already in progress"), { statusCode: 409 });
+    const followUps = handle.queue.filter((item) => item.mode === "followUp");
+    if (followUps.length < 2) return;
+    const firstFollowUpIndex = handle.queue.findIndex((item) => item.mode === "followUp");
+    const merged: QueueItem = { id: followUps[0].id, mode: "followUp", text: followUps.map((item) => item.text).join("\n\n"), images: followUps.flatMap((item) => item.images) };
+    handle.queue = handle.queue.filter((item) => item.mode !== "followUp");
+    handle.queue.splice(firstFollowUpIndex, 0, merged);
+    await this.rebuildQueue(handle);
+  }
+
   async delete(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
     const sessionDir = await ensureWorkspaceState(workspace);
     const info = (await SessionManager.list(workspace.path, sessionDir)).find((session) => session.id === sessionId);

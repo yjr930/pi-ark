@@ -25,7 +25,6 @@ assert.deepEqual(interrupted.map((segment) => segment.type), ["message", "collap
 assert.equal(interrupted[1].type === "collapsed" && interrupted[1].messages.length, 4);
 assert.equal(interrupted[1].type === "collapsed" && interrupted[1].toolMessages, 4);
 assert.equal(interrupted[2].type === "warning" && interrupted[2].title, "Response interrupted");
-assert.equal(interrupted[2].type === "warning" && interrupted[2].message, "Pi stopped before producing a final response.");
 const activeInterrupted = buildConversationSegments(interruptedMessages, true);
 assert.deepEqual(activeInterrupted.map((segment) => segment.type), ["message", "collapsed"]);
 assert.equal(activeInterrupted[1].type === "collapsed" && activeInterrupted[1].active, true);

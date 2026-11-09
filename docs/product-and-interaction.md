@@ -83,20 +83,19 @@ WebSocket 建立后，页面继续显示 Loading conversation。首个完整 sna
 
 没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。状态栏在连接、加载、工作、运行工具、就绪和连接错误之间变化。
 
-正在执行的 turn 将连续的 commentary、tool call 和 tool result 合并为带 Running 状态和工具消息数量的 run collapse，最新的非工具 assistant output 保持可见。Agent settled 后，已完成的 run collapse 显示用时和工具消息数量，final assistant response 保持展开。
+正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse，最新的非工具 assistant output 保持可见。Agent settled 后，已完成的 run collapse 显示用时和工具消息数量，final assistant response 保持展开。
 
-Agent settled 且缺少 final assistant response 的历史 turn 在 run collapse 后显示 Response interrupted warning。该 warning 表示 Pi 在产生最终回答前停止。
+Agent settled 且缺少 final assistant response 的历史 turn 在 run collapse 后显示紧凑的单行 Response interrupted warning。
 
 ### 工具展示
 
-Run collapse 展开后，reasoning、tool call 和 tool result 都可以继续单独展开；tool call 和 tool result 使用默认关闭的独立折叠框。
+Run collapse 展开后，包含一个 tool call 的 assistant message 与紧随其后的对应 tool result 合并为一行 tool call projection。该行依次显示工具头像、工具名称与 assistant message number、Execution details 和两个 message link 按钮。连续 tool call 行之间不显示 message 分隔线，run 边界继续区分工具过程与普通消息。
 
-- Tool call summary 显示工具名称和 Call 状态，展开后显示格式化 arguments。
-- Tool result summary 显示工具名称和 Result 状态，展开后显示文字或图片结果。
-- 错误结果显示 Failed 状态和错误颜色。
-- read、bash、write、edit 和后续自定义 tool result 使用相同的容器结构。
+Execution details 默认关闭。展开后按 Process、Arguments 和 Result 显示原始 thinking/commentary、格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。
 
-Message permalink 指向工具 message 时，外层 run collapse 自动展开，内层工具框继续保持关闭，由用户决定是否查看长结果。
+Tool call message 与 tool result message 继续保留各自的 message number、source entry ID 和 permalink anchor。Permalink 指向其中任一 message 时，外层 run collapse 和对应 Execution details 自动展开。
+
+Message header 使用 User 与 AI 角色名称。普通 message 使用紧凑的垂直间距。
 
 ### Message 标识与链接
 
@@ -106,15 +105,15 @@ Message permalink 指向工具 message 时，外层 run collapse 自动展开，
 
 Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只改变 conversation message 区域的宽度。Composer 作为 Agent 页面 Grid 的底部行参与布局，queue 增高时 conversation 使用剩余高度。
 
-输入框会随内容增长，最多显示十行，之后使用内部滚动。Enter 发送，Shift+Enter 换行；输入法正在组合文字时，Enter 交给输入法处理。Send 与 Stop 始终显示；Agent active 时 Send 提交 Follow-up，Session idle 时 Send 提交普通 prompt，Stop 在 Session idle 时为 disabled。
+输入框为空时显示 `Send message here`。输入框会随内容增长，最多显示十行，之后使用内部滚动。Enter 发送，Shift+Enter 换行；输入法正在组合文字时，Enter 交给输入法处理。Send 与 Stop 始终显示；Agent active 时 Send 提交 Follow-up，Session idle 时 Send 提交普通 prompt，Stop 在 Session idle 时为 disabled。
 
-Composer 提供当前 Session 的 Model 和 Thinking 选择器。Model 列表来自当前可用凭证，Thinking 选项来自所选 model 的 pi capability。选择结果只影响当前 Session。
+Composer 提供当前 Session 的 model 与 thinking 选择器，选择器直接显示当前值，不显示 `MODEL` 与 `THINKING` 提示文字。Model 列表来自当前可用凭证，Thinking 选项来自所选 model 的 pi capability。选择结果只影响当前 Session。
 
-Conversation 在用户位于底部附近时跟随新输出；用户向上滚动后，后续 event 保留当前阅读位置。Message permalink 继续使用平滑定位。
+Conversation 在用户位于底部附近时跟随新输出；用户向上滚动后，后续 event 保留当前阅读位置。滚出顶部的上一条 user message 显示为 sticky User bar，点击头像或 User 名称会定位到原 message。已经展开的 run collapse summary 固定在 User bar 下方。Message permalink 继续使用平滑定位。
 
 ### Queue
 
-Session 正在运行时，新 message 默认进入 Follow-up queue。Queue 区分 Steering 和 Follow-up，显示各项文本摘要；用户可以在相同模式中调整顺序，也可以切换消息模式。Global settings 决定每种 queue 的默认投递方式。Queue 使用独立的最大高度和滚动区域，并由 composer 所在的 Grid row 占用页面空间。
+Session 正在运行时，新 message 默认进入 Follow-up queue。Queue 区分 Steering 和 Follow-up，并使用紧凑的 message rows 显示文本摘要。用户可以在相同模式中调整顺序、切换消息模式或点击 Edit 将 queued message 取回 composer。Composer 已有文字或 attachments 时，Edit 显示覆盖确认对话框；取消后保留原 composer content 与 queue item。Merge follow-ups 按当前顺序将全部 Follow-up text 拼接为一条 Follow-up。Global settings 决定每种 queue 的默认投递方式。Queue 使用独立的最大高度和滚动区域，并由 composer 所在的 Grid row 占用页面空间。
 
 ### 附件与图片
 

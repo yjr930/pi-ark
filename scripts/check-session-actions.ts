@@ -46,6 +46,21 @@ try {
   await agents.updateQueue(workspace, manager.getSessionId(), "queue-a", { mode: "steering" });
   assert.deepEqual(handle.session.getSteeringMessages(), ["A"]);
   assert.deepEqual(handle.session.getFollowUpMessages(), ["B"]);
+  handle.queue = [
+    { id: "queue-steering", mode: "steering", text: "Steer", images: [] },
+    { id: "queue-follow-up-1", mode: "followUp", text: "First follow-up", images: [] },
+    { id: "queue-follow-up-2", mode: "followUp", text: "Second follow-up", images: [] },
+    { id: "queue-follow-up-3", mode: "followUp", text: "Third follow-up", images: [] },
+  ];
+  await agents.mergeFollowUps(workspace, manager.getSessionId());
+  assert.deepEqual(handle.session.getSteeringMessages(), ["Steer"]);
+  assert.deepEqual(handle.session.getFollowUpMessages(), ["First follow-up\n\nSecond follow-up\n\nThird follow-up"]);
+  assert.equal(handle.queue.find((item) => item.mode === "followUp")?.id, "queue-follow-up-1");
+  const takenQueuedMessage = await agents.takeQueuedMessage(workspace, manager.getSessionId(), "queue-follow-up-1");
+  assert.equal(takenQueuedMessage.text, "First follow-up\n\nSecond follow-up\n\nThird follow-up");
+  assert.deepEqual(handle.session.getSteeringMessages(), ["Steer"]);
+  assert.deepEqual(handle.session.getFollowUpMessages(), []);
+  await assert.rejects(() => agents.takeQueuedMessage(workspace, manager.getSessionId(), "queue-follow-up-1"), /no longer available/);
 
   const firstTurnManager = SessionManager.create(directory, sessionDirectory);
   firstTurnManager.appendMessage({ role: "user", content: "Only turn", timestamp: 5000 });

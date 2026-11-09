@@ -3,7 +3,7 @@ import type { AgentMessage, ContentBlock } from "./types";
 export type ConversationSegment =
   | { type: "message"; message: AgentMessage; key: string }
   | { type: "collapsed"; messages: AgentMessage[]; finalMessage: AgentMessage; key: string; toolMessages: number; duration: string; active: boolean }
-  | { type: "warning"; key: string; title: string; message: string };
+  | { type: "warning"; key: string; title: string };
 
 function blocks(content: AgentMessage["content"]): ContentBlock[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : content || [];
@@ -54,7 +54,7 @@ export function buildConversationSegments(messages: AgentMessage[], active: bool
     } else if (!currentTurn && lastTool >= 0 && response.length > 0) {
       const lastMessage = response[response.length - 1];
       segments.push({ type: "collapsed", messages: response, finalMessage: lastMessage, key: `run-${index}`, toolMessages: response.filter(hasToolActivity).length, duration: durationLabel(response, lastMessage), active: false });
-      segments.push({ type: "warning", key: `warning-${index}`, title: "Response interrupted", message: "Pi stopped before producing a final response." });
+      segments.push({ type: "warning", key: `warning-${index}`, title: "Response interrupted" });
     } else response.forEach((item, itemIndex) => segments.push({ type: "message", message: item, key: `response-${index}-${itemIndex}` }));
     index = responseEnd;
   }

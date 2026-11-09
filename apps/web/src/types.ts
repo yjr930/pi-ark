@@ -38,6 +38,7 @@ export interface AgentMessage {
   content?: string | ContentBlock[];
   timestamp?: number;
   toolName?: string;
+  toolCallId?: string;
   isError?: boolean;
   stopReason?: string;
   entryId?: string;

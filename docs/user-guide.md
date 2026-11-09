@@ -231,13 +231,13 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-number>
 
 ### 发送 message
 
-在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
+Composer 为空时显示 `Send message here`。在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
 
-输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。
+输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。上一条已经滚出顶部的 user message 会固定显示在 conversation 顶部；点击 User 头像或名称可以返回原 message。
 
 ### 选择当前 Session 的 model
 
-Composer 底部提供 Model 和 Thinking 选择器。Model 选项来自 Settings → Global → Provider and model 中已经勾选且当前具有可用认证的模型；Thinking 选项来自 pi 为当前模型声明的 capability。
+Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前值。Model 选项来自 Settings → Global → Provider and model 中已经勾选且当前具有可用认证的模型；Thinking 选项来自 pi 为当前模型声明的 capability。
 
 这里的选择只更新当前 Session。新 Session 使用 Settings → Global → Provider and model 中带星标的 default model。
 
@@ -256,23 +256,25 @@ Composer 底部提供 Model 和 Thinking 选择器。Model 选项来自 Settings
 
 ### 查看工具过程
 
-Pi 运行期间，连续的 commentary、tool call 和 tool result 显示为一个带 Running 状态的 run collapse。Pi 完成后，summary 显示用时和工具消息数量。展开 run 后，每个 tool call 和 tool result 仍然保持在独立的关闭框中。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量。展开 run 后，每个单 tool call 与对应 result 显示为一行，顺序为工具头像、工具名称与 message number、Execution details、两个 copy link 按钮。连续工具行之间没有 message 分隔线。
 
-Reasoning 可以通过自己的 disclosure 展开。展开 Call 可以查看 arguments；展开 Result 可以查看输出。Failed 表示工具返回错误。
+展开 Execution details 可以查看 Process、Arguments 和 Result。Process 保留 reasoning 与 commentary，Result 显示工具输出，Failed 表示工具返回错误。展开 run 后，用时 summary 会固定显示在顶部 User bar 下方。
 
-Agent settled 后，如果历史 turn 在 final assistant response 之前停止，页面会显示 Response interrupted warning。其工具活动仍然可以通过相同的折叠框查看。
+Agent settled 后，如果历史 turn 在 final assistant response 之前停止，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过 Execution details 查看。
 
 ### Queue
 
-Pi 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up queue。每个 queued message 标记为 Steering 或 Follow-up。Queue 有独立的滚动区域，queue 增高时 conversation 自动使用剩余高度。
+AI 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up queue。每个 queued message 标记为 Steering 或 Follow-up。Queue 使用紧凑的 message rows 和独立的滚动区域；queue 增高时 conversation 自动使用剩余高度。
 
+- Edit 将 queued message 从 queue 取回 composer。Composer 已有文字或 attachments 时，确认 Replace draft 才会覆盖；Cancel 会保留原 composer content 与 queue item。
+- Merge follow-ups 按照当前顺序使用空行拼接全部 Follow-up，并将它们替换为一条 Follow-up。
 - 上下箭头在相同模式中调整顺序。
 - Make follow-up 或 Make steering 切换模式。
 - Global settings 决定同类 queued message 按 One at a time 或 All queued 投递。
 
 ### 停止运行
 
-Send 与 Stop 始终显示为两个按钮。Pi 工作时可以继续发送 Follow-up，也可以点击 Stop 请求当前 Session 中止执行。Session 待机时 Stop 为 disabled。已经记录的 message 和 tool activity 继续保存在 Session 中。
+Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follow-up，也可以点击 Stop 请求当前 Session 中止执行。Session 待机时 Stop 为 disabled。已经记录的 message 和 tool activity 继续保存在 Session 中。
 
 ### Fork
 
