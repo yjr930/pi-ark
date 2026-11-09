@@ -81,11 +81,11 @@ WebSocket 建立后，页面继续显示 Loading conversation。首个完整 sna
 
 ### 空 Session 与运行状态
 
-没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，状态栏在连接、加载、工作、运行工具、就绪和连接错误之间变化。
+没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。状态栏在连接、加载、工作、运行工具、就绪和连接错误之间变化。
 
-正在执行的 turn 保持展开，便于用户观察中间 commentary 和工具活动。已完成并包含工具活动的 turn 将中间过程折叠为带用时和工具消息数量的 run collapse，最终 assistant response 保持展开。
+正在执行的 turn 将连续的 commentary、tool call 和 tool result 合并为带 Running 状态和工具消息数量的 run collapse，最新的非工具 assistant output 保持可见。Agent settled 后，已完成的 run collapse 显示用时和工具消息数量，final assistant response 保持展开。
 
-已经停止运行但缺少 final assistant response 的历史 turn 仍将工具过程放入 run collapse，并在其后显示 Response interrupted warning。该 warning 表示 Pi 在产生最终回答前停止。
+Agent settled 且缺少 final assistant response 的历史 turn 在 run collapse 后显示 Response interrupted warning。该 warning 表示 Pi 在产生最终回答前停止。
 
 ### 工具展示
 
@@ -104,15 +104,17 @@ Message permalink 指向工具 message 时，外层 run collapse 自动展开，
 
 ### Composer
 
-Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只改变 conversation message 区域的宽度。
+Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只改变 conversation message 区域的宽度。Composer 作为 Agent 页面 Grid 的底部行参与布局，queue 增高时 conversation 使用剩余高度。
 
-输入框会随内容增长，最多显示十行，之后使用内部滚动。Enter 发送，Shift+Enter 换行；输入法正在组合文字时，Enter 交给输入法处理。
+输入框会随内容增长，最多显示十行，之后使用内部滚动。Enter 发送，Shift+Enter 换行；输入法正在组合文字时，Enter 交给输入法处理。Send 与 Stop 始终显示；Agent active 时 Send 提交 Follow-up，Session idle 时 Send 提交普通 prompt，Stop 在 Session idle 时为 disabled。
 
 Composer 提供当前 Session 的 Model 和 Thinking 选择器。Model 列表来自当前可用凭证，Thinking 选项来自所选 model 的 pi capability。选择结果只影响当前 Session。
 
+Conversation 在用户位于底部附近时跟随新输出；用户向上滚动后，后续 event 保留当前阅读位置。Message permalink 继续使用平滑定位。
+
 ### Queue
 
-Session 正在运行时，新 message 进入 queue。Queue 区分 Steering 和 Follow-up，显示各项文本摘要；用户可以在相同模式中调整顺序，也可以切换消息模式。Global settings 决定每种 queue 的默认投递方式。
+Session 正在运行时，新 message 默认进入 Follow-up queue。Queue 区分 Steering 和 Follow-up，显示各项文本摘要；用户可以在相同模式中调整顺序，也可以切换消息模式。Global settings 决定每种 queue 的默认投递方式。Queue 使用独立的最大高度和滚动区域，并由 composer 所在的 Grid row 占用页面空间。
 
 ### 附件与图片
 
@@ -122,7 +124,7 @@ Session 正在运行时，新 message 进入 queue。Queue 区分 Steering 和 F
 
 ### Assistant response actions
 
-已完成的 assistant response footer 显示 model、context 使用量、context window、input token 和 output token，并提供以下操作：
+已完成的 assistant response footer 显示 model、context 使用百分比、`I/input token` 和 `O/output token`，并提供以下操作：
 
 - Copy Markdown：复制 assistant response 的文字 Markdown。
 - Fork session：从该 response 对应的 session entry 创建新分支，并要求输入新 Session 名称。

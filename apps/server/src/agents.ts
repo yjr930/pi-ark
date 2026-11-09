@@ -46,6 +46,7 @@ function isRollbackMarkerData(data: unknown): data is RollbackMarkerData {
 
 export class AgentService {
   private readonly handles = new Map<string, AgentHandle>();
+  private readonly scheduledSnapshots = new WeakSet<AgentHandle>();
 
   constructor(private readonly settings: SettingsService) {}
 
@@ -288,7 +289,16 @@ export class AgentService {
       this.syncQueue(handle, event.steering, event.followUp);
     }
     this.broadcast(handle, { type: "agent-event", event });
-    if (event.type === "message_end" || event.type === "agent_settled" || event.type === "queue_update") this.sendSnapshot(handle);
+    if (event.type === "message_end" || event.type === "agent_settled" || event.type === "queue_update") this.scheduleSnapshot(handle);
+  }
+
+  private scheduleSnapshot(handle: AgentHandle): void {
+    if (this.scheduledSnapshots.has(handle)) return;
+    this.scheduledSnapshots.add(handle);
+    setTimeout(() => {
+      this.scheduledSnapshots.delete(handle);
+      if ([...this.handles.values()].includes(handle)) this.sendSnapshot(handle);
+    }, 0);
   }
 
   private syncQueue(handle: AgentHandle, steering: readonly string[], followUp: readonly string[]): void {

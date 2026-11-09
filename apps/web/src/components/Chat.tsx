@@ -54,19 +54,19 @@ function Message({ message, messageNumber, target, canRollback, onImageOpen, onC
         return null;
       })}
       {showFooter && <div className="message-footer">
-        <div className="message-metrics"><span>{message.responseModel || message.model || "Unknown model"}</span>{message.contextWindow && <span>Context {contextPercent?.toFixed(1) || "0.0"}% · {number(contextTokens)} / {number(message.contextWindow)}</span>}{message.usage && <span>Input {number(message.usage.input)} · Output {number(message.usage.output)}</span>}</div>
+        <div className="message-metrics"><span>{message.responseModel || message.model || "Unknown model"}</span>{message.contextWindow && <span>Context {contextPercent?.toFixed(1) || "0.0"}%</span>}{message.usage && <span>I/{number(message.usage.input)} O/{number(message.usage.output)}</span>}</div>
         <div className="message-actions"><button type="button" className="icon-tooltip" aria-label={markdownCopied ? "Markdown copied" : "Copy Markdown"} data-tooltip={markdownCopied ? "Markdown copied" : "Copy Markdown"} disabled={!markdown} onClick={() => void navigator.clipboard.writeText(markdown).then(() => { setMarkdownCopied(true); window.setTimeout(() => setMarkdownCopied(false), 1200); })}>{markdownCopied ? <Check size={13} /> : <Copy size={13} />}</button><button type="button" className="icon-tooltip" aria-label="Fork session" data-tooltip="Fork session" onClick={() => onFork(message.entryId!)}><GitFork size={13} /></button></div>
       </div>}
     </div>
   </article>;
 }
 
-function TurnMessages({ messages, streaming, targetMessageNumber, rollbackEntryId, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; streaming: boolean; targetMessageNumber?: number; rollbackEntryId?: string; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number, kind: "url" | "internal") => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
+function TurnMessages({ messages, active, targetMessageNumber, rollbackEntryId, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; active: boolean; targetMessageNumber?: number; rollbackEntryId?: string; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number, kind: "url" | "internal") => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
   const numberByMessage = new Map(messages.map((message, index) => [message, index + 1]));
   let latestUserMessage: AgentMessage | undefined;
   if (rollbackEntryId) for (let index = messages.length - 1; index >= 0; index -= 1) { const candidate = messages[index]; if (candidate.role === "user") { latestUserMessage = candidate; break; } }
   const render = (message: AgentMessage, key: string) => { const messageNumber = numberByMessage.get(message) || 0; return <Message message={message} messageNumber={messageNumber} target={messageNumber === targetMessageNumber} canRollback={message === latestUserMessage} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={() => { if (rollbackEntryId) onRollback(rollbackEntryId); }} key={key} />; };
-  return <>{buildConversationSegments(messages, streaming).map((segment) => segment.type === "message" ? render(segment.message, segment.key) : segment.type === "collapsed" ? <details className="run-collapse" open={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber) || undefined} key={segment.key}><summary><Clock3 size={13} />{segment.duration}<span>{segment.toolMessages} tool messages</span></summary><div>{segment.messages.map((message, index) => render(message, `${segment.key}-${index}`))}</div></details> : <div className="turn-warning" role="status" key={segment.key}><TriangleAlert size={15} /><div><strong>{segment.title}</strong><span>{segment.message}</span></div></div>)}</>;
+  return <>{buildConversationSegments(messages, active).map((segment) => segment.type === "message" ? render(segment.message, segment.key) : segment.type === "collapsed" ? <details className={`run-collapse ${segment.active ? "active" : ""}`} open={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber) || undefined} key={segment.key}><summary><Clock3 size={13} />{segment.active ? "Running" : segment.duration}<span>{segment.toolMessages} tool messages</span></summary><div>{segment.messages.map((message, index) => render(message, `${segment.key}-${index}`))}</div></details> : <div className="turn-warning" role="status" key={segment.key}><TriangleAlert size={15} /><div><strong>{segment.title}</strong><span>{segment.message}</span></div></div>)}</>;
 }
 
 function number(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value); }
@@ -88,7 +88,8 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
   const [actionBusy, setActionBusy] = useState(false);
   const [sessionLinkCopied, setSessionLinkCopied] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const followOutputRef = useRef(true);
   const infoRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -113,7 +114,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
   useEffect(() => () => { for (const attachment of attachmentRef.current) if (attachment.preview) URL.revokeObjectURL(attachment.preview); }, []);
   useEffect(() => {
     for (const attachment of attachmentRef.current) if (attachment.preview) URL.revokeObjectURL(attachment.preview);
-    setAttachments([]); setDraft(""); setSnapshot(null); setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStatus("Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = "";
+    setAttachments([]); setDraft(""); setSnapshot(null); setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStatus("Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = true;
     let active = true;
     const socket = new WebSocket(websocketUrl(`/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}`));
     socketRef.current = socket;
@@ -131,9 +132,9 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
       }
       if (payload.type === "agent-event") {
         const agentEvent = payload.event;
-        if (agentEvent.type === "agent_start") setStatus("Pi is working");
-        if (agentEvent.type === "agent_settled") { setStatus("Ready"); onSessionChanged(); }
-        if (agentEvent.type === "tool_execution_start") setStatus(`Running ${agentEvent.toolName}`);
+        if (agentEvent.type === "agent_start") { setStatus("Pi is working"); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
+        if (agentEvent.type === "agent_settled") { setStatus("Ready"); setSnapshot((current) => current ? { ...current, isStreaming: false, isIdle: true } : current); onSessionChanged(); }
+        if (agentEvent.type === "tool_execution_start") { setStatus(`Running ${agentEvent.toolName}`); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
         if (["message_start", "message_update", "message_end"].includes(agentEvent.type) && agentEvent.message) {
           setSnapshot((current) => {
             if (!current) return current;
@@ -143,7 +144,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
             const replaceLast = agentEvent.type !== "message_start" && last?.role === incoming.role;
             if (replaceLast) messages[messages.length - 1] = incoming;
             else if (last?.timestamp !== incoming.timestamp || last?.role !== incoming.role) messages.push(incoming);
-            return { ...current, messages, isStreaming: agentEvent.type !== "message_end" };
+            return { ...current, messages, isStreaming: true, isIdle: false };
           });
         }
       }
@@ -159,7 +160,11 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
     return () => document.removeEventListener("mousedown", close);
   }, [infoOpen]);
 
-  useEffect(() => { if (!targetMessageNumber) bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [snapshot?.messages.length, snapshot?.isStreaming, targetMessageNumber]);
+  useLayoutEffect(() => {
+    if (targetMessageNumber || !followOutputRef.current) return;
+    const conversation = conversationRef.current;
+    if (conversation) conversation.scrollTop = conversation.scrollHeight;
+  }, [snapshot?.messages, snapshot?.isStreaming, targetMessageNumber]);
   useEffect(() => {
     if (!targetMessageNumber || !snapshot) return;
     const key = `${session.id}:${targetMessageNumber}`;
@@ -170,6 +175,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
     window.requestAnimationFrame(() => element.scrollIntoView({ behavior: "smooth", block: "center" }));
   }, [session.id, snapshot, targetMessageNumber]);
   const isLoading = snapshot === null;
+  const active = Boolean(snapshot && !snapshot.isIdle);
   const visibleMessages = useMemo(() => snapshot?.messages.filter((message) => message.role !== "system") || [], [snapshot]);
   const title = snapshot?.name || session.name || session.firstMessage || "New session";
   const modelValue = snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "";
@@ -246,6 +252,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
     setPreparingAttachments(true);
     try {
       const encoded = await Promise.all(attachments.map(async (attachment) => ({ name: attachment.file.name, mimeType: attachment.file.type || "application/octet-stream", data: await fileData(attachment.file) })));
+      followOutputRef.current = true;
       send({ type: "prompt", text, attachments: encoded });
       for (const attachment of attachments) if (attachment.preview) URL.revokeObjectURL(attachment.preview);
       rollbackDraftRef.current = ""; setSnapshot((current) => current ? { ...current, rollback: undefined } : current); setAttachments([]); setDraft("");
@@ -255,20 +262,19 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
 
   return <section className={`chat-page chat-width-${chatWidth}`} aria-busy={isLoading}>
     <header className="page-header chat-header">
-      <div className="chat-title"><div><h2>{title}</h2><span className="status-dot"><i className={snapshot?.isStreaming || isLoading ? "working" : ""} />{status}</span></div><button className="subtle-icon-button" title="Rename session" disabled={isLoading} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button></div>
+      <div className="chat-title"><div><h2>{title}</h2><span className="status-dot"><i className={active || isLoading ? "working" : ""} />{status}</span></div><button className="subtle-icon-button" title="Rename session" disabled={isLoading} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button></div>
       <div className="chat-header-actions"><button className="subtle-icon-button" title="Copy session URL" disabled={isLoading} onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={15} /> : <Link2 size={15} />}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} disabled={isLoading} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.stats?.totalMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{snapshot?.stats?.contextUsage?.percent == null ? "Unknown" : `${snapshot.stats.contextUsage.percent.toFixed(1)}% · ${number(snapshot.stats.contextUsage.tokens || 0)} / ${number(snapshot.stats.contextUsage.contextWindow)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl></div>}</div></div>
     </header>
-    <div className={`conversation ${isLoading ? "conversation-loading" : visibleMessages.length === 0 ? "conversation-empty" : ""}`}>
-      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : visibleMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask Pi to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <TurnMessages messages={visibleMessages} streaming={Boolean(snapshot?.isStreaming)} targetMessageNumber={targetMessageNumber} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber, kind) => void navigator.clipboard.writeText(kind === "url" ? sessionPermalink(workspace.id, session.id, messageNumber) : internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />}
-      {!isLoading && snapshot?.isStreaming && <div className="working-row"><span /><span /><span /></div>}
-      <div ref={bottomRef} />
+    <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : visibleMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => { const element = event.currentTarget; followOutputRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 96; }}>
+      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : visibleMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask Pi to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <TurnMessages messages={visibleMessages} active={active} targetMessageNumber={targetMessageNumber} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber, kind) => void navigator.clipboard.writeText(kind === "url" ? sessionPermalink(workspace.id, session.id, messageNumber) : internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />}
+      {!isLoading && active && <div className="working-row"><span /><span /><span /></div>}
     </div>
     {!isLoading && <form className="composer" onSubmit={(event) => void submit(event)}>
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}
       {snapshot?.queue && snapshot.queue.length > 0 && <div className="message-queue"><div className="message-queue-title"><strong>Queue</strong><span>Steering runs before follow-up</span></div>{snapshot.queue.map((item) => { const sameMode = snapshot.queue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Move queued message up" disabled={position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}</div>}
       {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <div className={`attachment-preview ${attachment.preview ? "image" : "file"}`} key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt={attachment.file.name} /> : <FileIcon size={18} />}<span><strong>{attachment.file.name}</strong><small>{number(attachment.file.size / 1024)} KB</small></span><button type="button" title={`Remove ${attachment.file.name}`} onClick={() => removeAttachment(attachment.id)}><Trash2 size={13} /></button></div>)}</div>}
       <textarea ref={composerTextareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onPaste={pasteAttachments} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={`Message Pi in ${workspace.name}`} rows={1} />
-      <div className="composer-toolbar"><button type="button" className="attach-button" title="Add attachments or images" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(event.target.files)} /><div className="composer-runtime composer-model"><span>Model</span><Select ariaLabel="Session model" value={modelValue} placeholder={snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "Select…"} options={models.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name || model.id, description: model.id, status: model.provider }))} onChange={(value) => { const model = models.find((item) => `${item.provider}/${item.id}` === value); if (model) { setStatus("Changing model"); send({ type: "set-model", provider: model.provider, model: model.id }); } }} /></div><div className="composer-runtime composer-thinking"><span>Thinking</span><Select ariaLabel="Session thinking level" value={snapshot?.thinkingLevel || ""} options={thinkingLevels.map((level) => ({ value: level, label: level }))} onChange={(level) => { setStatus("Changing thinking level"); send({ type: "set-thinking-level", level }); }} /></div><span className="composer-hint">Enter to send · Shift Enter for a new line</span>{snapshot?.isStreaming ? <button type="button" className="stop-button" title="Stop" onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button> : <button className="send-button" title="Send" disabled={preparingAttachments || (!draft.trim() && attachments.length === 0)}><ArrowUp size={18} /></button>}</div>
+      <div className="composer-toolbar"><button type="button" className="attach-button" title="Add attachments or images" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(event.target.files)} /><div className="composer-runtime composer-model"><span>Model</span><Select ariaLabel="Session model" value={modelValue} placeholder={snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "Select…"} options={models.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name || model.id, description: model.id, status: model.provider }))} onChange={(value) => { const model = models.find((item) => `${item.provider}/${item.id}` === value); if (model) { setStatus("Changing model"); send({ type: "set-model", provider: model.provider, model: model.id }); } }} /></div><div className="composer-runtime composer-thinking"><span>Thinking</span><Select ariaLabel="Session thinking level" value={snapshot?.thinkingLevel || ""} options={thinkingLevels.map((level) => ({ value: level, label: level }))} onChange={(level) => { setStatus("Changing thinking level"); send({ type: "set-thinking-level", level }); }} /></div><span className="composer-hint">Enter to send · Shift Enter for a new line</span><button className="send-button" title={active ? "Send follow-up" : "Send"} disabled={preparingAttachments || (!draft.trim() && attachments.length === 0)}><ArrowUp size={18} /></button><button type="button" className="stop-button" title="Stop" disabled={!active} onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>
     </form>}
     {!isLoading && renameOpen && <NameDialog title="Rename session" description="Set a title that is easy to find in the session list." label="Session title" initialValue={title} submitLabel="Rename session" icon={<Pencil size={18} />} onClose={() => setRenameOpen(false)} onSubmit={async (name) => { send({ type: "rename-session", name }); setSnapshot((current) => current ? { ...current, name } : current); window.setTimeout(onSessionChanged, 150); setRenameOpen(false); }} />}
     {!isLoading && forkDialog && <NameDialog title="Fork session" description="Choose a name for the new session branch." label="Fork session title" initialValue={forkDialog.defaultName} submitLabel="Fork session" icon={<GitFork size={18} />} onClose={() => setForkDialog(null)} onSubmit={forkSession} />}

@@ -231,9 +231,9 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-number>
 
 ### 发送 message
 
-在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 不会发送 message。
+在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
 
-输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。
+输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。
 
 ### 选择当前 Session 的 model
 
@@ -256,15 +256,15 @@ Composer 底部提供 Model 和 Thinking 选择器。Model 选项来自 Settings
 
 ### 查看工具过程
 
-已完成的工具执行默认显示为一个 run collapse，summary 包含用时和工具消息数量。展开 run 后，每个 tool call 和 tool result 仍然保持在独立的关闭框中。
+Pi 运行期间，连续的 commentary、tool call 和 tool result 显示为一个带 Running 状态的 run collapse。Pi 完成后，summary 显示用时和工具消息数量。展开 run 后，每个 tool call 和 tool result 仍然保持在独立的关闭框中。
 
 Reasoning 可以通过自己的 disclosure 展开。展开 Call 可以查看 arguments；展开 Result 可以查看输出。Failed 表示工具返回错误。
 
-历史 turn 如果在 final assistant response 之前停止，会显示 Response interrupted warning。其工具活动仍然可以通过相同的折叠框查看。
+Agent settled 后，如果历史 turn 在 final assistant response 之前停止，页面会显示 Response interrupted warning。其工具活动仍然可以通过相同的折叠框查看。
 
 ### Queue
 
-Pi 正在工作时发送的新 message 会显示在 Queue。每个 queued message 标记为 Steering 或 Follow-up。
+Pi 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up queue。每个 queued message 标记为 Steering 或 Follow-up。Queue 有独立的滚动区域，queue 增高时 conversation 自动使用剩余高度。
 
 - 上下箭头在相同模式中调整顺序。
 - Make follow-up 或 Make steering 切换模式。
@@ -272,11 +272,11 @@ Pi 正在工作时发送的新 message 会显示在 Queue。每个 queued messag
 
 ### 停止运行
 
-Pi 工作时，Send 按钮变为 Stop。点击 Stop 会请求当前 Session 中止执行。已经记录的 message 和 tool activity 继续保存在 Session 中。
+Send 与 Stop 始终显示为两个按钮。Pi 工作时可以继续发送 Follow-up，也可以点击 Stop 请求当前 Session 中止执行。Session 待机时 Stop 为 disabled。已经记录的 message 和 tool activity 继续保存在 Session 中。
 
 ### Fork
 
-Assistant response footer 的 Fork session 从该 response 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
+Assistant response footer 显示 model、Context 百分比、`I/input token` 和 `O/output token`。Fork session 从该 response 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
 
 ### Rollback 与 Restore
 

@@ -27,9 +27,14 @@ assert.equal(interrupted[1].type === "collapsed" && interrupted[1].toolMessages,
 assert.equal(interrupted[2].type === "warning" && interrupted[2].title, "Response interrupted");
 assert.equal(interrupted[2].type === "warning" && interrupted[2].message, "Pi stopped before producing a final response.");
 const activeInterrupted = buildConversationSegments(interruptedMessages, true);
-assert.equal(activeInterrupted.some((segment) => segment.type === "collapsed" || segment.type === "warning"), false);
+assert.deepEqual(activeInterrupted.map((segment) => segment.type), ["message", "collapsed"]);
+assert.equal(activeInterrupted[1].type === "collapsed" && activeInterrupted[1].active, true);
+assert.equal(activeInterrupted.some((segment) => segment.type === "warning"), false);
 const streaming = buildConversationSegments(messages, true);
-assert.equal(streaming.some((segment) => segment.type === "collapsed"), false);
+assert.deepEqual(streaming.map((segment) => segment.type), ["message", "collapsed", "message"]);
+assert.equal(streaming[1].type === "collapsed" && streaming[1].messages.length, 2);
+assert.equal(streaming[1].type === "collapsed" && streaming[1].active, true);
+assert.equal(streaming[2].type === "message" && streaming[2].message.content?.[0]?.text, "Final answer");
 const direct = buildConversationSegments([{ role: "user", content: "Hi", timestamp: 1 }, { role: "assistant", content: [{ type: "text", text: "Hello" }], timestamp: 2 }], false);
 assert.deepEqual(direct.map((segment) => segment.type), ["message", "message"]);
 console.log("conversation checks passed");

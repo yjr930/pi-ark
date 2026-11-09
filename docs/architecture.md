@@ -177,7 +177,7 @@ Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成
 
 ### Streaming events
 
-AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容。Server 在 message end、agent settled 和 queue update 后再次发送完整 snapshot，使 SessionManager projection 成为权威状态。
+AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled 和 queue update 后的完整 snapshot。该时序使 snapshot 包含刚完成持久化的 message，并以 SessionManager projection 作为权威状态。
 
 ### Prompt 与 attachments
 
@@ -185,7 +185,7 @@ WebSocket prompt 可以包含文字和 base64 attachments。Attachment service �
 
 Prompt 文字追加保存后的文件名和绝对路径。支持的图片同时作为 pi image content 发送；普通附件通过路径供 Agent tools 使用。
 
-Session idle 时调用 `session.prompt()`。Session streaming 时，Pi-Ark 将新 message 记录为 Follow-up queue item，并调用 `session.followUp()`。
+Session idle 时调用 `session.prompt()`。Session streaming 时，Pi-Ark 将新 message 记录为 Follow-up queue item，并调用 `session.followUp()`。Web 在两种状态下都显示 Send 与 Stop；idle 状态的 Stop 为 disabled，streaming 状态的 Send 使用 Follow-up 语义。
 
 ### Queue
 
@@ -228,13 +228,13 @@ Server shutdown 会依次清空所有 queue、中止 active Agent、释放 runti
 `buildConversationSegments()` 以 user message 划分 turn。
 
 - 没有 tool activity 的 turn 按 message 顺序展示。
-- Streaming 中的当前 turn 保持展开。
-- 已完成 tool turn 将最终 assistant response 之前的过程放入 run collapse。
+- Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output。
+- 已完成 tool turn 将 final assistant response 之前的过程放入 run collapse。
 - Idle 且缺少 final assistant response 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Run collapse 内的 tool call 与 tool result 由 Chat renderer 生成嵌套 details。Message permalink 指向内部 message 时，外层 run 自动打开；内层 details 默认保持关闭。
+Run collapse 内保留原始 projection message 与 source entry ID。Tool call 与 tool result 由 Chat renderer 生成嵌套 details。Message permalink 指向内部 message 时，外层 run 自动打开；内层 details 默认保持关闭。pi JSONL tree 继续保留原始 entry。
 
-Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
+Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
 
 ## Settings 与 pi resources
 

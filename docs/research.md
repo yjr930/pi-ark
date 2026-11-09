@@ -70,12 +70,15 @@ Pin、Archive 和 Session group 属于 Pi-Ark UI metadata，因此保存在独�
 
 ## Event 与 snapshot 选择
 
-WebSocket 连接后先发送完整 snapshot。运行期间，Server 转发 pi SDK event，使浏览器及时显示 streaming content 和 tool status；在关键 lifecycle event 后，Server重新发送完整 snapshot。
+WebSocket 连接后先发送完整 snapshot。运行期间，Server 转发 pi SDK event，使浏览器及时显示 user message、streaming content 和 tool status；在关键 lifecycle event 后，Server 重新发送完整 snapshot。
+
+pi 的 public `message_end` listener 在 SessionManager 持久化 completed message 之前执行。Pi-Ark 在 listener 返回后的下一次 task 中生成 snapshot，使 event 已经显示的 message 继续存在于权威 projection 中。完整 Agent run 从 agent start 开始，并在 agent settled 时结束；单条 message end 表示其中一条 message 已完成。
 
 这种组合有以下作用：
 
 - Event 提供低延迟更新。
 - Snapshot 纠正浏览器临时状态，并以 SessionManager projection 为权威数据。
+- Agent settled 状态用于决定 completed、interrupted 和 working UI。
 - 浏览器断线不会停止 Agent runtime。
 - 多个浏览器连接可以共享同一个 runtime。
 

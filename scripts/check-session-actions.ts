@@ -22,7 +22,7 @@ try {
   const agents = new AgentService(settings);
   const forked = await agents.fork(workspace, manager.getSessionId(), firstAssistant);
   assert.notEqual(forked.id, manager.getSessionId());
-  const service = agents as unknown as { rollbackEntryId(handle: unknown): string | undefined; rollbackState(handle: unknown): { id: string; targetId: string; restoreEntryId: string; draft: string } | undefined; handles: Map<string, { queue: Array<{ id: string; mode: "steering" | "followUp"; text: string; images: [] }>; session: { sessionManager: SessionManager; getSteeringMessages(): readonly string[]; getFollowUpMessages(): readonly string[] } }> };
+  const service = agents as unknown as { rollbackEntryId(handle: unknown): string | undefined; rollbackState(handle: unknown): { id: string; targetId: string; restoreEntryId: string; draft: string } | undefined; onEvent(handle: unknown, event: unknown): void; handles: Map<string, { clients: Set<{ readyState: number; OPEN: number; send(payload: string): void }>; queue: Array<{ id: string; mode: "steering" | "followUp"; text: string; images: [] }>; session: { sessionManager: SessionManager; getSteeringMessages(): readonly string[]; getFollowUpMessages(): readonly string[] } }> };
   const handle = service.handles.get(`${workspace.id}:${manager.getSessionId()}`)!;
   assert.equal(service.rollbackEntryId(handle), secondAssistant);
   await assert.rejects(() => agents.rollbackLatest(workspace, manager.getSessionId(), firstAssistant), /Only the latest conversation message/);
@@ -57,6 +57,17 @@ try {
   await agents.restoreRollback(workspace, firstTurnManager.getSessionId());
   const restoredFirstTurn = SessionManager.open(firstTurnManager.getSessionFile()!, sessionDirectory);
   assert.deepEqual(restoredFirstTurn.buildSessionProjection().messages.filter((message) => message.role === "user" || message.role === "assistant").map((message) => message.role === "user" ? message.content : message.content.find((block) => block.type === "text")?.text), ["Only turn", "Only answer"]);
+
+  const snapshotSession = await agents.create(workspace);
+  const snapshotHandle = service.handles.get(`${workspace.id}:${snapshotSession.id}`)!;
+  const sent: string[] = [];
+  snapshotHandle.clients.add({ readyState: 1, OPEN: 1, send: (payload) => sent.push(payload) });
+  const delayedMessage = { role: "user" as const, content: "Visible in the scheduled snapshot", timestamp: 7000 };
+  service.onEvent(snapshotHandle, { type: "message_end", message: delayedMessage });
+  snapshotHandle.session.sessionManager.appendMessage(delayedMessage);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  const scheduledSnapshot = sent.map((payload) => JSON.parse(payload)).findLast((payload) => payload.type === "snapshot");
+  assert.equal(scheduledSnapshot.session.messages.at(-1).content, "Visible in the scheduled snapshot");
   await agents.dispose();
   console.log("session action checks passed");
 } finally {

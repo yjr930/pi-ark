@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const baseURL = process.env.PI_ARK_CHECK_URL;
 const username = process.env.PI_ARK_CHECK_USERNAME || "check";
@@ -16,6 +17,16 @@ await mkdir(filesFixtureDirectory, { recursive: true });
 await writeFile(join(filesFixtureDirectory, "preview.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
 await writeFile(join(filesFixtureDirectory, "oversized.bin"), Buffer.alloc(2 * 1024 * 1024, 1));
 await writeFile(join(filesFixtureDirectory, "报告 (final).txt"), "Unicode download fixture.\n");
+const sessionFixtureDirectory = join(workspacePath, ".pi-ark", "sessions");
+await mkdir(sessionFixtureDirectory, { recursive: true });
+const sessionFixture = SessionManager.create(workspacePath, sessionFixtureDirectory);
+sessionFixture.appendSessionInfo("Browser UI fixture");
+sessionFixture.appendMessage({ role: "user", content: [{ type: "text", text: "Browser folding check" }], timestamp: Date.now() - 4000 });
+sessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Checking the browser fixture" }, { type: "toolCall", id: "browser-read-call", name: "read", arguments: { path: "README.md" } }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 120, output: 30, cacheRead: 10, cacheWrite: 0, totalTokens: 160, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: Date.now() - 3000 });
+sessionFixture.appendMessage({ role: "toolResult", toolCallId: "browser-read-call", toolName: "read", content: [{ type: "text", text: "Browser fixture tool result" }], isError: false, timestamp: Date.now() - 2000 });
+sessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Final browser answer" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 180, output: 45, cacheRead: 20, cacheWrite: 0, totalTokens: 245, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - 1000 });
+const sessionFixturePath = sessionFixture.getSessionFile();
+if (!sessionFixturePath) throw new Error("Cannot create browser Session fixture");
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });
@@ -78,6 +89,10 @@ try {
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByText("Workspaces", { exact: true }).waitFor();
+  const fixtureSessionRow = page.locator(".session-list-item").filter({ hasText: "Browser UI fixture" });
+  await fixtureSessionRow.waitFor();
+  await fixtureSessionRow.locator(".session-open").click();
+  await page.locator(".composer").waitFor();
 
   assert.equal(await page.locator(".sidebar-resizer > button").count(), 1);
   assert.equal(await page.locator(".sidebar-footer, .collapsed-workspace-entry").count(), 0);
@@ -138,6 +153,8 @@ try {
   await page.locator(".workspace-list-item").getByText("Renamed workspace", { exact: true }).waitFor();
 
   await page.locator(".composer .composer-model .ark-select").waitFor();
+  assert.equal(await page.getByTitle("Send").count(), 1);
+  assert.equal(await page.getByTitle("Stop").isDisabled(), true);
   const loadingPage = await page.context().newPage();
   await loadingPage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
     const server = webSocket.connectToServer();
@@ -152,6 +169,62 @@ try {
   await loadingPage.locator(".composer").waitFor();
   assert.equal(await loadingPage.getByRole("status").filter({ hasText: "Loading conversation" }).count(), 0);
   await loadingPage.close();
+  const activePage = await page.context().newPage();
+  let activeSocket;
+  let activeSnapshot;
+  let activeMessages = [
+    ...Array.from({ length: 12 }, (_, index) => [
+      { role: "user", content: [{ type: "text", text: `History question ${index + 1}` }], timestamp: 1000 + index * 200, entryId: `history-user-${index}` },
+      { role: "assistant", content: [{ type: "text", text: `History answer ${index + 1}` }], timestamp: 1100 + index * 200, entryId: `history-answer-${index}` },
+    ]).flat(),
+    { role: "user", content: [{ type: "text", text: "Active browser turn" }], timestamp: 5000, entryId: "active-user" },
+    { role: "assistant", content: [{ type: "text", text: "Reading a file" }, { type: "toolCall", name: "read", arguments: { path: "README.md" } }], timestamp: 5100, entryId: "active-call" },
+    { role: "toolResult", toolName: "read", content: [{ type: "text", text: "Active tool result" }], timestamp: 5200, entryId: "active-result" },
+  ];
+  await activePage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
+    activeSocket = webSocket;
+    const server = webSocket.connectToServer();
+    webSocket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      let payload;
+      try { payload = JSON.parse(String(message)); } catch { webSocket.send(message); return; }
+      if (payload.type !== "snapshot") { webSocket.send(message); return; }
+      payload.session.isStreaming = true;
+      payload.session.isIdle = false;
+      payload.session.messages = activeMessages;
+      payload.session.queue = Array.from({ length: 6 }, (_, index) => ({ id: `active-queue-${index}`, mode: "followUp", text: `Queued follow-up ${index + 1}` }));
+      activeSnapshot = payload;
+      webSocket.send(JSON.stringify(payload));
+    });
+  });
+  await activePage.goto(page.url());
+  const activeRun = activePage.locator(".run-collapse.active");
+  await activeRun.locator(":scope > summary").filter({ hasText: "Running" }).waitFor();
+  assert.equal(await activePage.getByRole("status").filter({ hasText: "Response interrupted" }).count(), 0);
+  assert.equal(await activePage.getByTitle("Send follow-up").count(), 1);
+  const activeStop = activePage.getByTitle("Stop");
+  assert.equal(await activeStop.isEnabled(), true);
+  assert.equal(await activeStop.locator("rect").evaluate((element) => getComputedStyle(element).fill), "rgb(239, 68, 68)");
+  await activePage.locator(".message-queue").waitFor();
+  const activeConversationBox = await activePage.locator(".conversation").boundingBox();
+  const activeComposerBox = await activePage.locator(".composer").boundingBox();
+  assert.ok(activeConversationBox && activeComposerBox && activeConversationBox.y + activeConversationBox.height <= activeComposerBox.y + 1);
+  const activeConversation = activePage.locator(".conversation");
+  await activeConversation.evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")); });
+  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "text", text: "Live output while reading history" }], timestamp: 5300, entryId: "active-output-one" }];
+  activeSnapshot.session.messages = activeMessages;
+  activeSocket.send(JSON.stringify(activeSnapshot));
+  await activePage.getByText("Live output while reading history", { exact: true }).waitFor();
+  await activePage.waitForTimeout(100);
+  assert.ok(await activeConversation.evaluate((element) => element.scrollTop <= 1));
+  await activeConversation.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event("scroll")); });
+  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "text", text: "Live output at the bottom" }], timestamp: 5400, entryId: "active-output-two" }];
+  activeSnapshot.session.messages = activeMessages;
+  activeSocket.send(JSON.stringify(activeSnapshot));
+  await activePage.getByText("Live output at the bottom", { exact: true }).waitFor();
+  await activePage.waitForTimeout(100);
+  assert.ok(await activeConversation.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight <= 1));
+  await activePage.close();
   const interruptedPage = await page.context().newPage();
   await interruptedPage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
     const server = webSocket.connectToServer();
@@ -279,10 +352,11 @@ try {
   assert.equal(new URL(page.url()).searchParams.get("page"), "agent");
   assert.equal(await page.locator(".chat-runtime-bar").count(), 0);
   assert.equal(await page.locator(".composer .composer-thinking .ark-select").count(), 1);
-  await page.locator(".run-collapse > summary").filter({ hasText: "用时" }).waitFor();
   await page.getByText("Final browser answer", { exact: true }).waitFor();
   assert.equal(await page.locator(".message-markdown").filter({ hasText: "Final browser answer" }).count(), 1);
-  const foldedToolTurn = page.locator(".run-collapse");
+  const browserFinalMessage = page.locator(".message").filter({ hasText: "Final browser answer" });
+  const foldedToolTurn = browserFinalMessage.locator("xpath=preceding-sibling::details[contains(@class, 'run-collapse')][1]");
+  await foldedToolTurn.locator(":scope > summary").filter({ hasText: "用时" }).waitFor();
   assert.equal(await foldedToolTurn.getAttribute("open"), null);
   await foldedToolTurn.locator(":scope > summary").click();
   assert.notEqual(await foldedToolTurn.getAttribute("open"), null);
@@ -298,7 +372,11 @@ try {
   assert.equal(await firstToolResult.locator(".tool-activity-content").isVisible(), true);
   await foldedToolTurn.locator(":scope > summary").click();
   const finalFooter = page.locator(".message-footer").last();
-  await finalFooter.getByText("gpt-5.3-codex-spark", { exact: true }).waitFor();
+  await finalFooter.getByText("gpt-5.6-sol", { exact: true }).waitFor();
+  const finalMetrics = await finalFooter.locator(".message-metrics span").allTextContents();
+  assert.ok(finalMetrics.some((metric) => /^Context \d+(?:\.\d+)?%$/.test(metric)));
+  assert.ok(finalMetrics.some((metric) => /^I\/[\d.]+[A-Za-z]* O\/[\d.]+[A-Za-z]*$/.test(metric)));
+  assert.equal(finalMetrics.some((metric) => metric.includes("Input ") || metric.includes("Output ") || /^Context .*\//.test(metric)), false);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseOrigin });
   const footerActionButtons = finalFooter.locator(".message-actions button");
   assert.deepEqual(await footerActionButtons.allTextContents(), Array(await footerActionButtons.count()).fill(""));
@@ -327,7 +405,7 @@ try {
   await page.locator(".archived-sessions").waitFor();
   await page.getByRole("button", { name: "Hide archived sessions" }).click();
   assert.equal(await page.locator(".archived-sessions").count(), 0);
-  const finalMessage = page.locator(".message").filter({ hasText: "Final browser answer" });
+  const finalMessage = browserFinalMessage;
   const latestUserMessage = page.locator(".message.message-user").filter({ hasText: "Browser folding check" });
   const rollbackButtonCount = await page.getByRole("button", { name: "Roll back latest message" }).count();
   assert.equal(rollbackButtonCount, 1);
@@ -595,4 +673,5 @@ try {
 } finally {
   await browser.close();
   await rm(filesFixtureDirectory, { recursive: true, force: true });
+  await rm(sessionFixturePath, { force: true });
 }
