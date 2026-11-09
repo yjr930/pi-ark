@@ -1,8 +1,8 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, Save, Settings2, SlidersHorizontal, Wrench } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Settings2, SlidersHorizontal, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { applyTheme, themes } from "../theme";
-import type { GlobalSettings, ModelOption, PiCoreInfo, SubscriptionAuthFlow, ThemeId, Workspace, WorkspaceSettings } from "../types";
+import type { GlobalSettings, ModelOption, ReleaseInfo, SubscriptionAuthFlow, ThemeId, Workspace, WorkspaceSettings } from "../types";
 import { Select } from "./Select";
 import { SubscriptionLogin } from "./SubscriptionLogin";
 
@@ -32,10 +32,11 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
   const [global, setGlobal] = useState<GlobalSettings | null>(null);
   const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceSettings | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [piCore, setPiCore] = useState<PiCoreInfo | null>(null);
-  const [coreChecking, setCoreChecking] = useState(false);
-  const [coreUpdating, setCoreUpdating] = useState(false);
-  const [coreUpdateOpen, setCoreUpdateOpen] = useState(false);
+  const [release, setRelease] = useState<ReleaseInfo | null>(null);
+  const [releaseChecking, setReleaseChecking] = useState(false);
+  const [releaseUpdating, setReleaseUpdating] = useState(false);
+  const [releaseUpdateOpen, setReleaseUpdateOpen] = useState(false);
+  const [releaseRollbackOpen, setReleaseRollbackOpen] = useState(false);
   const [globalSystemPrompt, setGlobalSystemPrompt] = useState({ content: "", systemPromptPath: "", appendSystemPromptPath: "" });
   const [promptRefreshing, setPromptRefreshing] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -49,8 +50,8 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
   useEffect(() => {
     setLoading(true); setNotice(null);
     if (!workspace && tab === "workspace") setTab("global");
-    Promise.all([api.globalSettings(), workspace ? api.workspaceSettings(workspace.id) : Promise.resolve(null), api.globalSystemPrompt(workspace?.id), api.piCoreInfo()]).then(async ([globalResult, workspaceResult, promptPreview, coreInfo]) => {
-      setGlobal(globalResult); setWorkspaceSettings(workspaceResult); setGlobalSystemPrompt(promptPreview); setPiCore(coreInfo); applyTheme(globalResult.theme);
+    Promise.all([api.globalSettings(), workspace ? api.workspaceSettings(workspace.id) : Promise.resolve(null), api.globalSystemPrompt(workspace?.id), api.releaseInfo()]).then(async ([globalResult, workspaceResult, promptPreview, releaseInfo]) => {
+      setGlobal(globalResult); setWorkspaceSettings(workspaceResult); setGlobalSystemPrompt(promptPreview); setRelease(releaseInfo); applyTheme(globalResult.theme);
       setSubscriptionMode(Boolean(globalResult.providers.find((provider) => provider.id === globalResult.provider)?.usingSubscription));
       setModels((await api.providerModels(globalResult.provider)).models);
     }).catch((reason) => setNotice({ kind: "error", text: reason.message })).finally(() => setLoading(false));
@@ -133,21 +134,31 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
     } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save global settings" }); } finally { setSaving(false); }
   }
 
-  async function checkPiCoreUpdate() {
-    setCoreChecking(true); setNotice(null);
-    try { setPiCore(await api.piCoreInfo(true)); }
-    catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot check for pi core updates" }); }
-    finally { setCoreChecking(false); }
+  async function checkReleaseUpdate() {
+    setReleaseChecking(true); setNotice(null);
+    try { setRelease(await api.releaseInfo(true)); }
+    catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot check for Pi-Ark updates" }); }
+    finally { setReleaseChecking(false); }
   }
 
-  async function updatePiCore() {
-    setCoreUpdating(true); setNotice(null);
+  async function updateRelease() {
+    setReleaseUpdating(true); setNotice(null);
     try {
-      const result = await api.updatePiCore();
-      setPiCore(result); setCoreUpdateOpen(false);
-      setNotice({ kind: "success", text: result.restartScheduled ? `Pi core updated to ${result.version}. Pi-Ark will restart in ${result.restartDelaySeconds} seconds.` : `Pi core ${result.version} is already current.` });
-    } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot update pi core" }); }
-    finally { setCoreUpdating(false); }
+      const result = await api.updateRelease();
+      setRelease(result); setReleaseUpdateOpen(false);
+      setNotice({ kind: "success", text: `Pi-Ark update is ready. The service will restart in ${result.restartDelaySeconds} seconds.` });
+    } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot update Pi-Ark" }); }
+    finally { setReleaseUpdating(false); }
+  }
+
+  async function rollbackRelease() {
+    setReleaseUpdating(true); setNotice(null);
+    try {
+      const result = await api.rollbackRelease();
+      setRelease(result); setReleaseRollbackOpen(false);
+      setNotice({ kind: "success", text: `Pi-Ark rollback is ready. The service will restart in ${result.restartDelaySeconds} seconds.` });
+    } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot roll back Pi-Ark" }); }
+    finally { setReleaseUpdating(false); }
   }
 
   async function refreshGlobalPrompt() {
@@ -208,13 +219,15 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
         <button className={tab === "workspace" ? "active" : ""} disabled={!workspace} onClick={() => { setTab("workspace"); setNotice(null); }}><SlidersHorizontal size={16} /><span>Workspace</span><small>{workspace?.name || "No workspace"}</small></button>
       </div>
       <main className="settings-content">
-        <div className="settings-scope"><span>{tab === "global" ? "Global configuration" : "Workspace configuration"}</span><code>{tab === "global" ? `${piCore?.agentDir || "PI_ARK_HOME/pi-agent"}/settings.json + ~/.pi-ark/config.json` : `${workspace?.path || "No workspace"}/.pi-ark/config.json`}</code></div>
+        <div className="settings-scope"><span>{tab === "global" ? "Global configuration" : "Workspace configuration"}</span><code>{tab === "global" ? `${release?.agentDir || "PI_ARK_HOME/pi-agent"}/settings.json + PI_ARK_HOME/config.json` : `${workspace?.path || "No workspace"}/.pi-ark/config.json`}</code></div>
         {notice && <div className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={16} /> : <CircleAlert size={16} />}{notice.text}</div>}
         {tab === "global" && global && <>
+          <div className="settings-category-title"><span>Interface</span><p>Visual preferences shared by this Pi-Ark service.</p></div>
           <section className="settings-section">
             <div className="settings-section-title"><Palette size={17} /><div><h3>Appearance</h3><p>Theme shared by every workspace and device using this service.</p></div></div>
             {(["dark", "light"] as const).map((group) => <div className="theme-group" key={group}><h4>{group === "dark" ? "Dark" : "Light"}</h4><div className="theme-options">{themes.filter((theme) => theme.group === group).map((theme) => <button type="button" className={global.theme === theme.id ? "selected" : ""} onClick={() => selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><span><strong>{theme.name}</strong><small>{theme.description}</small></span>{global.theme === theme.id && <Check size={14} />}</button>)}</div></div>)}
           </section>
+          <div className="settings-category-title"><span>AI runtime</span><p>Provider credentials and defaults for new sessions.</p></div>
           <section className="settings-section">
             <div className="settings-section-title"><Cpu size={17} /><div><h3>Provider and model</h3><p>Default AI connection for new sessions in every workspace.</p></div></div>
             <div className="settings-grid settings-grid-three">
@@ -227,11 +240,14 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
             {selectedProvider?.supportsSubscription && subscriptionMode && <SubscriptionLogin provider={selectedProvider} flow={subscriptionFlow} busy={subscriptionBusy} onStart={() => void startSubscriptionLogin()} onAnswer={answerSubscriptionLogin} onCancel={() => void cancelSubscriptionLogin()} />}
             {!subscriptionMode && <label className="settings-field settings-api-key"><span><KeyRound size={14} />API key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={selectedProvider?.configured ? "Leave empty to keep the current credential" : "Enter an API key"} /><small>Write-only. Saved by pi in its global credential store and never returned to the browser.</small></label>}
           </section>
-          {piCore && <section className="settings-section pi-core-section">
-            <div className="settings-section-title"><PackageOpen size={17} /><div><h3>Pi core</h3><p>The pi SDK and agent data used only by this Pi-Ark service.</p></div></div>
-            <div className="pi-core-details"><div><span>Current version</span><strong>{piCore.version}</strong></div>{piCore.latestVersion && <div><span>Latest version</span><strong>{piCore.latestVersion}</strong></div>}<div className="path"><span>Core package path</span><code>{piCore.corePath}</code></div><div className="path"><span>Pi-Ark agent data</span><code>{piCore.agentDir}</code></div></div>
-            <div className="pi-core-actions"><button type="button" className="secondary-button" disabled={coreChecking || coreUpdating} onClick={() => void checkPiCoreUpdate()}>{coreChecking ? <LoaderCircle size={14} /> : <RefreshCw size={14} />}Check for updates</button>{piCore.latestVersion && piCore.updateAvailable && <button type="button" className="primary-button" disabled={coreUpdating} onClick={() => setCoreUpdateOpen(true)}><Download size={14} />Update to {piCore.latestVersion}</button>}{piCore.latestVersion && !piCore.updateAvailable && <span className="pi-core-current"><Check size={13} />Up to date</span>}</div>
+          <div className="settings-category-title"><span>Installation and maintenance</span><p>Release status, paths, updates, rollback, logs, and service commands.</p></div>
+          {release && <section className="settings-section pi-core-section">
+            <div className="settings-section-title"><PackageOpen size={17} /><div><h3>Pi-Ark release</h3><p>Pi-Ark and its bundled, compatible pi core are updated together.</p></div></div>
+            <div className="pi-core-details"><div><span>Pi-Ark version</span><strong>{release.version}</strong></div><div><span>Bundled pi core</span><strong>{release.coreVersion}</strong></div><div><span>Install mode</span><strong>{release.installedRelease ? `Release · ${release.channel}` : "Development checkout"}</strong></div>{release.latestVersion && <div><span>Latest release</span><strong>{release.latestVersion}</strong></div>}{release.previousVersion && <div><span>Previous release</span><strong>{release.previousVersion}</strong></div>}<div className="path"><span>Install path</span><code>{release.installPath}</code></div><div className="path"><span>Data path</span><code>{release.dataDir}</code></div><div className="path"><span>Pi-Ark agent data</span><code>{release.agentDir}</code></div><div className="path"><span>Pi core package</span><code>{release.corePath}</code></div></div>
+            <div className="maintenance-commands"><span>Service management commands</span>{Object.entries(release.commands).map(([name, command]) => <div key={name}><strong>{name}</strong><code>{command}</code></div>)}</div>
+            <div className="pi-core-actions"><button type="button" className="secondary-button" disabled={releaseChecking || releaseUpdating} onClick={() => void checkReleaseUpdate()}>{releaseChecking ? <LoaderCircle size={14} /> : <RefreshCw size={14} />}Check for updates</button>{release.rollbackAvailable && <button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseRollbackOpen(true)}><RotateCcw size={14} />Roll back</button>}{release.latestVersion && release.updateAvailable && <button type="button" className="primary-button" disabled={releaseUpdating || !release.installedRelease} onClick={() => setReleaseUpdateOpen(true)}><Download size={14} />Update to {release.latestVersion}</button>}{release.latestVersion && !release.updateAvailable && <span className="pi-core-current"><Check size={13} />Up to date</span>}</div>
           </section>}
+          <div className="settings-category-title"><span>Agent instructions and behavior</span><p>Effective system prompt and shared conversation defaults.</p></div>
           <section className="settings-section">
             <div className="settings-section-title"><MessageSquareText size={17} /><div><h3>System prompt</h3><p>View the effective prompt generated by Pi-Ark's pi core. Edit the optional files on the server, then refresh this preview.</p></div></div>
             <div className="prompt-file-guide"><div><FileText size={15} /><span><strong>Optional replacement file</strong><code>{globalSystemPrompt.systemPromptPath}</code></span></div><div><FileText size={15} /><span><strong>Optional append file</strong><code>{globalSystemPrompt.appendSystemPromptPath}</code></span></div><p>The preview below is the complete effective prompt generated by pi. It includes built-in instructions, tools, context files, skills, and the current workspace path; it is not the raw content of these optional files.</p></div>
@@ -249,6 +265,7 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
             </div>
           </section>
           <div className="settings-actions"><button className="primary-button" disabled={saving || !global.provider || !global.model} onClick={() => void saveGlobal()}>{saving ? <LoaderCircle size={15} /> : <Save size={15} />}Save global settings</button></div>
+          <div className="settings-category-title"><span>Account and security</span><p>Current browser authentication session.</p></div>
           <section className="settings-section account-section">
             <div className="settings-section-title"><LogOut size={17} /><div><h3>Account</h3><p>End the current Pi-Ark browser session.</p></div></div>
             <button className="secondary-button account-signout" onClick={async () => { await api.logout(); window.location.reload(); }}><LogOut size={15} />Sign out</button>
@@ -272,6 +289,7 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
         </>}
       </main>
     </div>
-    {coreUpdateOpen && piCore && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !coreUpdating) setCoreUpdateOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="pi-core-update-title"><div className="dialog-header no-close"><div className="dialog-icon"><Download size={18} /></div><div><h2 id="pi-core-update-title">Update Pi core?</h2><p>Pi-Ark will update pi-coding-agent and pi-ai from {piCore.version} to {piCore.latestVersion}, check and rebuild the server, then restart the Pi-Ark service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={coreUpdating} onClick={() => setCoreUpdateOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={coreUpdating} onClick={() => void updatePiCore()}>{coreUpdating ? <LoaderCircle size={14} /> : <Download size={14} />}Update core</button></div></div></div>}
+    {releaseUpdateOpen && release && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !releaseUpdating) setReleaseUpdateOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="release-update-title"><div className="dialog-header no-close"><div className="dialog-icon"><Download size={18} /></div><div><h2 id="release-update-title">Update Pi-Ark?</h2><p>Pi-Ark will install release {release.latestVersion}, switch the current release atomically, preserve this data directory, and restart the service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseUpdateOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={releaseUpdating} onClick={() => void updateRelease()}>{releaseUpdating ? <LoaderCircle size={14} /> : <Download size={14} />}Update Pi-Ark</button></div></div></div>}
+    {releaseRollbackOpen && release && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !releaseUpdating) setReleaseRollbackOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="release-rollback-title"><div className="dialog-header no-close"><div className="dialog-icon"><RotateCcw size={18} /></div><div><h2 id="release-rollback-title">Roll back Pi-Ark?</h2><p>Pi-Ark will switch from {release.version} to {release.previousVersion}, preserve this data directory, and restart the service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseRollbackOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={releaseUpdating} onClick={() => void rollbackRelease()}>{releaseUpdating ? <LoaderCircle size={14} /> : <RotateCcw size={14} />}Roll back</button></div></div></div>}
   </section>;
 }

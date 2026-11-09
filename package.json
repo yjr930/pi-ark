@@ -16,6 +16,8 @@
     "check": "npm run check -w @pi-ark/web && npm run check -w @pi-ark/server",
     "check:behavior": "tsx scripts/check-conversation.ts && tsx scripts/check-attachments.ts && tsx scripts/check-auth-flow.ts && tsx scripts/check-session-actions.ts && tsx scripts/check-system-prompt.ts",
     "check:ui": "node scripts/check-ui.mjs",
+    "release:build": "node scripts/build-release.mjs",
+    "release:install": "node scripts/install-release.mjs",
     "start": "npm run start -w @pi-ark/server",
     "setup": "node scripts/setup.mjs"
   },

@@ -25,7 +25,7 @@ Fastify server
   ├─ AgentService
   │   └─ @earendil-works/pi-coding-agent
   ├─ SettingsService and AuthFlowService
-  ├─ PiCoreService
+  ├─ Release manager
   ├─ Session metadata store
   ├─ Attachment service
   ├─ File and image service
@@ -56,7 +56,7 @@ docs/               产品、架构、使用和集成文档
 2. 将 `PI_CODING_AGENT_DIR` 指向该专用目录，使 pi SDK 使用相同的 settings、credential 和 resource files。
 3. 读取 Global config 与 TLS key/certificate。
 4. 创建 HTTPS Fastify service；HTTP request body 上限为 1 MB，WebSocket payload 上限为 28 MB。
-5. 创建 Auth、Workspace、Settings、Pi core、OAuth flow 和 Agent services。
+5. 创建 Auth、Workspace、Settings、Pi-Ark release、OAuth flow 和 Agent services。
 6. 注册 HTTP routes、Agent WebSocket 和 Terminal WebSocket。
 7. 注册静态 Web asset fallback。
 8. 监听配置的 HTTPS 地址。
@@ -76,7 +76,7 @@ docs/               产品、架构、使用和集成文档
 | Session metadata | `apps/server/src/session-metadata.ts` | Pin、Archive、group 和串行原子写入 |
 | Global settings | `apps/server/src/settings.ts` | Provider、model、thinking、queue、compaction、retry 和 credential login |
 | OAuth flow | `apps/server/src/auth-flows.ts` | Subscription login 的事件、prompt、answer 和 cancel 状态 |
-| Pi core | `apps/server/src/pi-core.ts` | 版本信息、npm update、check/build 和延迟重启 |
+| Pi-Ark release | `apps/server/src/pi-core.ts` | Pi-Ark 与 bundled pi core 版本信息、GitHub Releases 查询、完整 release 更新、回退和延迟重启 |
 | Terminal | `apps/server/src/terminal.ts` | node-pty、input/output、resize 和 process exit |
 
 ## Web 模块
@@ -91,7 +91,7 @@ docs/               产品、架构、使用和集成文档
 | Files | `apps/web/src/components/Files.tsx` | 目录导航、文本阅读和 Markdown image path |
 | Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示 |
 | Terminal | `apps/web/src/components/Terminal.tsx` | xterm.js、FitAddon 和 Terminal WebSocket |
-| Settings | `apps/web/src/components/Settings.tsx` | Global/Workspace settings、prompt preview、OAuth 和 Pi core update |
+| Settings | `apps/web/src/components/Settings.tsx` | 分类展示 Global/Workspace settings、prompt preview、OAuth、release update/rollback 和 service commands |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
 | Permalinks | `apps/web/src/permalinks.ts` | Browser URL 与 `pi-ark://` link 的生成和解析 |
 | Theme | `apps/web/src/theme.ts` | Theme metadata、应用和本地初始化 |
@@ -288,17 +288,21 @@ Workspace config schema version 是 4，system prompt 字段为：
 }
 ```
 
-### Pi core update
+### Pi-Ark release 管理
 
-PiCoreService 从实际 resolved package path 读取当前版本，并通过 npm 查询最新版本。更新流程如下：
+Release manager 从 release 目录的 `RELEASE.json` 读取 Pi-Ark 与 bundled pi core 版本，并通过 GitHub Releases API 查询 stable channel。开发 checkout 没有 `RELEASE.json`，因此只提供版本和路径信息。
 
-1. 备份 Server package manifest 和 lockfile 内容。
-2. 使用 npm workspace 安装相同版本的 `pi-coding-agent` 和 `pi-ai`。
-3. 执行 Server TypeScript check。
-4. 构建 Server。
-5. 使用 `systemd-run` 在 5 秒后重启 `pi-ark.service`。
+`pi-ark update` 执行以下流程：
 
-失败时恢复 manifest 与 lockfile，并重新安装依赖。
+1. 查询 GitHub 的 latest release，并选择当前 Linux architecture 对应的 artifact。
+2. 下载并解压到临时目录。
+3. 检查 `RELEASE.json`、必要的 Server/Web 文件、pi SDK import 和 node-pty native module。
+4. 将 release 复制到 `/opt/pi-ark/releases/<version>`。
+5. 保存当前 release 为 `previous`，再通过临时 symlink rename 原子切换 `current`。
+6. Web update API 在返回响应后退出服务进程；systemd 根据 `Restart=always` 从新的 `current` 启动。
+7. CLI service supervisor 请求新进程的 `/api/health`；30 秒内无法通过时，它恢复 previous release，并让 systemd 再次启动。
+
+`pi-ark rollback` 对调 `current` 与 `previous`，并使用相同的延迟重启流程。Global data 和 Workspace data 位于 release 目录之外，因此更新与回退不会改写这些数据。
 
 ## 数据存储
 
@@ -363,8 +367,9 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 | GET | `/api/settings/models` | Provider model list |
 | GET | `/api/settings/session-models` | 当前可用 Session models |
 | GET | `/api/settings/system-prompt` | Effective prompt preview |
-| GET | `/api/settings/pi-core` | Core info 和 latest check |
-| POST | `/api/settings/pi-core/update` | Core update |
+| GET | `/api/settings/release` | Pi-Ark、bundled pi core、安装状态、路径、命令和 latest release |
+| POST | `/api/settings/release/update` | 安装并切换到 latest Pi-Ark release |
+| POST | `/api/settings/release/rollback` | 切换到 previous Pi-Ark release |
 | POST/GET/DELETE | `/api/settings/subscription-logins...` | OAuth flow start、poll 和 cancel |
 | POST | `/api/settings/subscription-logins/:flowId/answer` | OAuth prompt answer |
 
@@ -409,6 +414,27 @@ Path：`/ws/terminal/:workspaceId`
 
 Browser messages：`input` 和 `resize`。Server messages：`output`、`exit` 和 `error`。
 
+## Release 构建与安装
+
+`npm run release:build` 生成 `pi-ark-<version>-linux-<architecture>.tar.gz`。Artifact 包含编译后的 Server/Web、production dependencies、native node-pty、CLI、installer 和 `RELEASE.json`。GitHub Actions 分别在 Linux x64 与 arm64 runner 上构建 architecture-specific artifact，并将 tag 对应的 artifact 发布到 GitHub Releases。
+
+System installer 使用以下布局：
+
+```text
+/opt/pi-ark/
+  current -> releases/<version>
+  previous -> releases/<previous-version>
+  releases/<version>/
+/var/lib/pi-ark/
+  config.json
+  tls/
+  pi-agent/
+/etc/systemd/system/pi-ark.service
+/usr/local/bin/pi-ark
+```
+
+Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。systemd 在每次启动前执行 release preflight，并从 `current` 运行 CLI 的 `serve` 命令。
+
 ## Static assets 与 URL fallback
 
 Server 从 `apps/web/dist` 读取 Web assets。带 hash 的文件使用一年 immutable cache，其他文件使用 `no-cache`。不存在扩展名的路径返回 `index.html`，支持浏览器页面刷新；不存在的带扩展名路径返回 404。
@@ -433,6 +459,7 @@ npm run build
 npm run check
 npm run check:behavior
 npm run check:ui
+npm run release:build
 ```
 
 Behavior scripts 覆盖 conversation segmentation、attachments、OAuth flow、Session actions 和 system prompt。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、loading snapshot、tool details 和 interrupted warning。

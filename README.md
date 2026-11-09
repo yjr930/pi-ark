@@ -8,7 +8,7 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 - 管理多个服务器 Workspace，并将 Session、metadata 和附件保存在 Workspace 的 `.pi-ark` 目录中。
 - 提供 Files、共享的安全 Markdown renderer、相对图片和 image lightbox。
 - 通过 xterm.js 和 node-pty 提供以 Workspace 为 cwd 的浏览器 Terminal。
-- 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、pi core update、system prompt preview 和 Workspace tools。
+- 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、Pi-Ark release update/rollback、system prompt preview 和 Workspace tools。
 - 提供桌面可调整侧栏、移动端 drawer、五种 theme、Session group、permalink 和内部链接。
 - 使用 HTTPS、scrypt password、Secure cookie 和服务端 Workspace path guard。
 
@@ -23,32 +23,28 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 
 ## 快速开始
 
+从 GitHub Releases 下载与服务器 architecture 对应的 artifact，然后执行：
+
 ```bash
-npm install
-npm run setup -- \
+tar -xzf pi-ark-<version>-linux-<architecture>.tar.gz
+cd pi-ark-<version>-linux-<architecture>
+sudo node scripts/install-release.mjs --no-start
+sudo -u pi-ark env PI_ARK_HOME=/var/lib/pi-ark /opt/pi-ark/current/scripts/pi-ark.mjs setup \
   --username ark \
   --password 'choose-a-password' \
   --workspace /absolute/path/to/workspace
-npm run build
-npm start
+sudo systemctl enable --now pi-ark.service
 ```
 
-Setup 默认在 `~/.pi-ark/` 中创建 Global config 和自签名 TLS certificate，并在 `https://127.0.0.1:31415` 提供服务。浏览器首次访问时需要确认自签名 certificate。
+Installer 默认使用不可变的 `/opt/pi-ark/releases/<version>`、`/opt/pi-ark/current`、`/var/lib/pi-ark` 和专用的 `pi-ark` service account。现有安装可以通过 `--migrate-data <path>` 迁移 Global data。
 
-使用其他 data directory：
-
-```bash
-PI_ARK_HOME=/path/to/pi-ark-data npm run setup -- \
-  --username ark \
-  --password 'choose-a-password' \
-  --workspace /absolute/path/to/workspace
-```
-
-`PI_ARK_AGENT_DIR` 可以单独修改 Pi-Ark 专用的 pi agent data directory；默认位置是 `PI_ARK_HOME/pi-agent`。
+Setup 创建 Global config 和自签名 TLS certificate，并默认在 `https://127.0.0.1:31415` 提供服务。`PI_ARK_AGENT_DIR` 可以单独修改 Pi-Ark 专用的 pi agent data directory；默认位置是 `PI_ARK_HOME/pi-agent`。
 
 ## 开发
 
 ```bash
+npm install
+npm run setup -- --username ark --password 'choose-a-password' --workspace /absolute/path/to/workspace
 npm run dev
 ```
 
@@ -61,6 +57,7 @@ npm run build
 npm run check
 npm run check:behavior
 npm run check:ui
+npm run release:build
 npm start
 ```
 
@@ -73,6 +70,16 @@ pi-ark password
 ```
 
 `pi-ark passwd` 是同一命令的简写。自动化环境可以使用 `PI_ARK_NEW_PASSWORD`，`--no-restart` 可以延后服务重启。
+
+Release 安装还提供以下命令：
+
+```bash
+pi-ark update
+pi-ark rollback
+pi-ark status
+pi-ark logs
+pi-ark restart
+```
 
 ## 数据位置
 

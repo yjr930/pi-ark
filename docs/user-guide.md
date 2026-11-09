@@ -11,20 +11,29 @@
 
 ## 安装与初始化
 
-安装依赖：
+从 GitHub Releases 下载与服务器 architecture 对应的 artifact（Linux x64 或 Linux arm64），然后执行：
 
 ```bash
-npm install
-```
-
-创建配置、登录密码、自签名 TLS 证书和初始 Workspace：
-
-```bash
-npm run setup -- \
+tar -xzf pi-ark-<version>-linux-<architecture>.tar.gz
+cd pi-ark-<version>-linux-<architecture>
+sudo node scripts/install-release.mjs --no-start
+sudo -u pi-ark env PI_ARK_HOME=/var/lib/pi-ark /opt/pi-ark/current/scripts/pi-ark.mjs setup \
   --username ark \
   --password 'choose-a-password' \
   --workspace /absolute/path/to/workspace
+sudo systemctl enable --now pi-ark.service
 ```
+
+Installer 创建以下运行结构：
+
+```text
+/opt/pi-ark/current -> /opt/pi-ark/releases/<version>
+/var/lib/pi-ark/
+/etc/systemd/system/pi-ark.service
+/usr/local/bin/pi-ark
+```
+
+现有安装可以通过 `sudo node scripts/install-release.mjs --migrate-data /path/to/existing-data` 复制 Global config、TLS 和 pi agent data。Installer 默认创建专用的 `pi-ark` service account；所有已注册的 Workspace 都需要允许该账号访问。
 
 初始化命令支持以下参数：
 
@@ -40,20 +49,15 @@ npm run setup -- \
 
 `PI_ARK_HOME` 可以修改 Pi-Ark data directory，默认位置是 `~/.pi-ark`。`PI_ARK_AGENT_DIR` 可以修改 Pi-Ark 专用的 pi agent data directory，默认位置是 `PI_ARK_HOME/pi-agent`。
 
-构建并启动：
-
-```bash
-npm run build
-npm start
-```
-
 浏览器打开初始化命令输出的 HTTPS 地址。使用自签名证书时，首次访问需要在浏览器中确认该证书。
 
 ## 开发模式
 
-完成初始化后运行：
+从 source checkout 开发时运行：
 
 ```bash
+npm install
+npm run setup -- --username ark --password 'choose-a-password' --workspace /absolute/path/to/workspace
 npm run dev
 ```
 
@@ -66,6 +70,7 @@ npm run build
 npm run check
 npm run check:behavior
 npm run check:ui
+npm run release:build
 npm start
 ```
 
@@ -275,15 +280,19 @@ API key 输入是 write-only。已经保存的 credential 不会返回浏览器�
 
 支持 subscription OAuth 的 Provider 会显示 Use subscription account。登录区可能显示授权链接、device code、文本输入、选择项或进度。Device code 可以使用旁边的 Copy 按钮复制。
 
-### Global → Pi core
+### Global → Installation and maintenance
 
-Check for updates 查询 pi core 的最新版本。发现更新后，Update core 会执行以下操作：
+Pi-Ark release 区域显示以下信息：
 
-1. 更新 `pi-coding-agent` 和 `pi-ai`。
-2. 检查并构建 server。
-3. 安排 `pi-ark.service` 延迟重启。
+- Pi-Ark version 与 bundled pi core version。
+- Release 或 development checkout 的 install mode。
+- Stable update channel、latest release 和 previous release。
+- Install path、Global data path、Pi-Ark agent data path 和 pi core package path。
+- Update、rollback、status、logs 和 restart 命令。
 
-更新期间应保存当前输入，并预期现有连接在服务重启时断开。
+Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-Ark 下载当前 Linux architecture 的完整 artifact，在安装前运行 dependency preflight，保留当前 release 为 `previous`，原子切换 `current`，然后重启 service。Roll back 将 `current` 与 `previous` 对调。两个操作都保留 Global data 与 Workspace data。
+
+Development checkout 会显示版本、路径和运维命令。Update Pi-Ark 需要从 release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开。
 
 ### Global → System prompt
 
@@ -330,6 +339,18 @@ Show hidden files 控制普通 dotfile 是否进入 Files 列表。
 - 最近应用的 theme。
 
 移动端通过顶部菜单按钮打开 drawer sidebar。
+
+## Service 管理与 release 更新
+
+```bash
+pi-ark status
+pi-ark logs
+pi-ark restart
+pi-ark update
+pi-ark rollback
+```
+
+`status` 显示 systemd service 状态，`logs` 持续显示 service journal，`restart` 重启 service。`update` 安装 GitHub latest release，`rollback` 恢复 previous release。
 
 ## 数据位置与备份
 

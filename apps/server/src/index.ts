@@ -83,8 +83,9 @@ app.delete<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId", 
   return reply.code(204).send();
 });
 app.get("/api/settings/global", async () => settings.getGlobal());
-app.get<{ Querystring: { latest?: string } }>("/api/settings/pi-core", async (request) => piCore.info(request.query.latest === "true"));
-app.post("/api/settings/pi-core/update", async () => piCore.update());
+app.get<{ Querystring: { latest?: string } }>("/api/settings/release", async (request) => piCore.info(request.query.latest === "true"));
+app.post("/api/settings/release/update", async () => piCore.update());
+app.post("/api/settings/release/rollback", async () => piCore.rollback());
 app.get<{ Querystring: { provider: string } }>("/api/settings/models", async (request) => ({ models: settings.getModels(request.query.provider) }));
 app.get("/api/settings/session-models", async () => ({ models: settings.getSessionModels() }));
 app.post<{ Body: { providerId: string } }>("/api/settings/subscription-logins", async (request, reply) => reply.code(201).send(authFlows.start(request.body?.providerId)));

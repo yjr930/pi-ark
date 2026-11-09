@@ -134,16 +134,24 @@ export interface SessionModelOption extends Omit<ModelOption, "input"> {
 
 export type ThemeId = "ark-dark" | "graphite" | "midnight" | "paper" | "snow";
 
-export interface PiCoreInfo {
-  agentDir: string;
-  corePath: string;
+export interface ReleaseInfo {
   version: string;
+  coreVersion: string;
+  corePath: string;
+  agentDir: string;
+  dataDir: string;
+  installPath: string;
+  installedRelease: boolean;
+  channel: string;
   latestVersion?: string;
+  latestUrl?: string;
   updateAvailable: boolean;
   updating: boolean;
   previousVersion?: string;
+  rollbackAvailable: boolean;
   restartScheduled?: boolean;
   restartDelaySeconds?: number;
+  commands: { update: string; rollback: string; status: string; logs: string; restart: string };
 }
 
 export interface GlobalSettings {

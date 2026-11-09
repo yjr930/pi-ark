@@ -90,9 +90,11 @@ Fork 使用单独打开的 SessionManager，避免 Fork 操作改变当前 Sessi
 
 Rollback 使用 SessionManager tree navigation，目标是最后一条完整 user turn 之前的 parent entry。原 leaf 和 user text 存入 custom marker；Restore 根据 marker 回到原 leaf。该方案不修改 Workspace 文件，也不删除原 branch。
 
-## 版本更新
+## 版本与 release 更新
 
-Pi core update 同时更新相同版本的 `@earendil-works/pi-coding-agent` 和 `@earendil-works/pi-ai`。更新后执行 Server TypeScript check 和 build，再通过 systemd timer 安排服务重启。
+Pi-Ark `0.1.0` 当前将 `@earendil-works/pi-coding-agent` 和 `@earendil-works/pi-ai` 固定为 `1.5.0`。两者作为同一个 Pi-Ark release 的 production dependencies 构建和检查，运行中的安装不会单独修改 pi SDK package。
+
+GitHub Releases 为 Linux x64 和 arm64 分别提供包含 native node-pty 的 artifact。Pi-Ark update 下载完整 artifact，检查 release metadata 与 runtime imports，然后通过 `current` symlink 切换版本。Previous release 继续保留，供 rollback 使用。该方式使 Pi-Ark 代码、Web assets 和 pi SDK 使用同一套已检查的版本组合。
 
 ## 参考资料
 

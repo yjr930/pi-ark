@@ -151,16 +151,17 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限。Workspace 是启动�
 
 ### Global
 
-Global configuration 对所有 Workspace 生效，包含以下区域：
+Global configuration 对所有 Workspace 生效，并使用以下主题分类：
 
-- Appearance：Ark Dark、Graphite、Midnight、Paper 和 Snow。
-- Provider and model：provider、default model、model-specific thinking level、write-only API key 和可用的 subscription login。
-- Pi core：当前版本、package path、Pi-Ark agent data path、版本检查和更新确认。
-- System prompt：可选 replacement/append 文件路径和 effective prompt preview。
-- Agent defaults：Steering、Follow-up、automatic compaction 和 automatic retry。
-- Account：Sign out。
+- Interface：Appearance，包含 Ark Dark、Graphite、Midnight、Paper 和 Snow。
+- AI runtime：Provider and model，包含 provider、default model、model-specific thinking level、write-only API key 和可用的 subscription login。
+- Installation and maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及 status/logs/restart 等 service commands。
+- Agent instructions and behavior：System prompt 和 Agent defaults，包含可选 replacement/append 文件路径、effective prompt preview、Steering、Follow-up、automatic compaction 和 automatic retry。
+- Account and security：Sign out。
 
 Theme 在选择时立即预览，保存 Global settings 后写入服务配置。API key 和 OAuth credential 由 pi 保存，浏览器不会读取已经保存的 credential 内容。
+
+Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent 和 pi-ai。更新过程保留 Global data 与 Workspace data，将 `current` symlink 切换到新 release，并在延迟重启前保留上一 release。Roll back 将 `current` 和 `previous` 对调。开发 checkout 会显示安装状态和版本信息，但页面不会执行 release update。
 
 ### Workspace
 

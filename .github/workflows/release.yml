@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            architecture: x64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run check:behavior
+      - run: npm run build
+      - run: PI_ARK_SKIP_BUILD=1 PI_ARK_TARGET_ARCH=${{ matrix.architecture }} npm run release:build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-ark-linux-${{ matrix.architecture }}
+          path: dist/release/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
+          generate_release_notes: true

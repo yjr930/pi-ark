@@ -22,10 +22,10 @@ async function assertDialogChrome(dialog, { input = false } = {}) {
   if (input) assert.equal((await dialog.locator("input").first().boundingBox()).height, 36);
 }
 
-await page.route("**/api/settings/pi-core?latest=true", async (route) => {
+await page.route("**/api/settings/release?latest=true", async (route) => {
   const response = await route.fetch();
   const info = await response.json();
-  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...info, latestVersion: "99.0.0", updateAvailable: true }) });
+  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...info, installedRelease: true, latestVersion: "99.0.0", updateAvailable: true }) });
 });
 await page.route("**/api/settings/subscription-logins**", async (route) => {
   const request = route.request();
@@ -341,7 +341,7 @@ try {
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
   await page.locator(".account-section").getByRole("button", { name: "Sign out" }).waitFor();
   await page.locator(".system-prompt-view pre").waitFor();
-  assert.ok((await page.locator(".system-prompt-view pre").textContent())?.includes("You are an expert coding assistant"));
+  assert.ok((await page.locator(".system-prompt-view pre").textContent())?.includes("You are a coding assistant running inside pi"));
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
   await page.getByText("No open workspace", { exact: true }).waitFor();
 
@@ -356,10 +356,10 @@ try {
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
   await page.locator(".account-section").getByRole("button", { name: "Sign out" }).waitFor();
   await page.getByLabel("Provider").click();
-  const openAiModelsResponse = page.waitForResponse((response) => response.url().includes("/api/settings/models?provider=openai-codex"));
-  await page.locator(".ark-select.open .ark-select-menu").getByText("OpenAI Codex", { exact: true }).click();
-  await openAiModelsResponse;
-  const selectedModelName = (await page.getByLabel("Model").locator("span").first().textContent())?.trim();
+  await page.locator(".ark-select.open .ark-select-menu").getByText(/^OpenAI Codex/).click();
+  const modelSelector = page.getByRole("button", { name: "Model", exact: true });
+  await modelSelector.waitFor();
+  const selectedModelName = (await modelSelector.locator("span").first().textContent())?.trim();
   const expectedThinkingLevels = await page.evaluate(async (modelName) => {
     const models = await fetch("/api/settings/models?provider=openai-codex").then((response) => response.json());
     return models.models.find((model) => (model.name || model.id) === modelName).thinkingLevels;
@@ -370,16 +370,17 @@ try {
   await page.keyboard.press("Escape");
   const agentDefaultsSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Agent defaults", exact: true }) });
   assert.equal(await agentDefaultsSection.getByText("Thinking level", { exact: true }).count(), 0);
-  const piCoreSection = page.locator(".pi-core-section");
-  await piCoreSection.getByRole("heading", { name: "Pi core", exact: true }).waitFor();
-  assert.ok((await piCoreSection.textContent()).includes("pi-coding-agent"));
-  assert.ok((await piCoreSection.textContent()).includes("pi-agent"));
-  await piCoreSection.getByRole("button", { name: "Check for updates", exact: true }).click();
-  await piCoreSection.getByRole("button", { name: "Update to 99.0.0", exact: true }).click();
-  const coreUpdateDialog = page.getByRole("dialog", { name: "Update Pi core?" });
-  await coreUpdateDialog.waitFor();
-  await assertDialogChrome(coreUpdateDialog);
-  await coreUpdateDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  const releaseSection = page.locator(".pi-core-section");
+  await releaseSection.getByRole("heading", { name: "Pi-Ark release", exact: true }).waitFor();
+  assert.ok((await releaseSection.textContent()).includes("Bundled pi core"));
+  assert.ok((await releaseSection.textContent()).includes("pi-agent"));
+  assert.ok((await releaseSection.textContent()).includes("pi-ark logs"));
+  await releaseSection.getByRole("button", { name: "Check for updates", exact: true }).click();
+  await releaseSection.getByRole("button", { name: "Update to 99.0.0", exact: true }).click();
+  const releaseUpdateDialog = page.getByRole("dialog", { name: "Update Pi-Ark?" });
+  await releaseUpdateDialog.waitFor();
+  await assertDialogChrome(releaseUpdateDialog);
+  await releaseUpdateDialog.getByRole("button", { name: "Cancel", exact: true }).click();
   const globalPromptSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "System prompt", exact: true }) });
   await globalPromptSection.locator(".system-prompt-view").waitFor();
   assert.equal(await globalPromptSection.locator("textarea").count(), 0);

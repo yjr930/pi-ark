@@ -1,0 +1,36 @@
+import { execFile } from "node:child_process";
+import { chmod, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { arch, platform } from "node:os";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+
+const exec = promisify(execFile);
+const root = resolve(import.meta.dirname, "..");
+const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+const serverPackage = JSON.parse(await readFile(join(root, "apps/server/package.json"), "utf8"));
+const targetPlatform = process.env.PI_ARK_TARGET_PLATFORM || platform();
+const targetArchitecture = process.env.PI_ARK_TARGET_ARCH || arch();
+if (targetPlatform !== "linux") throw new Error("Pi-Ark release artifacts currently support Linux");
+if (!process.env.PI_ARK_SKIP_BUILD) await exec("npm", ["run", "build"], { cwd: root, timeout: 600000, maxBuffer: 10 * 1024 * 1024 });
+
+const name = `pi-ark-${packageJson.version}-${targetPlatform}-${targetArchitecture}`;
+const output = join(root, "dist/release");
+const staging = join(output, name);
+await rm(staging, { recursive: true, force: true });
+await mkdir(join(staging, "apps/server"), { recursive: true });
+await mkdir(join(staging, "apps/web"), { recursive: true });
+await mkdir(join(staging, "scripts"), { recursive: true });
+await cp(join(root, "apps/server/dist"), join(staging, "apps/server/dist"), { recursive: true });
+await cp(join(root, "apps/web/dist"), join(staging, "apps/web/dist"), { recursive: true });
+for (const file of ["package.json", "package-lock.json"]) await cp(join(root, file), join(staging, file));
+for (const file of ["pi-ark.mjs", "setup.mjs", "install-release.mjs"]) await cp(join(root, "scripts", file), join(staging, "scripts", file));
+await cp(join(root, "apps/server/package.json"), join(staging, "apps/server/package.json"));
+await cp(join(root, "apps/web/package.json"), join(staging, "apps/web/package.json"));
+await exec("npm", ["ci", "--omit=dev"], { cwd: staging, timeout: 600000, maxBuffer: 20 * 1024 * 1024 });
+await writeFile(join(staging, "RELEASE.json"), JSON.stringify({ version: packageJson.version, piCoreVersion: serverPackage.dependencies["@earendil-works/pi-coding-agent"], platform: targetPlatform, architecture: targetArchitecture, builtAt: new Date().toISOString(), repository: "yjr930/pi-ark" }, null, 2) + "\n");
+await chmod(join(staging, "scripts/pi-ark.mjs"), 0o755);
+await exec(process.execPath, [join(staging, "scripts/pi-ark.mjs"), "verify", "--release", staging], { cwd: staging, timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
+const archive = join(output, `${name}.tar.gz`);
+await rm(archive, { force: true });
+await exec("tar", ["-czf", archive, "-C", output, name], { cwd: root, timeout: 600000, maxBuffer: 10 * 1024 * 1024 });
+console.log(archive);
