@@ -88,7 +88,7 @@ docs/               产品、架构、使用和集成文档
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
 | Workspace list | `apps/web/src/components/WorkspaceList.tsx` | 选择、重命名和关闭 Workspace |
 | Session list | `apps/web/src/components/SessionList.tsx` | Session actions、groups 和 Archived 区域 |
-| Files | `apps/web/src/components/Files.tsx` | 目录导航、文本阅读和 Markdown image path |
+| Files | `apps/web/src/components/Files.tsx` | 全宽目录导航、可调整的文件列表、path copy、文本阅读和 Markdown image path |
 | Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示 |
 | Terminal | `apps/web/src/components/Terminal.tsx` | xterm.js、FitAddon 和 Terminal WebSocket |
 | Settings | `apps/web/src/components/Settings.tsx` | 分类展示 Global/Workspace settings、prompt preview、OAuth、release update/rollback 和 service commands |
@@ -328,6 +328,10 @@ Release manager 从 release 目录的 `RELEASE.json` 读取 Pi-Ark 与 bundled p
 | `<workspace>/.pi-ark/attachments/<session>/` | Session attachments |
 
 Global config、Workspace config 和 Session metadata 使用 temporary file 加 rename 的方式写入。Session metadata 还按 Workspace 使用进程内 write queue，避免并发更新相互覆盖。
+
+### Browser-local preferences
+
+浏览器 localStorage 保存侧栏状态和宽度、Workspace 展开状态、conversation width、Files 文件列表宽度和最近应用的 theme。`pi-ark-files-browser-width` 保存桌面 Files separator 调整后的文件列表宽度；移动端的上下堆叠布局不使用该宽度。
 
 ## HTTP API
 

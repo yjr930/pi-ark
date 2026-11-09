@@ -137,7 +137,9 @@ Header 的 Session information 面板显示创建时间、更新时间、消息�
 
 ## Files
 
-Files 页面左侧显示目录 breadcrumb 和文件列表，右侧显示选中文件。目录导航始终限制在 Workspace 内。
+Files 页面的目录 breadcrumb 横跨文件列表和阅读区域，长目录路径可以使用整个页面宽度。breadcrumb 下方的左侧区域显示目录内容，右侧区域显示选中文件，并在阅读区域顶部单独显示文件路径。目录列表顶部的 Up one level 返回父目录；目录导航始终限制在 Workspace 内。
+
+桌面端可以拖动文件列表与阅读区域之间的 separator，调整后的文件列表宽度保存在浏览器 localStorage。移动端继续使用上下堆叠布局。每个文件和目录右侧的 action menu 可以复制服务器绝对路径或 Workspace-relative path。
 
 Markdown 文件使用与 conversation 相同的安全 Markdown renderer，并支持相对图片路径。其他文本文件使用代码视图。Workspace settings 可以控制是否显示 dotfile；Pi-Ark 自身的 `.pi-ark` 状态目录始终不进入文件列表。
 
@@ -175,9 +177,9 @@ Workspace configuration 包含以下区域：
 
 ## 桌面与移动布局
 
-桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。
+桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。
 
-移动端使用 drawer sidebar 和顶部 mobile bar。点击页面入口或 Session 后，drawer 自动关闭。Composer、对话框和 Settings actions 使用适合窄屏的布局。
+移动端使用 drawer sidebar 和顶部 mobile bar。drawer 打开时，scrim 覆盖 drawer 之外的完整应用内容，其中包括页面 header、composer 和其他浮动控件；drawer 位于 scrim 上方。点击页面入口或 Session 后，drawer 自动关闭。Composer、对话框和 Settings actions 使用适合窄屏的布局。
 
 ## 对话框与反馈
 

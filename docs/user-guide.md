@@ -239,10 +239,13 @@ Assistant response footer 的 Fork session 从该 response 对应的 session ent
 
 ## Files 页面
 
-Files 页面左侧用于目录导航，右侧用于阅读文件。
+Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧用于目录导航，右侧用于阅读文件；选中文件的路径显示在阅读区域顶部的独立行中。
 
 - 点击目录进入下级路径。
-- 点击 breadcrumb 返回上级路径。
+- 点击目录列表顶部的 Up one level 返回父目录。
+- 点击 breadcrumb 中的任意目录返回对应路径。
+- 拖动桌面端两栏之间的 separator 可以调整文件列表宽度。
+- 打开文件或目录右侧的 action menu，可以选择 Copy path（服务器绝对路径）或 Copy relative path（Workspace-relative path）。
 - Markdown 使用阅读视图，并解析 Workspace 内的相对图片。
 - 其他文本文件使用代码视图。
 
@@ -334,11 +337,12 @@ Show hidden files 控制普通 dotfile 是否进入 Files 列表。
 
 - 侧栏折叠状态。
 - 侧栏宽度。
+- Files 文件列表宽度。
 - Workspaces 展开状态。
 - Conversation width。
 - 最近应用的 theme。
 
-移动端通过顶部菜单按钮打开 drawer sidebar。
+移动端通过顶部菜单按钮打开 drawer sidebar。drawer 打开后，遮罩覆盖页面 header、composer 和 drawer 之外的其他应用内容；点击遮罩可以关闭 drawer。
 
 ## Service 管理与 release 更新
 
