@@ -1,0 +1,10 @@
+node_modules/
+dist/
+apps/*/dist/
+*.tsbuildinfo
+.env
+.pi-ark/
+*.log
+*.key
+*.crt
+.DS_Store

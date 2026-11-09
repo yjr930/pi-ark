@@ -1,0 +1,24 @@
+{
+  "name": "pi-ark",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workspace-oriented web interface for the pi coding agent",
+  "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w @pi-ark/server\" \"npm run dev -w @pi-ark/web\"",
+    "build": "npm run build -w @pi-ark/web && npm run build -w @pi-ark/server",
+    "check": "npm run check -w @pi-ark/web && npm run check -w @pi-ark/server",
+    "start": "npm run start -w @pi-ark/server",
+    "setup": "node scripts/setup.mjs"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}
