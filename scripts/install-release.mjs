@@ -63,7 +63,8 @@ await rm("/usr/local/bin/pi-ark", { force: true });
 await symlink(join(currentLink, "scripts/pi-ark.mjs"), "/usr/local/bin/pi-ark");
 execFileSync("systemctl", ["daemon-reload"], { stdio: "inherit" });
 if (!args.includes("--no-start")) {
-  execFileSync("systemctl", ["enable", "--now", "pi-ark.service"], { stdio: "inherit" });
+  execFileSync("systemctl", ["enable", "pi-ark.service"], { stdio: "inherit" });
+  execFileSync("systemctl", ["restart", "pi-ark.service"], { stdio: "inherit" });
   execFileSync("systemctl", ["is-active", "--quiet", "pi-ark.service"]);
   const config = JSON.parse(await readFile(join(dataDir, "config.json"), "utf8"));
   const healthHost = ["0.0.0.0", "::"].includes(config.listen.host) ? "127.0.0.1" : config.listen.host;
