@@ -1,5 +1,5 @@
 import { lstat, readdir, readFile, realpath } from "node:fs/promises";
-import { basename, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { WorkspaceDefinition } from "./config.js";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024;
@@ -21,6 +21,65 @@ export class WorkspaceService {
     return workspace;
   }
 
+  async add(input: { name?: string; path: string }): Promise<WorkspaceDefinition> {
+    if (!input.path || !isAbsolute(input.path)) throw Object.assign(new Error("Workspace path must be absolute"), { statusCode: 400 });
+    const workspacePath = await realpath(input.path).catch(() => { throw Object.assign(new Error("Workspace directory does not exist"), { statusCode: 400 }); });
+    const workspaceStat = await lstat(workspacePath);
+    if (!workspaceStat.isDirectory()) throw Object.assign(new Error("Workspace path must be a directory"), { statusCode: 400 });
+    for (const existing of this.byId.values()) {
+      if (await realpath(existing.path) === workspacePath) throw Object.assign(new Error("Workspace is already in the list"), { statusCode: 409 });
+    }
+    const name = input.name?.trim() || basename(workspacePath) || workspacePath;
+    const baseId = name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "workspace";
+    let id = baseId;
+    let suffix = 2;
+    while (this.byId.has(id)) id = `${baseId}-${suffix++}`;
+    const workspace = { id, name, path: workspacePath };
+    this.byId.set(id, workspace);
+    return workspace;
+  }
+
+  rename(id: string, inputName: string): WorkspaceDefinition {
+    const workspace = this.get(id);
+    const name = inputName?.trim();
+    if (!name) throw Object.assign(new Error("Workspace name is required"), { statusCode: 400 });
+    const updated = { ...workspace, name };
+    this.byId.set(id, updated);
+    return updated;
+  }
+
+  remove(id: string): WorkspaceDefinition {
+    const workspace = this.get(id);
+    this.byId.delete(id);
+    return workspace;
+  }
+
+  restore(workspace: WorkspaceDefinition): void {
+    this.byId.set(workspace.id, workspace);
+  }
+
+  async suggestDirectories(inputPath: string): Promise<{ basePath: string; directories: Array<{ name: string; path: string }> }> {
+    if (!inputPath || !isAbsolute(inputPath)) throw Object.assign(new Error("Directory path must be absolute"), { statusCode: 400 });
+    const requested = resolve(inputPath);
+    let directory: string;
+    let prefix = "";
+    try {
+      const existing = await realpath(requested);
+      if (!(await lstat(existing)).isDirectory()) throw Object.assign(new Error("Path must point to a directory"), { statusCode: 400 });
+      directory = existing;
+    } catch (error) {
+      if ("statusCode" in (error as object)) throw error;
+      prefix = basename(requested).toLowerCase();
+      directory = await realpath(dirname(requested)).catch(() => { throw Object.assign(new Error("Parent directory does not exist or is not accessible"), { statusCode: 400 }); });
+    }
+    let entries;
+    try { entries = await readdir(directory, { withFileTypes: true }); }
+    catch { throw Object.assign(new Error("Directory is not accessible"), { statusCode: 403 }); }
+    const children = entries.filter((entry) => entry.isDirectory() && (prefix.startsWith(".") || !entry.name.startsWith(".")) && entry.name.toLowerCase().startsWith(prefix)).slice(0, 100).map((entry) => ({ name: entry.name, path: join(directory, entry.name) })).sort((a, b) => a.name.localeCompare(b.name));
+    const directories = prefix ? children : [{ name: basename(directory) || directory, path: directory }, ...children].slice(0, 100);
+    return { basePath: directory, directories };
+  }
+
   async safePath(workspace: WorkspaceDefinition, requestedPath = ""): Promise<string> {
     const pathSegments = requestedPath.split(/[\\/]+/).filter(Boolean);
     if (pathSegments.includes(".pi-ark")) throw Object.assign(new Error("Pi-Ark workspace state is private"), { statusCode: 403 });
@@ -30,13 +89,13 @@ export class WorkspaceService {
     return candidate;
   }
 
-  async listDirectory(workspace: WorkspaceDefinition, requestedPath = ""): Promise<Array<{ name: string; path: string; type: "file" | "directory" | "symlink"; size: number }>> {
+  async listDirectory(workspace: WorkspaceDefinition, requestedPath = "", showHiddenFiles = true): Promise<Array<{ name: string; path: string; type: "file" | "directory" | "symlink"; size: number }>> {
     const root = await realpath(workspace.path);
     const directory = await this.safePath(workspace, requestedPath);
     const stat = await lstat(directory);
     if (!stat.isDirectory()) throw Object.assign(new Error("Path is not a directory"), { statusCode: 400 });
     const entries = await readdir(directory, { withFileTypes: true });
-    const result = await Promise.all(entries.filter((entry) => entry.name !== ".pi-ark").map(async (entry) => {
+    const result = await Promise.all(entries.filter((entry) => entry.name !== ".pi-ark" && (showHiddenFiles || !entry.name.startsWith("."))).map(async (entry) => {
       const absolute = join(directory, entry.name);
       const entryStat = await lstat(absolute);
       return {

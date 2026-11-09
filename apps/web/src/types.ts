@@ -12,12 +12,22 @@ export interface SessionInfo {
   modified: string;
   messageCount: number;
   firstMessage: string;
+  pinned: boolean;
+  archived: boolean;
+  groups: string[];
+}
+
+export interface SessionGroup {
+  id: string;
+  name: string;
 }
 
 export interface ContentBlock {
   type: string;
   text?: string;
   thinking?: string;
+  data?: string;
+  mimeType?: string;
   name?: string;
   id?: string;
   arguments?: Record<string, unknown>;
@@ -30,6 +40,12 @@ export interface AgentMessage {
   toolName?: string;
   isError?: boolean;
   stopReason?: string;
+  entryId?: string;
+  provider?: string;
+  model?: string;
+  responseModel?: string;
+  contextWindow?: number;
+  usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost?: { total: number } };
 }
 
 export interface AgentSnapshot {
@@ -40,6 +56,19 @@ export interface AgentSnapshot {
   isIdle: boolean;
   model: { provider: string; id: string } | null;
   thinkingLevel: string;
+  availableThinkingLevels: string[];
+  queue: Array<{ id: string; mode: "steering" | "followUp"; text: string }>;
+  rollbackEntryId?: string;
+  rollback?: { id: string; targetId: string; restoreEntryId: string; draft: string };
+  stats: {
+    userMessages: number;
+    assistantMessages: number;
+    toolCalls: number;
+    totalMessages: number;
+    tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+    cost: number;
+    contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
+  };
 }
 
 export interface FileEntry {
@@ -55,4 +84,83 @@ export interface FileContent {
   content: string;
   size: number;
   markdown: boolean;
+}
+
+export interface ProviderOption {
+  id: string;
+  name: string;
+  configured: boolean;
+  authSource?: string;
+  authLabel?: string;
+  supportsSubscription: boolean;
+  subscriptionName?: string;
+  subscriptionLoginLabel?: string;
+  usingSubscription: boolean;
+}
+
+export interface SubscriptionAuthEvent {
+  id: number;
+  type: "info" | "auth_url" | "device_code" | "progress";
+  message?: string;
+  url?: string;
+  instructions?: string;
+  links?: Array<{ url: string; label?: string }>;
+  userCode?: string;
+  verificationUri?: string;
+  expiresInSeconds?: number;
+}
+
+export interface SubscriptionAuthFlow {
+  id: string;
+  providerId: string;
+  status: "pending" | "success" | "error" | "cancelled";
+  events: SubscriptionAuthEvent[];
+  prompt?: { id: string; type: "text" | "secret" | "manual_code" | "select"; message: string; placeholder?: string; options?: Array<{ id: string; label: string; description?: string }> };
+  error?: string;
+}
+
+export interface ModelOption {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  contextWindow: number;
+  input: string[];
+  thinkingLevels: GlobalSettings["thinkingLevel"][];
+}
+
+export interface SessionModelOption extends Omit<ModelOption, "input"> {
+  provider: string;
+}
+
+export type ThemeId = "ark-dark" | "graphite" | "midnight" | "paper" | "snow";
+
+export interface PiCoreInfo {
+  agentDir: string;
+  corePath: string;
+  version: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  updating: boolean;
+  previousVersion?: string;
+  restartScheduled?: boolean;
+  restartDelaySeconds?: number;
+}
+
+export interface GlobalSettings {
+  theme: ThemeId;
+  provider: string;
+  model: string;
+  thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  steeringMode: "all" | "one-at-a-time";
+  followUpMode: "all" | "one-at-a-time";
+  compactionEnabled: boolean;
+  retryEnabled: boolean;
+  providers: ProviderOption[];
+}
+
+export interface WorkspaceSettings {
+  version: 4;
+  workspaceId: string;
+  agent: { tools: Array<"read" | "bash" | "edit" | "write">; systemPrompt: { append: string } };
+  files: { showHiddenFiles: boolean };
 }

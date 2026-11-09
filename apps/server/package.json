@@ -11,6 +11,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "0.87.1",
     "@earendil-works/pi-coding-agent": "0.87.1",
     "@fastify/cookie": "^11.0.2",
     "@fastify/websocket": "^11.2.0",

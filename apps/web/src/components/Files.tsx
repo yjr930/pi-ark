@@ -1,9 +1,8 @@
-import DOMPurify from "dompurify";
-import { marked } from "marked";
 import { ChevronRight, File, FileCode2, Folder, FolderOpen, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { FileContent, FileEntry, Workspace } from "../types";
+import { Markdown } from "./Markdown";
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -30,20 +29,11 @@ export function Files({ workspace }: { workspace: Workspace }) {
   }
 
   const crumbs = directory ? directory.split("/") : [];
-  const html = useMemo(() => {
-    if (!file?.markdown) return "";
-    const sanitized = DOMPurify.sanitize(marked.parse(file.content, { async: false }) as string);
-    const document = new DOMParser().parseFromString(sanitized, "text/html");
+  const resolveMarkdownImage = useCallback((source: string) => {
+    if (!file || /^(?:[a-z]+:|\/|#)/i.test(source)) return source;
     const baseDirectory = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
-    for (const image of document.querySelectorAll("img")) {
-      const source = image.getAttribute("src");
-      if (source && !/^(?:[a-z]+:|\/|#)/i.test(source)) {
-        const imagePath = [...baseDirectory.split("/"), ...source.split("/")].filter(Boolean).reduce<string[]>((parts, part) => part === ".." ? parts.slice(0, -1) : part === "." ? parts : [...parts, part], []).join("/");
-        image.src = `/api/workspaces/${encodeURIComponent(workspace.id)}/image?path=${encodeURIComponent(imagePath)}`;
-      }
-      image.loading = "lazy";
-    }
-    return document.body.innerHTML;
+    const imagePath = [...baseDirectory.split("/"), ...source.split("/")].filter(Boolean).reduce<string[]>((parts, part) => part === ".." ? parts.slice(0, -1) : part === "." ? parts : [...parts, part], []).join("/");
+    return `/api/workspaces/${encodeURIComponent(workspace.id)}/image?path=${encodeURIComponent(imagePath)}`;
   }, [file, workspace.id]);
 
   return <section className="files-page">
@@ -62,7 +52,7 @@ export function Files({ workspace }: { workspace: Workspace }) {
       <main className="file-viewer">
         {error ? <div className="viewer-placeholder error-text">{error}</div> : file ? <>
           <div className="viewer-title"><div><FileCode2 size={16} /><span>{file.path}</span></div><small>{formatSize(file.size)}</small></div>
-          {file.markdown ? <article className="markdown-body" dangerouslySetInnerHTML={{ __html: html }} /> : <pre className="code-view"><code>{file.content}</code></pre>}
+          {file.markdown ? <Markdown source={file.content} resolveImage={resolveMarkdownImage} /> : <pre className="code-view"><code>{file.content}</code></pre>}
         </> : <div className="viewer-placeholder"><FileCode2 size={30} /><h3>Select a file</h3><p>Markdown files open in reading view.</p></div>}
       </main>
     </div>

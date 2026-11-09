@@ -4,6 +4,9 @@
   "private": true,
   "description": "Workspace-oriented web interface for the pi coding agent",
   "type": "module",
+  "bin": {
+    "pi-ark": "scripts/pi-ark.mjs"
+  },
   "workspaces": [
     "apps/*"
   ],
@@ -11,6 +14,8 @@
     "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w @pi-ark/server\" \"npm run dev -w @pi-ark/web\"",
     "build": "npm run build -w @pi-ark/web && npm run build -w @pi-ark/server",
     "check": "npm run check -w @pi-ark/web && npm run check -w @pi-ark/server",
+    "check:behavior": "tsx scripts/check-conversation.ts && tsx scripts/check-attachments.ts && tsx scripts/check-auth-flow.ts && tsx scripts/check-session-actions.ts && tsx scripts/check-system-prompt.ts",
+    "check:ui": "node scripts/check-ui.mjs",
     "start": "npm run start -w @pi-ark/server",
     "setup": "node scripts/setup.mjs"
   },
@@ -18,6 +23,7 @@
     "node": ">=22.19"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "concurrently": "^9.2.1",
     "typescript": "^5.9.3"
   }

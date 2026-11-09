@@ -138,3 +138,44 @@
 
 
 # Pi-Ark 项目
+
+## 项目文档索引
+
+开始修改前，根据任务范围阅读对应文档：
+
+- 项目概览、快速开始和常用命令：`README.md`
+- 文档职责、信息来源和维护检查表：`docs/index.md`
+- 功能范围、用户交互和页面状态：`docs/product-and-interaction.md`
+- 前后端模块、数据流、存储、API、安全和部署：`docs/architecture.md`
+- 安装、配置和日常操作：`docs/user-guide.md`
+- pi SDK 选型和上游 API 背景：`docs/research.md`
+
+## 文档同步规范
+
+- 代码行为、配置字段、API、WebSocket message、存储位置、命令或用户交互发生变化时，必须在同一个 commit 中更新对应文档。
+- 页面、按钮、对话框、状态提示和响应式行为发生变化时，必须更新 `docs/product-and-interaction.md`；用户操作步骤发生变化时，还必须更新 `docs/user-guide.md`。
+- Server module、runtime lifecycle、HTTP/WebSocket API、数据格式或目录结构发生变化时，必须更新 `docs/architecture.md`。
+- 安装、初始化、环境变量、CLI、构建或部署方式发生变化时，必须更新 `README.md`、`docs/user-guide.md` 和 `docs/architecture.md` 中的对应内容。
+- pi SDK、SessionManager、SettingsManager、ModelRuntime 或 ResourceLoader 的集成方式发生变化时，必须更新 `docs/architecture.md` 和 `docs/research.md`。
+- 新增、删除或调整文档职责时，必须更新 `docs/index.md` 和本节的项目文档索引。
+- 文档只描述当前实现。计划中的功能必须明确标记为计划，不能写成当前能力。
+- README 保持为项目入口，详细行为放在 `docs/` 的对应文档中，避免在多个位置维护相同的大段说明。
+- 文档中的路径、字段、按钮名称、命令和默认值必须从当前代码确认。
+
+## 改动流程
+
+1. 开始任务时读取 `git status`，区分当前任务改动、并发改动、运行数据和临时产物。
+2. 根据项目文档索引读取与任务有关的文档和源码，确认当前行为。
+3. 修改代码时同步更新对应文档和行为检查。
+4. 完成一个可以独立审阅的改动后，运行与改动范围对应的检查，并复查 `git diff`。
+5. 将代码、检查和文档放在同一个语义完整的 commit 中。
+6. Commit 创建后立即 push 到当前分支的 upstream；push 失败时保留本地 commit，并向用户报告失败原因和需要的操作。
+
+## Git 规范
+
+- 使用当前配置的 Git identity，不修改 repository 或 global identity，除非用户明确要求。
+- Commit message 使用简短的英文祈使句，并说明交付结果。
+- 提交前检查 staged files，禁止提交 credential、password、TLS private key、`PI_ARK_HOME` data、Workspace `.pi-ark` data、`node_modules`、build output、日志和本地 demo Workspace。
+- 不覆盖、丢弃或重写并发进程与用户已有的改动。需要提交共享工作区中的累积改动时，先确认所有文件都属于项目交付范围。
+- 不使用 `git push --force`，不改写已经 push 的历史，除非用户明确要求。
+- 文档修正与它描述的实现一起提交，不创建长期滞后的文档补交 commit。

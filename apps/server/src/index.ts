@@ -5,20 +5,30 @@ import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { AgentService } from "./agents.js";
+import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { loadConfig } from "./config.js";
+import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadWorkspaceSettings, piArkAgentDir, saveWorkspaceDefinitions, saveWorkspaceSettings, saveWorkspaceSystemPrompt, type WorkspaceSettings } from "./config.js";
+import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
+import { PiCoreService } from "./pi-core.js";
+import { SettingsService, type GlobalSettingsInput } from "./settings.js";
 import { openTerminal } from "./terminal.js";
 import { WorkspaceService } from "./workspaces.js";
 
+const previousAgentDir = process.env.PI_ARK_MIGRATE_AGENT_DIR || process.env.PI_CODING_AGENT_DIR;
+await ensurePiArkAgentState(previousAgentDir);
+process.env.PI_CODING_AGENT_DIR = piArkAgentDir;
 const config = await loadConfig();
 const [key, cert] = await Promise.all([readFile(config.tls.keyPath), readFile(config.tls.certPath)]);
 const app = Fastify({ logger: true, https: { key, cert }, bodyLimit: 1024 * 1024 });
 const auth = new AuthService(config.auth.username, config.auth.passwordHash);
 const workspaces = new WorkspaceService(config.workspaces);
-const agents = new AgentService();
+const settings = await SettingsService.create(config.workspaces[0]?.path || process.cwd());
+const piCore = new PiCoreService();
+const authFlows = new AuthFlowService((providerId, interaction) => settings.loginSubscription(providerId, interaction));
+const agents = new AgentService(settings);
 
 await app.register(cookie);
-await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
+await app.register(websocket, { options: { maxPayload: 28 * 1024 * 1024 } });
 
 app.addHook("onRequest", async (request, reply) => {
   const protectedPath = request.url.startsWith("/api/") || request.url.startsWith("/ws/");
@@ -45,10 +55,54 @@ app.post("/api/auth/logout", async (request, reply) => {
 });
 app.get("/api/auth/session", async () => ({ authenticated: true, username: config.auth.username }));
 
+app.get("/api/ui", async () => loadUiSettings());
 app.get("/api/workspaces", async () => ({ workspaces: workspaces.list() }));
+app.get<{ Querystring: { path: string } }>("/api/directories", async (request) => workspaces.suggestDirectories(request.query.path || ""));
+app.post<{ Body: { name?: string; path: string } }>("/api/workspaces", async (request, reply) => {
+  const workspace = await workspaces.add(request.body || { path: "" });
+  try {
+    await ensureWorkspaceState(workspace);
+    await saveWorkspaceDefinitions(workspaces.list());
+  } catch (error) {
+    workspaces.remove(workspace.id);
+    throw error;
+  }
+  return reply.code(201).send(workspace);
+});
+app.patch<{ Params: { workspaceId: string }; Body: { name: string } }>("/api/workspaces/:workspaceId", async (request) => {
+  const previous = workspaces.get(request.params.workspaceId);
+  const workspace = workspaces.rename(request.params.workspaceId, request.body?.name);
+  try { await saveWorkspaceDefinitions(workspaces.list()); }
+  catch (error) { workspaces.rename(previous.id, previous.name); throw error; }
+  return workspace;
+});
+app.delete<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId", async (request, reply) => {
+  const workspace = workspaces.remove(request.params.workspaceId);
+  try { await saveWorkspaceDefinitions(workspaces.list()); }
+  catch (error) { workspaces.restore(workspace); throw error; }
+  return reply.code(204).send();
+});
+app.get("/api/settings/global", async () => settings.getGlobal());
+app.get<{ Querystring: { latest?: string } }>("/api/settings/pi-core", async (request) => piCore.info(request.query.latest === "true"));
+app.post("/api/settings/pi-core/update", async () => piCore.update());
+app.get<{ Querystring: { provider: string } }>("/api/settings/models", async (request) => ({ models: settings.getModels(request.query.provider) }));
+app.get("/api/settings/session-models", async () => ({ models: settings.getSessionModels() }));
+app.post<{ Body: { providerId: string } }>("/api/settings/subscription-logins", async (request, reply) => reply.code(201).send(authFlows.start(request.body?.providerId)));
+app.get<{ Params: { flowId: string } }>("/api/settings/subscription-logins/:flowId", async (request) => authFlows.get(request.params.flowId));
+app.post<{ Params: { flowId: string }; Body: { promptId: string; value: string } }>("/api/settings/subscription-logins/:flowId/answer", async (request) => authFlows.answer(request.params.flowId, request.body?.promptId, request.body?.value));
+app.delete<{ Params: { flowId: string } }>("/api/settings/subscription-logins/:flowId", async (request, reply) => { authFlows.cancel(request.params.flowId); return reply.code(204).send(); });
+app.put<{ Body: GlobalSettingsInput }>("/api/settings/global", async (request) => settings.saveGlobal(request.body));
+app.get<{ Querystring: { workspaceId?: string } }>("/api/settings/system-prompt", async (request) => {
+  const workspace = request.query.workspaceId ? workspaces.get(request.query.workspaceId) : workspaces.list()[0] || { id: "global-preview", name: "Global preview", path: process.cwd() };
+  return agents.getGlobalSystemPrompt(workspace);
+});
+app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/settings", async (request) => loadWorkspaceSettings(workspaces.get(request.params.workspaceId)));
+app.put<{ Params: { workspaceId: string }; Body: Pick<WorkspaceSettings, "agent" | "files"> }>("/api/workspaces/:workspaceId/settings", async (request) => saveWorkspaceSettings(workspaces.get(request.params.workspaceId), request.body));
+app.put<{ Params: { workspaceId: string }; Body: WorkspaceSettings["agent"]["systemPrompt"] }>("/api/workspaces/:workspaceId/system-prompt", async (request) => saveWorkspaceSystemPrompt(workspaces.get(request.params.workspaceId), request.body));
 app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/api/workspaces/:workspaceId/files", async (request) => {
   const workspace = workspaces.get(request.params.workspaceId);
-  return { entries: await workspaces.listDirectory(workspace, request.query.path || "") };
+  const workspaceSettings = await loadWorkspaceSettings(workspace);
+  return { entries: await workspaces.listDirectory(workspace, request.query.path || "", workspaceSettings.files.showHiddenFiles) };
 });
 app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/api/workspaces/:workspaceId/file", async (request) => {
   if (!request.query.path) throw Object.assign(new Error("A file path is required"), { statusCode: 400 });
@@ -68,15 +122,39 @@ app.post<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/sess
   const created = await agents.create(workspaces.get(request.params.workspaceId));
   return reply.code(201).send(created);
 });
+app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/session-groups", async (request) => ({ groups: await listSessionGroups(workspaces.get(request.params.workspaceId)) }));
+app.post<{ Params: { workspaceId: string }; Body: { name: string } }>("/api/workspaces/:workspaceId/session-groups", async (request, reply) => reply.code(201).send(await createSessionGroup(workspaces.get(request.params.workspaceId), request.body?.name)));
+app.patch<{ Params: { workspaceId: string; groupId: string }; Body: { name: string } }>("/api/workspaces/:workspaceId/session-groups/:groupId", async (request) => renameSessionGroup(workspaces.get(request.params.workspaceId), request.params.groupId, request.body?.name));
+app.delete<{ Params: { workspaceId: string; groupId: string } }>("/api/workspaces/:workspaceId/session-groups/:groupId", async (request, reply) => { await deleteSessionGroup(workspaces.get(request.params.workspaceId), request.params.groupId); return reply.code(204).send(); });
+app.post<{ Params: { workspaceId: string; sessionId: string }; Body: { entryId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/fork", async (request, reply) => reply.code(201).send(await agents.fork(workspaces.get(request.params.workspaceId), request.params.sessionId, request.body?.entryId)));
+app.post<{ Params: { workspaceId: string; sessionId: string }; Body: { entryId?: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/rollback", async (request) => agents.rollbackLatest(workspaces.get(request.params.workspaceId), request.params.sessionId, request.body?.entryId));
+app.post<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/rollback/restore", async (request, reply) => { await agents.restoreRollback(workspaces.get(request.params.workspaceId), request.params.sessionId); return reply.code(204).send(); });
+app.patch<{ Params: { workspaceId: string; sessionId: string; itemId: string }; Body: { direction?: "up" | "down"; mode?: "steering" | "followUp" } }>("/api/workspaces/:workspaceId/sessions/:sessionId/queue/:itemId", async (request, reply) => { await agents.updateQueue(workspaces.get(request.params.workspaceId), request.params.sessionId, request.params.itemId, request.body || {}); return reply.code(204).send(); });
+app.patch<{ Params: { workspaceId: string; sessionId: string }; Body: { name?: string; pinned?: boolean; archived?: boolean; groups?: string[] } }>("/api/workspaces/:workspaceId/sessions/:sessionId", async (request) => {
+  const patch: { name?: string; pinned?: boolean; archived?: boolean; groups?: string[] } = {};
+  if (typeof request.body?.name === "string") patch.name = request.body.name;
+  if (typeof request.body?.pinned === "boolean") patch.pinned = request.body.pinned;
+  if (typeof request.body?.archived === "boolean") patch.archived = request.body.archived;
+  if (Array.isArray(request.body?.groups) && request.body.groups.every((id) => typeof id === "string")) patch.groups = request.body.groups;
+  if (Object.keys(patch).length === 0) throw Object.assign(new Error("Provide a session update"), { statusCode: 400 });
+  return agents.updateSession(workspaces.get(request.params.workspaceId), request.params.sessionId, patch);
+});
+app.delete<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId", async (request, reply) => {
+  await agents.delete(workspaces.get(request.params.workspaceId), request.params.sessionId);
+  return reply.code(204).send();
+});
 
 app.get<{ Params: { workspaceId: string; sessionId: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
   const workspace = workspaces.get(request.params.workspaceId);
   const connection = agents.connect(workspace, request.params.sessionId, socket);
   const onMessage = async (raw: Buffer) => {
     try {
-      const message = JSON.parse(raw.toString()) as { type?: string; text?: string };
-      if (message.type === "prompt" && message.text?.trim()) await agents.prompt(workspace, request.params.sessionId, message.text.trim());
+      const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; attachments?: Array<{ name: string; mimeType: string; data: string }> };
+      if (message.type === "prompt" && (message.text?.trim() || message.attachments?.length)) await agents.prompt(workspace, request.params.sessionId, message.text || "", message.attachments || []);
       else if (message.type === "abort") await agents.abort(workspace, request.params.sessionId);
+      else if (message.type === "rename-session" && message.name?.trim()) await agents.updateSession(workspace, request.params.sessionId, { name: message.name });
+      else if (message.type === "set-model" && message.provider && message.model) await agents.setModel(workspace, request.params.sessionId, message.provider, message.model);
+      else if (message.type === "set-thinking-level" && message.level) await agents.setThinkingLevel(workspace, request.params.sessionId, message.level);
       else socket.send(JSON.stringify({ type: "error", message: "Unknown agent command" }));
     } catch (error) {
       socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Agent command failed" }));
