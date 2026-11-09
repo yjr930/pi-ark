@@ -35,6 +35,28 @@ Installer 创建以下运行结构：
 
 现有安装可以通过 `sudo node scripts/install-release.mjs --migrate-data /path/to/existing-data` 复制 Global config、TLS 和 pi agent data。Installer 默认创建专用的 `pi-ark` service account；所有已注册的 Workspace 都需要允许该账号访问。
 
+同一个 hostname 的双实例可以使用以下独立布局：
+
+```text
+/opt/pi-ark-dev/       /var/lib/pi-ark-dev/       pi-ark-dev.service       /usr/local/bin/pi-ark-dev
+/opt/pi-ark-backup/    /var/lib/pi-ark-backup/    pi-ark-backup.service    /usr/local/bin/pi-ark-backup
+```
+
+Installer 使用以下参数创建实例：
+
+| 参数 | 作用 |
+|---|---|
+| `--instance <name>` | 设置 instance identity，并生成默认 service 与 CLI 名称 |
+| `--base-path <path>` | 设置 public URL path，例如 `/pi-ark` |
+| `--service-name <name>` | 设置 systemd service unit |
+| `--cli-name <name>` | 设置安装到 `/usr/local/bin` 的 CLI command |
+| `--prefix <path>` | 设置 release installation prefix |
+| `--data-dir <path>` | 设置独立的 Global data directory |
+| `--port <number>` | 修改已有或迁移后的 Global config 中的 listen port |
+| `--deferred-restart <seconds>` | 使用 transient systemd timer 延后重启当前实例 |
+
+`--port` 需要 data directory 或 `--migrate-data` source 已经包含 `config.json`；fresh installation 在后续 `setup --port <number>` 中设置 listen port。`PI_ARK_BASE_PATH` 不包含末尾的 `/`。Browser URL 使用包含末尾 `/` 的路径，例如 `/pi-ark/`。实例分别保存 Global settings、provider credentials、pi agent data 和 auth sessions。Workspace 中的 `.pi-ark` 目录可以由两个实例共享；同一个 Session 在同一时刻由一个实例操作。
+
 初始化命令支持以下参数：
 
 | 参数 | 作用 | 默认值 |
@@ -63,7 +85,43 @@ npm run dev
 
 Vite 默认使用 `http://localhost:5173`，并将 API 和 WebSocket 请求转发给本地 Pi-Ark HTTPS 服务。
 
-日常迭代使用 `<next-version>-dev.<iteration>` 版本。每次迭代完成后，本机服务从对应的 `/opt/pi-ark/releases/<dev-version>` 运行；该流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。
+日常迭代使用 `<next-version>-dev.<iteration>` 版本。双实例部署中的主力开发版从 `/opt/pi-ark-dev/releases/<dev-version>` 运行；备用正式版从 `/opt/pi-ark-backup/releases/<release-version>` 运行。日常流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起安装时使用 `--deferred-restart <seconds>`，当前 request 先返回，systemd 随后重启 `pi-ark-dev.service`。
+
+Nginx 在同一个 server block 中先配置具体的 instance path，再保留其他应用的 location。Pi-Ark upstream 使用 HTTPS，并转发 WebSocket headers：
+
+```nginx
+location = /pi-ark { return 301 /pi-ark/; }
+location ^~ /pi-ark/ {
+  proxy_pass https://127.0.0.1:14116/;
+  proxy_ssl_verify off;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $pi_web_connection_upgrade;
+  proxy_read_timeout 3600s;
+  proxy_buffering off;
+}
+
+location = /pi-ark-backup { return 301 /pi-ark-backup/; }
+location ^~ /pi-ark-backup/ {
+  proxy_pass https://127.0.0.1:14117/;
+  proxy_ssl_verify off;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $pi_web_connection_upgrade;
+  proxy_read_timeout 3600s;
+  proxy_buffering off;
+}
+```
+
+备用实例用于主力开发版的恢复与高风险部署。主力开发版无法访问时，从 `/pi-ark-backup/` 打开对应的 Workspace，并在新的 Session 中修复 source checkout 或重新安装主力开发版。
 
 常用项目命令：
 
@@ -87,21 +145,21 @@ npm start
 交互式修改密码：
 
 ```bash
-pi-ark password
+pi-ark-dev password
 ```
 
-`pi-ark passwd` 是相同命令的简写。命令默认更新 `PI_ARK_HOME/config.json` 并重启正在运行的 `pi-ark.service`。
+`pi-ark-dev passwd` 是相同命令的简写。该 command 更新 `/var/lib/pi-ark-dev/config.json` 并重启 `pi-ark-dev.service`。备用实例使用 `pi-ark-backup password`。
 
 指定配置文件或延后重启：
 
 ```bash
-pi-ark password --config /path/to/config.json --no-restart
+pi-ark-dev password --config /path/to/config.json --no-restart
 ```
 
 自动化环境可以使用：
 
 ```bash
-PI_ARK_NEW_PASSWORD='new-password' pi-ark password --no-restart
+PI_ARK_NEW_PASSWORD='new-password' pi-ark-dev password --no-restart
 ```
 
 新密码至少包含 6 个字符。使用 `--no-restart` 后，需要在后续维护窗口重启服务，使内存中的认证服务读取新摘要。
@@ -355,14 +413,14 @@ Show hidden files 控制普通 dotfile 是否进入 Files 列表，切换后立�
 ## Service 管理与 release 更新
 
 ```bash
-pi-ark status
-pi-ark logs
-pi-ark restart
-pi-ark update
-pi-ark rollback
+pi-ark-dev status
+pi-ark-dev logs
+pi-ark-dev restart
+pi-ark-dev update
+pi-ark-dev rollback
 ```
 
-`status` 显示 systemd service 状态，`logs` 持续显示 service journal，`restart` 重启 service。`update` 安装 GitHub latest release，`rollback` 恢复 previous release。
+`status` 显示 `pi-ark-dev.service` 状态，`logs` 持续显示该 service journal，`restart` 重启该 service。`update` 安装 GitHub latest release，`rollback` 恢复 previous release。管理备用实例时，将 command name 替换为 `pi-ark-backup`。
 
 ## 数据位置与备份
 

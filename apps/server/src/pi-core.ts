@@ -63,6 +63,7 @@ export class PiCoreService {
     const installPath = await realpath(projectRoot).catch(() => projectRoot);
     const prefix = process.env.PI_ARK_INSTALL_PREFIX || resolve(installPath, "../..");
     const previousManifestPath = join(prefix, "previous", "RELEASE.json");
+    const cli = process.env.PI_ARK_CLI_NAME || "pi-ark";
     const previousVersion = existsSync(previousManifestPath) ? (await jsonFile<ReleaseManifest>(previousManifestPath)).version : undefined;
     const latest = checkLatest ? await latestRelease() : undefined;
     const channel = version.includes("-") ? "development" : "stable";
@@ -82,11 +83,11 @@ export class PiCoreService {
       previousVersion,
       rollbackAvailable: Boolean(previousVersion),
       commands: {
-        update: "pi-ark update",
-        rollback: "pi-ark rollback",
-        status: "pi-ark status",
-        logs: "pi-ark logs",
-        restart: "pi-ark restart",
+        update: `${cli} update`,
+        rollback: `${cli} rollback`,
+        status: `${cli} status`,
+        logs: `${cli} logs`,
+        restart: `${cli} restart`,
       },
     };
   }
@@ -123,7 +124,7 @@ export class PiCoreService {
 
   private scheduleRestart() {
     if (this.restartTimer) clearTimeout(this.restartTimer);
-    this.restartTimer = setTimeout(() => process.exit(0), 5000);
+    this.restartTimer = setTimeout(() => process.kill(process.pid, "SIGTERM"), 5000);
     this.restartTimer.unref();
   }
 }

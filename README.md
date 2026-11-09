@@ -40,6 +40,8 @@ Installer 默认使用不可变的 `/opt/pi-ark/releases/<version>`、`/opt/pi-a
 
 Setup 创建 Global config 和自签名 TLS certificate，并默认在 `https://127.0.0.1:31415` 提供服务。`PI_ARK_AGENT_DIR` 可以单独修改 Pi-Ark 专用的 pi agent data directory；默认位置是 `PI_ARK_HOME/pi-agent`。
 
+同一个 hostname 可以运行多个实例。Installer 的 `--instance`、`--base-path`、`--service-name`、`--cli-name`、`--prefix` 和 `--data-dir` 参数分别隔离 instance identity、public URL、systemd service、CLI command、release 目录和 Global data。Frontend assets、API、WebSocket、Files image 和 download URL 都遵循 `PI_ARK_BASE_PATH`。每个实例使用包含 instance identity 的 auth cookie，并将 cookie Path 限定在对应的 public URL path。
+
 ## 开发
 
 ```bash
@@ -50,7 +52,7 @@ npm run dev
 
 Vite 默认位于 `http://localhost:5173`，并将 API 和 WebSocket 转发到本地 Pi-Ark HTTPS 服务。
 
-日常迭代使用 `<next-version>-dev.<iteration>` 版本，不创建 Git tag 或 GitHub Release。每次迭代完成后，项目维护者构建本机 development artifact，将它安装到 `/opt/pi-ark/releases/<dev-version>`，并重启及检查 `pi-ark.service`。正式 release 仅在明确安排发布时创建。
+日常迭代使用 `<next-version>-dev.<iteration>` 版本，不创建 Git tag 或 GitHub Release。双实例部署中的主力开发版使用 `/opt/pi-ark-dev`、`/var/lib/pi-ark-dev` 和 `pi-ark-dev.service`；备用正式版使用 `/opt/pi-ark-backup`、`/var/lib/pi-ark-backup` 和 `pi-ark-backup.service`。正式 release 仅在明确安排发布时创建。Installer 的 `--deferred-restart <seconds>` 通过 transient systemd timer 安排 service restart，使主力开发版可以从自身 Session 发起部署。
 
 项目命令：
 
@@ -82,6 +84,8 @@ pi-ark status
 pi-ark logs
 pi-ark restart
 ```
+
+双实例部署使用对应的 command name：主力开发版使用 `pi-ark-dev`，备用正式版使用 `pi-ark-backup`。
 
 ## 数据位置
 

@@ -175,8 +175,11 @@
 
 - 日常迭代使用下一个正式版本的 SemVer prerelease，格式为 `<next-version>-dev.<iteration>`，并在每次独立迭代中递增 `iteration`。
 - 日常迭代不创建 Git tag、不创建 GitHub Release，也不发布正式 release artifact；只有用户明确要求正式发布时，才移除 `dev` prerelease 并执行正式发布流程。
-- 每次日常迭代完成检查、commit 和 push 后，都要构建本机开发 artifact，将其安装到本机 `/opt/pi-ark/releases/<dev-version>`，重启 `pi-ark.service`，并确认 health 与运行版本。
-- 本机开发安装沿用当前服务的 data directory、service user、service group 和 listen 配置，不迁移或重置 Global data 与 Workspace data。
+- 每次日常迭代完成检查、commit 和 push 后，都要构建本机开发 artifact，将其安装到本机 `/opt/pi-ark-dev/releases/<dev-version>`，并通过 detached systemd timer 重启 `pi-ark-dev.service`，然后确认 health 与运行版本。
+- 主力开发实例使用 `/opt/pi-ark-dev`、`/var/lib/pi-ark-dev`、`pi-ark-dev.service`、`PI_ARK_INSTANCE=dev` 和 `PI_ARK_BASE_PATH=/pi-ark`。
+- 备用正式实例使用 `/opt/pi-ark-backup`、`/var/lib/pi-ark-backup`、`pi-ark-backup.service`、`PI_ARK_INSTANCE=backup` 和 `PI_ARK_BASE_PATH=/pi-ark-backup`。日常迭代不得覆盖备用正式实例。
+- 两个实例可以注册同一个 Workspace；同一个 Session 在同一时刻只能由一个实例操作。
+- 本机开发安装沿用主力开发实例的 data directory、service user、service group 和 listen 配置，不迁移或重置 Global data 与 Workspace data。
 
 ## Git 规范
 

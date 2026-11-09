@@ -39,6 +39,10 @@ Usage:
 Environment:
   PI_ARK_HOME                Pi-Ark data directory (default: ~/.pi-ark)
   PI_ARK_INSTALL_PREFIX      Release installation prefix (default: /opt/pi-ark)
+  PI_ARK_INSTANCE            Instance identity used for cookie and service isolation
+  PI_ARK_BASE_PATH           Public URL path prefix (for example: /pi-ark)
+  PI_ARK_SERVICE_NAME        systemd service unit (default: pi-ark.service)
+  PI_ARK_CLI_NAME            Installed CLI command name (default: pi-ark)
   PI_ARK_RELEASE_REPOSITORY  GitHub owner/repository (default: yjr930/pi-ark)
   PI_ARK_NEW_PASSWORD        Non-interactive password input
 `);
@@ -105,9 +109,16 @@ function installPrefix() {
   return "/opt/pi-ark";
 }
 
+function systemdServiceName() {
+  const name = process.env.PI_ARK_SERVICE_NAME || "pi-ark.service";
+  if (!/^pi-ark(?:-[a-z0-9_-]+)?\.service$/.test(name)) throw new Error("Invalid PI_ARK_SERVICE_NAME");
+  return name;
+}
+
 function restartService() {
-  execFileSync("systemctl", ["restart", "pi-ark.service"], { stdio: "inherit" });
-  console.log("Pi-Ark service restarted");
+  const service = systemdServiceName();
+  execFileSync("systemctl", ["restart", service], { stdio: "inherit" });
+  console.log(`${service} restarted`);
 }
 
 async function githubLatest() {
@@ -242,14 +253,16 @@ async function rollbackRelease() {
   await symlink(current, previousTemporary);
   await rename(currentTemporary, join(prefix, "current"));
   await rename(previousTemporary, join(prefix, "previous"));
+  await writeFile(join(prefix, "pending-release.json"), JSON.stringify({ current: previous, previous: current }) + "\n");
   console.log(`Pi-Ark rolled back to ${(JSON.parse(await readFile(join(previous, "RELEASE.json"), "utf8"))).version}`);
   if (!args.includes("--no-restart")) restartService();
 }
 
 function runServiceCommand(commandName) {
-  if (commandName === "logs") execFileSync("journalctl", ["-u", "pi-ark.service", "-f"], { stdio: "inherit" });
+  const service = systemdServiceName();
+  if (commandName === "logs") execFileSync("journalctl", ["-u", service, "-f"], { stdio: "inherit" });
   else if (commandName === "restart") restartService();
-  else execFileSync("systemctl", ["status", "pi-ark.service", "--no-pager"], { stdio: "inherit" });
+  else execFileSync("systemctl", ["status", service, "--no-pager"], { stdio: "inherit" });
 }
 
 try {

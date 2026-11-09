@@ -298,19 +298,19 @@ Workspace config schema version 是 5，system prompt 与 Files 字段为：
 
 Release manager 从 release 目录的 `RELEASE.json` 读取 Pi-Ark 与 bundled pi core 版本，并通过 GitHub Releases API 查询 stable channel。开发 checkout 没有 `RELEASE.json`，因此只提供版本和路径信息。
 
-`pi-ark update` 执行以下流程：
+Instance-aware CLI 的 `update` command 执行以下流程：
 
 1. 查询 GitHub 的 latest release，并选择当前 Linux architecture 对应的 artifact。
 2. 下载并解压到临时目录。
 3. 检查 `RELEASE.json`、必要的 Server/Web 文件、pi SDK import 和 node-pty native module。
-4. 将 release 复制到 `/opt/pi-ark/releases/<version>`。
+4. 将 release 复制到 `PI_ARK_INSTALL_PREFIX/releases/<version>`。
 5. 保存当前 release 为 `previous`，再通过临时 symlink rename 原子切换 `current`。
-6. Web update API 在返回响应后退出服务进程；systemd 根据 `Restart=always` 从新的 `current` 启动。
+6. Web update API 在返回响应后向当前进程发送 `SIGTERM`；现有 shutdown handler 关闭 Agent runtime、WebSocket 和 Fastify，systemd 再根据 `Restart=always` 从新的 `current` 启动。
 7. CLI service supervisor 请求新进程的 `/api/health`；30 秒内无法通过时，它恢复 previous release，并让 systemd 再次启动。
 
-`pi-ark rollback` 对调 `current` 与 `previous`，并使用相同的延迟重启流程。Global data 和 Workspace data 位于 release 目录之外，因此更新与回退不会改写这些数据。
+Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写入 pending release state，并使用相同的健康检查与延迟重启流程。Global data 和 Workspace data 位于 release 目录之外，因此更新与回退不会改写这些数据。
 
-日常迭代使用 `<next-version>-dev.<iteration>` SemVer prerelease。开发 artifact 可以安装到本机 `/opt/pi-ark/releases/<dev-version>` 并通过同一套 preflight、symlink 和 systemd 流程运行，但不会创建 Git tag 或 GitHub Release。正式 release 需要明确的发布安排。
+日常迭代使用 `<next-version>-dev.<iteration>` SemVer prerelease。开发 artifact 安装到本机 `/opt/pi-ark-dev/releases/<dev-version>`，并通过同一套 preflight、symlink 和 systemd 流程运行；该流程不会创建 Git tag 或 GitHub Release。正式 release 需要明确的发布安排。
 
 ## 数据存储
 
@@ -447,7 +447,13 @@ System installer 使用以下布局：
 /usr/local/bin/pi-ark
 ```
 
-Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。systemd 在每次启动前执行 release preflight，并从 `current` 运行 CLI 的 `serve` 命令。日常开发安装沿用本机服务当前的 data directory、service user、service group 和 listen 配置。
+Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。systemd 在每次启动前执行 release preflight，并从 `current` 运行 CLI 的 `serve` 命令。
+
+Multi-instance installation 通过 `PI_ARK_INSTANCE`、`PI_ARK_BASE_PATH`、`PI_ARK_SERVICE_NAME` 和 `PI_ARK_CLI_NAME` 描述当前实例。Installer 为非 default instance 生成独立的 service unit 与 instance-aware CLI launcher，并通过 `--port` 修改迁移后的 listen port。`--deferred-restart` 创建 transient systemd timer，避免部署进程随当前 service restart 一起终止。
+
+Frontend 从 `document.baseURI` 推导 base path。所有 API、WebSocket、Files image 和 download URL 都经过同一个 base-path helper；Vite build 使用 relative asset URL。Nginx 在 public URL 上保留 base path，并通过带末尾 `/` 的 `proxy_pass` 将该前缀移除后发送给 Fastify。Fastify 的内部 routes 继续使用 `/api` 与 `/ws`。
+
+Auth cookie name 包含 `PI_ARK_INSTANCE`，cookie Path 对应 `PI_ARK_BASE_PATH`。同一个 hostname 下的实例不会互相覆盖 auth cookie。各实例使用独立的 Global data 与 pi agent data；Workspace `.pi-ark` state 可以共享。同一个 Session 由一个实例执行写操作。
 
 ## Static assets 与 URL fallback
 

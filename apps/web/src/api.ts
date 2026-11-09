@@ -1,7 +1,9 @@
+import { withBasePath } from "./base-path";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body != null && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, {
+  const response = await fetch(withBasePath(path), {
     credentials: "same-origin",
     ...init,
     headers,
@@ -55,11 +57,11 @@ export const api = {
   deleteSessionGroup: (workspaceId: string, groupId: string) => request<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}`, { method: "DELETE" }),
   files: (workspaceId: string, path: string) => request<{ entries: import("./types").FileEntry[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(path)}`),
   file: (workspaceId: string, path: string) => request<import("./types").FileContent>(`/api/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`),
-  fileImageUrl: (workspaceId: string, path: string) => `/api/workspaces/${encodeURIComponent(workspaceId)}/image?path=${encodeURIComponent(path)}`,
-  fileDownloadUrl: (workspaceId: string, path: string) => `/api/workspaces/${encodeURIComponent(workspaceId)}/download?path=${encodeURIComponent(path)}`,
+  fileImageUrl: (workspaceId: string, path: string) => withBasePath(`/api/workspaces/${encodeURIComponent(workspaceId)}/image?path=${encodeURIComponent(path)}`),
+  fileDownloadUrl: (workspaceId: string, path: string) => withBasePath(`/api/workspaces/${encodeURIComponent(workspaceId)}/download?path=${encodeURIComponent(path)}`),
 };
 
 export function websocketUrl(path: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}${path}`;
+  return `${protocol}//${window.location.host}${withBasePath(path)}`;
 }

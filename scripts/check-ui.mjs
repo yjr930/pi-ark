@@ -7,6 +7,7 @@ const baseURL = process.env.PI_ARK_CHECK_URL;
 const username = process.env.PI_ARK_CHECK_USERNAME || "check";
 const password = process.env.PI_ARK_CHECK_PASSWORD || "check-password";
 const workspacePath = process.env.PI_ARK_CHECK_WORKSPACE;
+const baseOrigin = baseURL ? new URL(baseURL).origin : "";
 if (!baseURL || !workspacePath) throw new Error("Set PI_ARK_CHECK_URL and PI_ARK_CHECK_WORKSPACE");
 const filesFixtureName = "pi-ark-ui-test-files";
 const filesFixtureDirectory = join(workspacePath, filesFixtureName);
@@ -167,13 +168,14 @@ try {
   const linkedWorkspace = currentUrl.searchParams.get("workspace");
   const linkedSession = currentUrl.searchParams.get("session");
   await page.evaluate(async (workspaceId) => {
-    const current = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`).then((response) => response.json());
-    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent: current.agent, files: { ...current.files, maxPreviewSizeMb: 1 } }) });
+    const settingsUrl = new URL(`api/workspaces/${encodeURIComponent(workspaceId)}/settings`, document.baseURI);
+    const current = await fetch(settingsUrl).then((response) => response.json());
+    const response = await fetch(settingsUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent: current.agent, files: { ...current.files, maxPreviewSizeMb: 1 } }) });
     if (!response.ok) throw new Error(`Cannot configure browser file fixture: ${response.status}`);
   }, linkedWorkspace);
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Files" }).click();
   await page.locator(".file-browser").waitFor();
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseURL });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseOrigin });
   currentUrl = new URL(page.url());
   assert.equal(currentUrl.searchParams.get("page"), "files");
   assert.equal(currentUrl.searchParams.get("workspace"), linkedWorkspace);
@@ -275,7 +277,7 @@ try {
   await foldedToolTurn.locator(":scope > summary").click();
   const finalFooter = page.locator(".message-footer").last();
   await finalFooter.getByText("gpt-5.3-codex-spark", { exact: true }).waitFor();
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseURL });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseOrigin });
   const footerActionButtons = finalFooter.locator(".message-actions button");
   assert.deepEqual(await footerActionButtons.allTextContents(), Array(await footerActionButtons.count()).fill(""));
   const footerTooltips = await footerActionButtons.evaluateAll((buttons) => buttons.map((button) => button.getAttribute("data-tooltip")));
@@ -444,7 +446,8 @@ try {
   await modelSelector.waitFor();
   const selectedModelName = (await modelSelector.locator("span").first().textContent())?.trim();
   const expectedThinkingLevels = await page.evaluate(async (modelName) => {
-    const models = await fetch("/api/settings/models?provider=openai-codex").then((response) => response.json());
+    const modelsUrl = new URL("api/settings/models?provider=openai-codex", document.baseURI);
+    const models = await fetch(modelsUrl).then((response) => response.json());
     return models.models.find((model) => (model.name || model.id) === modelName).thinkingLevels;
   }, selectedModelName);
   await page.getByLabel("Default model thinking level").click();
@@ -456,11 +459,11 @@ try {
   assert.equal(await page.getByRole("button", { name: "Save global settings", exact: true }).count(), 0);
   const retrySwitch = agentDefaultsSection.locator(".settings-row").filter({ hasText: "Automatic retry" }).getByRole("switch");
   const retryBefore = await retrySwitch.getAttribute("aria-checked");
-  const retrySave = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/agent-defaults");
+  const retrySave = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/settings/agent-defaults"));
   await retrySwitch.click();
   assert.equal((await retrySave).ok(), true);
   assert.equal(await retrySwitch.getAttribute("aria-checked"), retryBefore === "true" ? "false" : "true");
-  const retryRestore = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/agent-defaults");
+  const retryRestore = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/settings/agent-defaults"));
   await retrySwitch.click();
   assert.equal((await retryRestore).ok(), true);
   const releaseSection = page.locator(".pi-core-section");
