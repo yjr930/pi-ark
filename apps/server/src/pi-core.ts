@@ -65,6 +65,7 @@ export class PiCoreService {
     const previousManifestPath = join(prefix, "previous", "RELEASE.json");
     const previousVersion = existsSync(previousManifestPath) ? (await jsonFile<ReleaseManifest>(previousManifestPath)).version : undefined;
     const latest = checkLatest ? await latestRelease() : undefined;
+    const channel = version.includes("-") ? "development" : "stable";
     return {
       version,
       coreVersion,
@@ -73,10 +74,10 @@ export class PiCoreService {
       dataDir: arkHome,
       installPath,
       installedRelease: Boolean(manifest),
-      channel: "stable",
+      channel,
       latestVersion: latest?.version,
       latestUrl: latest?.url,
-      updateAvailable: Boolean(latest?.version && latest.version !== version),
+      updateAvailable: Boolean(channel === "stable" && latest?.version && latest.version !== version),
       updating: this.updating,
       previousVersion,
       rollbackAvailable: Boolean(previousVersion),

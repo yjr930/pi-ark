@@ -70,7 +70,7 @@ docs/               产品、架构、使用和集成文档
 | Server composition | `apps/server/src/index.ts` | 启动、认证 hook、HTTP/WebSocket routes、静态资源和 shutdown |
 | Global/Workspace config | `apps/server/src/config.ts` | 配置解析、data directory、Workspace schema 和原子写入 |
 | Authentication | `apps/server/src/auth.ts` | scrypt password、内存 session token 和 cookie |
-| Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本和图片读取 |
+| Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
 | Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments 和广播 |
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
 | Session metadata | `apps/server/src/session-metadata.ts` | Pin、Archive、group 和串行原子写入 |
@@ -125,7 +125,7 @@ Global config 中的 Workspace registry 是浏览器可以访问的目录清单�
 
 文件读取先将 Workspace path 和请求 path 解析为 `realpath`，再检查结果仍位于 Workspace 内。包含 `.pi-ark` path segment 的请求会被拒绝；目录列表也始终过滤该目录。
 
-文本查看上限是 2 MB，并拒绝包含 NUL byte 的 binary file。Markdown image 支持 PNG、JPEG、GIF 和 WebP，查看上限是 10 MB。
+文本、Markdown 和图片共用 Workspace 的 `files.maxPreviewSizeMb` 预览上限。默认值是 10 MB，保存范围是 1–100 MB；包含 NUL byte 的 binary file 不进入文本预览。PNG、JPEG、GIF 和 WebP 可以作为选中文件或 Markdown image 预览。下载 endpoint 使用 stream 返回原始文件，不受预览大小和文件类型限制。
 
 Directory suggestions 只返回服务账号可以读取的目录和直接子目录，每次最多返回 100 个结果。
 
@@ -276,7 +276,7 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 
 Global preview 使用 DefaultResourceLoader 和临时 AgentSession 生成 complete effective prompt。Workspace append 通过 `appendSystemPromptOverride` 加到 Global append resources 后面。
 
-Workspace config schema version 是 4，system prompt 字段为：
+Workspace config schema version 是 5，system prompt 与 Files 字段为：
 
 ```json
 {
@@ -284,9 +284,15 @@ Workspace config schema version 是 4，system prompt 字段为：
     "systemPrompt": {
       "append": "Workspace-specific instructions"
     }
+  },
+  "files": {
+    "showHiddenFiles": true,
+    "maxPreviewSizeMb": 10
   }
 }
 ```
+
+读取 version 4 配置时，缺少的 `maxPreviewSizeMb` 使用 10 MB；下次保存会写入 version 5。普通 Workspace settings PUT 只更新 tools 与 files，并保留服务端当前 prompt；prompt 使用独立 endpoint 保存，避免自动保存覆盖尚未确认或刚确认的 prompt。
 
 ### Pi-Ark release 管理
 
@@ -303,6 +309,8 @@ Release manager 从 release 目录的 `RELEASE.json` 读取 Pi-Ark 与 bundled p
 7. CLI service supervisor 请求新进程的 `/api/health`；30 秒内无法通过时，它恢复 previous release，并让 systemd 再次启动。
 
 `pi-ark rollback` 对调 `current` 与 `previous`，并使用相同的延迟重启流程。Global data 和 Workspace data 位于 release 目录之外，因此更新与回退不会改写这些数据。
+
+日常迭代使用 `<next-version>-dev.<iteration>` SemVer prerelease。开发 artifact 可以安装到本机 `/opt/pi-ark/releases/<dev-version>` 并通过同一套 preflight、symlink 和 systemd 流程运行，但不会创建 Git tag 或 GitHub Release。正式 release 需要明确的发布安排。
 
 ## 数据存储
 
@@ -327,7 +335,7 @@ Release manager 从 release 目录的 `RELEASE.json` 读取 Pi-Ark 与 bundled p
 | `<workspace>/.pi-ark/sessions-meta.json` | Pin、Archive、groups 和 group definitions |
 | `<workspace>/.pi-ark/attachments/<session>/` | Session attachments |
 
-Global config、Workspace config 和 Session metadata 使用 temporary file 加 rename 的方式写入。Session metadata 还按 Workspace 使用进程内 write queue，避免并发更新相互覆盖。
+Global config、Workspace config 和 Session metadata 使用 temporary file 加 rename 的方式写入。Global config 使用服务进程级 write queue；Workspace config 和 Session metadata 按 Workspace 使用 write queue，避免自动保存与并发请求相互覆盖。
 
 ### Browser-local preferences
 
@@ -348,7 +356,7 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 |---|---|---|
 | GET | `/api/auth/session` | 当前登录状态 |
 | POST | `/api/auth/logout` | 退出 |
-| GET | `/api/ui` | Theme |
+| GET/PUT | `/api/ui` | 读取或立即保存 Theme |
 
 ### Workspace 与 Files
 
@@ -360,14 +368,16 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 | GET/PUT | `/api/workspaces/:workspaceId/settings` | Workspace settings |
 | PUT | `/api/workspaces/:workspaceId/system-prompt` | Workspace prompt append |
 | GET | `/api/workspaces/:workspaceId/files` | 目录列表 |
-| GET | `/api/workspaces/:workspaceId/file` | 文本文件 |
-| GET | `/api/workspaces/:workspaceId/image` | Markdown image |
+| GET | `/api/workspaces/:workspaceId/file` | 文本或图片 preview metadata；执行 Workspace preview limit |
+| GET | `/api/workspaces/:workspaceId/image` | Files/Markdown image stream；执行 Workspace preview limit |
+| GET | `/api/workspaces/:workspaceId/download` | 原始文件 stream download；不执行 preview limit |
 
 ### Settings
 
 | Method | Path | 用途 |
 |---|---|---|
-| GET/PUT | `/api/settings/global` | Global settings |
+| GET/PUT | `/api/settings/global` | Provider、model、thinking 与 credential 确认 |
+| PUT | `/api/settings/agent-defaults` | 立即保存 message queue、compaction 和 retry defaults |
 | GET | `/api/settings/models` | Provider model list |
 | GET | `/api/settings/session-models` | 当前可用 Session models |
 | GET | `/api/settings/system-prompt` | Effective prompt preview |
@@ -437,7 +447,7 @@ System installer 使用以下布局：
 /usr/local/bin/pi-ark
 ```
 
-Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。systemd 在每次启动前执行 release preflight，并从 `current` 运行 CLI 的 `serve` 命令。
+Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。systemd 在每次启动前执行 release preflight，并从 `current` 运行 CLI 的 `serve` 命令。日常开发安装沿用本机服务当前的 data directory、service user、service group 和 listen 配置。
 
 ## Static assets 与 URL fallback
 
@@ -448,7 +458,7 @@ Server 从 `apps/web/dist` 读取 Web assets。带 hash 的文件使用一年 im
 - TLS key、credential、password hash 和 Workspace state 应由服务账号管理。
 - Auth session 保存在内存中，服务重启后浏览器需要重新登录。
 - API 和 WebSocket 共用认证 hook。
-- File API 使用 realpath 防止相对路径和 symlink 离开 Workspace。
+- File API 使用 realpath 防止相对路径和 symlink 离开 Workspace；图片与下载 stream 从已打开并再次核对 Workspace 边界的 file descriptor 读取。
 - `.pi-ark` state 无法通过 Files API 读取。
 - Attachment filename 会清理，并在 Session directory 中添加随机前缀。
 - HTML Markdown 使用 DOMPurify 清理。
@@ -466,4 +476,4 @@ npm run check:ui
 npm run release:build
 ```
 
-Behavior scripts 覆盖 conversation segmentation、attachments、OAuth flow、Session actions 和 system prompt。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、loading snapshot、tool details 和 interrupted warning。
+Behavior scripts 覆盖 conversation segmentation、attachments、OAuth flow、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、loading snapshot、tool details、interrupted warning、Files 图片/超限下载和 Settings 自动保存。

@@ -1,8 +1,10 @@
-import { lstat, readdir, readFile, realpath } from "node:fs/promises";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { WorkspaceDefinition } from "./config.js";
 
-const MAX_FILE_SIZE = 2 * 1024 * 1024;
+const IMAGE_MIME_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
+
+export type FilePreview = { name: string; path: string; size: number } & ({ kind: "text"; content: string; markdown: boolean } | { kind: "image"; mimeType: string });
 
 export class WorkspaceService {
   private readonly byId: Map<string, WorkspaceDefinition>;
@@ -108,30 +110,48 @@ export class WorkspaceService {
     return result.sort((a, b) => (a.type === "directory" ? 0 : 1) - (b.type === "directory" ? 0 : 1) || a.name.localeCompare(b.name));
   }
 
-  async readTextFile(workspace: WorkspaceDefinition, requestedPath: string): Promise<{ name: string; path: string; content: string; size: number; markdown: boolean }> {
+  private async openWorkspaceFile(workspace: WorkspaceDefinition, requestedPath: string) {
     const root = await realpath(workspace.path);
-    const file = await this.safePath(workspace, requestedPath);
-    const stat = await lstat(file);
-    if (!stat.isFile()) throw Object.assign(new Error("Path is not a file"), { statusCode: 400 });
-    if (stat.size > MAX_FILE_SIZE) throw Object.assign(new Error("File exceeds the 2 MB viewing limit"), { statusCode: 413 });
-    const buffer = await readFile(file);
-    if (buffer.includes(0)) throw Object.assign(new Error("Binary files cannot be displayed"), { statusCode: 415 });
-    return {
-      name: basename(file),
-      path: relative(root, file).split(sep).join("/"),
-      content: buffer.toString("utf8"),
-      size: stat.size,
-      markdown: /\.(md|markdown|mdx)$/i.test(file),
-    };
+    const candidate = await this.safePath(workspace, requestedPath);
+    const handle = await open(candidate, "r");
+    try {
+      const file = await realpath(`/proc/self/fd/${handle.fd}`);
+      if (file !== root && !file.startsWith(root + sep)) throw Object.assign(new Error("Path leaves the workspace"), { statusCode: 403 });
+      const stat = await handle.stat();
+      if (!stat.isFile()) throw Object.assign(new Error("Path is not a file"), { statusCode: 400 });
+      return { root, file, stat, handle };
+    } catch (error) {
+      await handle.close();
+      throw error;
+    }
   }
 
-  async readImage(workspace: WorkspaceDefinition, requestedPath: string): Promise<{ content: Buffer; mimeType: string }> {
-    const file = await this.safePath(workspace, requestedPath);
-    const stat = await lstat(file);
-    const mimeTypes: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
-    const mimeType = mimeTypes[extname(file).toLowerCase()];
-    if (!stat.isFile() || !mimeType) throw Object.assign(new Error("Unsupported Markdown image"), { statusCode: 415 });
-    if (stat.size > 10 * 1024 * 1024) throw Object.assign(new Error("Image exceeds the 10 MB viewing limit"), { statusCode: 413 });
-    return { content: await readFile(file), mimeType };
+  async readFilePreview(workspace: WorkspaceDefinition, requestedPath: string, maxSizeBytes: number): Promise<FilePreview> {
+    const opened = await this.openWorkspaceFile(workspace, requestedPath);
+    try {
+      if (opened.stat.size > maxSizeBytes) throw Object.assign(new Error(`File exceeds the ${Math.round(maxSizeBytes / 1024 / 1024)} MB preview limit. Download the file to open it locally.`), { statusCode: 413 });
+      const common = { name: basename(opened.file), path: relative(opened.root, opened.file).split(sep).join("/"), size: opened.stat.size };
+      const mimeType = IMAGE_MIME_TYPES[extname(opened.file).toLowerCase()];
+      if (mimeType) return { ...common, kind: "image", mimeType };
+      const buffer = await opened.handle.readFile();
+      if (buffer.includes(0)) throw Object.assign(new Error("This binary file cannot be previewed. Download the file to open it locally."), { statusCode: 415 });
+      return { ...common, kind: "text", content: buffer.toString("utf8"), markdown: /\.(md|markdown|mdx)$/i.test(opened.file) };
+    } finally { await opened.handle.close(); }
+  }
+
+  async readImage(workspace: WorkspaceDefinition, requestedPath: string, maxSizeBytes: number) {
+    const opened = await this.openWorkspaceFile(workspace, requestedPath);
+    const mimeType = IMAGE_MIME_TYPES[extname(opened.file).toLowerCase()];
+    if (!mimeType || opened.stat.size > maxSizeBytes) {
+      await opened.handle.close();
+      if (!mimeType) throw Object.assign(new Error("Unsupported image"), { statusCode: 415 });
+      throw Object.assign(new Error(`Image exceeds the ${Math.round(maxSizeBytes / 1024 / 1024)} MB preview limit`), { statusCode: 413 });
+    }
+    return { content: opened.handle.createReadStream(), size: opened.stat.size, mimeType };
+  }
+
+  async downloadFile(workspace: WorkspaceDefinition, requestedPath: string) {
+    const opened = await this.openWorkspaceFile(workspace, requestedPath);
+    return { content: opened.handle.createReadStream(), name: basename(opened.file), size: opened.stat.size };
   }
 }

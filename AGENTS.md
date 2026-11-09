@@ -171,6 +171,13 @@
 5. 将代码、检查和文档放在同一个语义完整的 commit 中。
 6. Commit 创建后立即 push 到当前分支的 upstream；push 失败时保留本地 commit，并向用户报告失败原因和需要的操作。
 
+## 开发版本与本机服务
+
+- 日常迭代使用下一个正式版本的 SemVer prerelease，格式为 `<next-version>-dev.<iteration>`，并在每次独立迭代中递增 `iteration`。
+- 日常迭代不创建 Git tag、不创建 GitHub Release，也不发布正式 release artifact；只有用户明确要求正式发布时，才移除 `dev` prerelease 并执行正式发布流程。
+- 每次日常迭代完成检查、commit 和 push 后，都要构建本机开发 artifact，将其安装到本机 `/opt/pi-ark/releases/<dev-version>`，重启 `pi-ark.service`，并确认 health 与运行版本。
+- 本机开发安装沿用当前服务的 data directory、service user、service group 和 listen 配置，不迁移或重置 Global data 与 Workspace data。
+
 ## Git 规范
 
 - 使用当前配置的 Git identity，不修改 repository 或 global identity，除非用户明确要求。

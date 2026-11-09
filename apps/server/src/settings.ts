@@ -4,15 +4,18 @@ import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel
 import { ARK_THEMES, loadConfig, piArkAgentDir, saveGlobalArkSettings, type ArkTheme } from "./config.js";
 import type { AuthFlowInteraction } from "./auth-flows.js";
 
-export interface GlobalSettingsInput {
-  theme: ArkTheme;
-  provider: string;
-  model: string;
-  thinkingLevel: ModelThinkingLevel;
+export interface GlobalAgentDefaultsInput {
   steeringMode: "all" | "one-at-a-time";
   followUpMode: "all" | "one-at-a-time";
   compactionEnabled: boolean;
   retryEnabled: boolean;
+}
+
+export interface GlobalSettingsInput extends GlobalAgentDefaultsInput {
+  theme: ArkTheme;
+  provider: string;
+  model: string;
+  thinkingLevel: ModelThinkingLevel;
   apiKey?: string;
 }
 
@@ -84,6 +87,19 @@ export class SettingsService {
     const provider = this.models.getProvider(providerId);
     if (!provider?.auth.oauth?.isSubscription) throw Object.assign(new Error("Provider does not support subscription login"), { statusCode: 400 });
     await this.models.login(providerId, "oauth", interaction);
+  }
+
+  async saveAgentDefaults(input: GlobalAgentDefaultsInput) {
+    if (!(["all", "one-at-a-time"] as const).includes(input.steeringMode) || !(["all", "one-at-a-time"] as const).includes(input.followUpMode)) throw Object.assign(new Error("Invalid message queue mode"), { statusCode: 400 });
+    if (typeof input.compactionEnabled !== "boolean" || typeof input.retryEnabled !== "boolean") throw Object.assign(new Error("Invalid agent default setting"), { statusCode: 400 });
+    this.manager.setSteeringMode(input.steeringMode);
+    this.manager.setFollowUpMode(input.followUpMode);
+    this.manager.setCompactionEnabled(input.compactionEnabled);
+    this.manager.setRetryEnabled(input.retryEnabled);
+    await this.manager.flush();
+    const errors = this.manager.drainErrors();
+    if (errors.length) throw new Error(errors.map(({ error }) => error.message).join("; "));
+    return input;
   }
 
   async saveGlobal(input: GlobalSettingsInput) {

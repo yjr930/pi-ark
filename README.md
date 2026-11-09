@@ -6,7 +6,7 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 
 - 使用 `@earendil-works/pi-coding-agent` SDK 管理持久化 Session、流式消息、tool activity、queue、Fork 和 Rollback。
 - 管理多个服务器 Workspace，并将 Session、metadata 和附件保存在 Workspace 的 `.pi-ark` 目录中。
-- 提供 Files、共享的安全 Markdown renderer、相对图片和 image lightbox。
+- 提供 Files 文本、Markdown 与图片预览、可配置的预览上限，以及所有文件的原始下载。
 - 通过 xterm.js 和 node-pty 提供以 Workspace 为 cwd 的浏览器 Terminal。
 - 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、Pi-Ark release update/rollback、system prompt preview 和 Workspace tools。
 - 提供桌面可调整侧栏、移动端 drawer、五种 theme、Session group、permalink 和内部链接。
@@ -49,6 +49,8 @@ npm run dev
 ```
 
 Vite 默认位于 `http://localhost:5173`，并将 API 和 WebSocket 转发到本地 Pi-Ark HTTPS 服务。
+
+日常迭代使用 `<next-version>-dev.<iteration>` 版本，不创建 Git tag 或 GitHub Release。每次迭代完成后，项目维护者构建本机 development artifact，将它安装到 `/opt/pi-ark/releases/<dev-version>`，并重启及检查 `pi-ark.service`。正式 release 仅在明确安排发布时创建。
 
 项目命令：
 

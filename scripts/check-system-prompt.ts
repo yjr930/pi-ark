@@ -28,16 +28,27 @@ try {
   assert.equal(coreInfo.agentDir, agentDir);
   assert.match(coreInfo.corePath, /@earendil-works\/pi-coding-agent$/);
   assert.match(coreInfo.version, /^\d+\.\d+\.\d+/);
+  await Promise.all([config.saveGlobalArkSettings("graphite"), config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }])]);
+  const queuedGlobal = await config.loadConfig();
+  assert.equal(queuedGlobal.ui.theme, "graphite");
+  assert.equal(queuedGlobal.workspaces[0].name, "Queued workspace");
 
   await writeFile(join(agentDir, "SYSTEM.md"), "Global replacement");
   await writeFile(join(agentDir, "APPEND_SYSTEM.md"), "Global append");
 
   const defaults = await config.loadWorkspaceSettings(workspace);
-  assert.equal(defaults.version, 4);
+  assert.equal(defaults.version, 5);
   assert.deepEqual(defaults.agent.systemPrompt, { append: "" });
+  assert.deepEqual(defaults.files, { showHiddenFiles: true, maxPreviewSizeMb: 10 });
 
-  await config.saveWorkspaceSystemPrompt(workspace, { append: "Workspace append" });
-  assert.deepEqual((await config.loadWorkspaceSettings(workspace)).agent.systemPrompt, { append: "Workspace append" });
+  await Promise.all([
+    config.saveWorkspaceSystemPrompt(workspace, { append: "Workspace append" }),
+    config.saveWorkspacePreferences(workspace, { agent: { tools: ["read"] }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } }),
+  ]);
+  const queuedWorkspace = await config.loadWorkspaceSettings(workspace);
+  assert.deepEqual(queuedWorkspace.agent.systemPrompt, { append: "Workspace append" });
+  assert.deepEqual(queuedWorkspace.agent.tools, ["read"]);
+  assert.deepEqual(queuedWorkspace.files, { showHiddenFiles: false, maxPreviewSizeMb: 20 });
   await config.saveWorkspaceSystemPrompt(workspace, { append: "" });
   assert.deepEqual((await config.loadWorkspaceSettings(workspace)).agent.systemPrompt, { append: "" });
 

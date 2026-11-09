@@ -139,9 +139,9 @@ Header 的 Session information 面板显示创建时间、更新时间、消息�
 
 Files 页面的目录 breadcrumb 横跨文件列表和阅读区域，长目录路径可以使用整个页面宽度。breadcrumb 下方的左侧区域显示目录内容，右侧区域显示选中文件，并在阅读区域顶部单独显示文件路径。目录列表顶部的 Up one level 返回父目录；目录导航始终限制在 Workspace 内。
 
-桌面端可以拖动文件列表与阅读区域之间的 separator，调整后的文件列表宽度保存在浏览器 localStorage。移动端继续使用上下堆叠布局。每个文件和目录右侧的 action menu 可以复制服务器绝对路径或 Workspace-relative path。
+桌面端可以拖动文件列表与阅读区域之间的 separator，调整后的文件列表宽度保存在浏览器 localStorage。移动端继续使用上下堆叠布局。每个文件和目录右侧的 action menu 可以复制服务器绝对路径或 Workspace-relative path；每个文件的 menu 还提供 Download。
 
-Markdown 文件使用与 conversation 相同的安全 Markdown renderer，并支持相对图片路径。其他文本文件使用代码视图。Workspace settings 可以控制是否显示 dotfile；Pi-Ark 自身的 `.pi-ark` 状态目录始终不进入文件列表。
+Markdown 文件使用与 conversation 相同的安全 Markdown renderer，并支持相对图片路径。PNG、JPEG、GIF 和 WebP 文件在阅读区域内按可用空间预览，其他文本文件使用代码视图。选中文件的 header 始终提供 Download；binary file 或超过 Workspace 预览上限的文件显示下载状态，不读取文件内容。Workspace settings 可以控制 dotfile 显示和最大预览大小；预览大小默认是 10 MB，可以设置为 1–100 MB。Pi-Ark 自身的 `.pi-ark` 状态目录始终不进入文件列表。
 
 ## Terminal
 
@@ -161,9 +161,9 @@ Global configuration 对所有 Workspace 生效，并使用以下主题分类：
 - Agent instructions and behavior：System prompt 和 Agent defaults，包含可选 replacement/append 文件路径、effective prompt preview、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Account and security：Sign out。
 
-Theme 在选择时立即预览，保存 Global settings 后写入服务配置。API key 和 OAuth credential 由 pi 保存，浏览器不会读取已经保存的 credential 内容。
+Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；provider、model、thinking 和 Agent defaults 在选择后保存。API key 与 Workspace system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。API key 和 OAuth credential 由 pi 保存，浏览器不会读取已经保存的 credential 内容。
 
-Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent 和 pi-ai。更新过程保留 Global data 与 Workspace data，将 `current` symlink 切换到新 release，并在延迟重启前保留上一 release。Roll back 将 `current` 和 `previous` 对调。开发 checkout 会显示安装状态和版本信息，但页面不会执行 release update。
+Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent 和 pi-ai。更新过程保留 Global data 与 Workspace data，将 `current` symlink 切换到新 release，并在延迟重启前保留上一 release。Roll back 将 `current` 和 `previous` 对调。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
 
 ### Workspace
 
@@ -171,9 +171,9 @@ Workspace configuration 包含以下区域：
 
 - System prompt append：在 pi 加载 Global system prompt 资源后追加 Workspace 内容。
 - Agent tools：选择 read、bash、edit 和 write；至少保留一个 tool。
-- File browser：控制 hidden files 的显示。
+- File browser：控制 hidden files 的显示，以及 Files 文本、Markdown 和图片的最大预览大小。
 
-这些设置在 Pi-Ark 新建或重新打开 Session 时进入 agent runtime。
+Agent tools 在 Pi-Ark 新建或重新打开 Session 时进入 agent runtime。File browser 设置保存后立即用于后续 Files 请求。
 
 ## 桌面与移动布局
 

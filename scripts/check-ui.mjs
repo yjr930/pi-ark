@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { access } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { chromium } from "@playwright/test";
 
 const baseURL = process.env.PI_ARK_CHECK_URL;
@@ -7,6 +8,13 @@ const username = process.env.PI_ARK_CHECK_USERNAME || "check";
 const password = process.env.PI_ARK_CHECK_PASSWORD || "check-password";
 const workspacePath = process.env.PI_ARK_CHECK_WORKSPACE;
 if (!baseURL || !workspacePath) throw new Error("Set PI_ARK_CHECK_URL and PI_ARK_CHECK_WORKSPACE");
+const filesFixtureName = "pi-ark-ui-test-files";
+const filesFixtureDirectory = join(workspacePath, filesFixtureName);
+await rm(filesFixtureDirectory, { recursive: true, force: true });
+await mkdir(filesFixtureDirectory, { recursive: true });
+await writeFile(join(filesFixtureDirectory, "preview.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
+await writeFile(join(filesFixtureDirectory, "oversized.bin"), Buffer.alloc(2 * 1024 * 1024, 1));
+await writeFile(join(filesFixtureDirectory, "报告 (final).txt"), "Unicode download fixture.\n");
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });
@@ -25,7 +33,7 @@ async function assertDialogChrome(dialog, { input = false } = {}) {
 await page.route("**/api/settings/release?latest=true", async (route) => {
   const response = await route.fetch();
   const info = await response.json();
-  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...info, installedRelease: true, latestVersion: "99.0.0", updateAvailable: true }) });
+  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...info, installedRelease: true, channel: "stable", latestVersion: "99.0.0", updateAvailable: true }) });
 });
 await page.route("**/api/settings/subscription-logins**", async (route) => {
   const request = route.request();
@@ -158,6 +166,11 @@ try {
   assert.ok(currentUrl.searchParams.get("session"));
   const linkedWorkspace = currentUrl.searchParams.get("workspace");
   const linkedSession = currentUrl.searchParams.get("session");
+  await page.evaluate(async (workspaceId) => {
+    const current = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`).then((response) => response.json());
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent: current.agent, files: { ...current.files, maxPreviewSizeMb: 1 } }) });
+    if (!response.ok) throw new Error(`Cannot configure browser file fixture: ${response.status}`);
+  }, linkedWorkspace);
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Files" }).click();
   await page.locator(".file-browser").waitFor();
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseURL });
@@ -208,6 +221,30 @@ try {
   await readableFile.locator(".file-row").click();
   await page.locator(".viewer-title").waitFor();
   assert.equal((await page.locator(".viewer-title span").textContent())?.trim(), readablePath);
+  assert.equal(await page.locator(".viewer-title-actions a").count(), 1);
+  const filesFixture = page.locator(`.file-row-shell[data-entry-path="${filesFixtureName}"]`);
+  await filesFixture.locator(".file-row").click();
+  const imageEntry = page.locator(`.file-row-shell[data-entry-path="${filesFixtureName}/preview.png"]`);
+  await imageEntry.locator(".file-row").click();
+  const previewImage = page.locator('.image-view img[alt="preview.png"]');
+  await previewImage.waitFor();
+  assert.equal(await previewImage.evaluate((image) => image.naturalWidth), 1);
+  await imageEntry.locator(".file-row-actions").click();
+  assert.equal(await page.getByRole("menuitem", { name: "Download", exact: true }).count(), 1);
+  await page.keyboard.press("Escape");
+  const unicodeEntry = page.locator(`.file-row-shell[data-entry-path="${filesFixtureName}/报告 (final).txt"]`);
+  await unicodeEntry.locator(".file-row-actions").click();
+  const unicodeDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("menuitem", { name: "Download", exact: true }).click();
+  assert.equal((await unicodeDownloadPromise).suggestedFilename(), "报告 (final).txt");
+  const oversizedEntry = page.locator(`.file-row-shell[data-entry-path="${filesFixtureName}/oversized.bin"]`);
+  await oversizedEntry.locator(".file-row").click();
+  await page.getByRole("heading", { name: "Preview unavailable" }).waitFor();
+  assert.match(await page.locator(".viewer-placeholder p").textContent(), /1 MB preview limit/);
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download file", exact: true }).click();
+  const oversizedDownload = await downloadPromise;
+  assert.equal(oversizedDownload.suggestedFilename(), "oversized.bin");
   await page.reload();
   await page.locator(".file-browser").waitFor();
   assert.equal(new URL(page.url()).searchParams.get("page"), "files");
@@ -416,6 +453,16 @@ try {
   await page.keyboard.press("Escape");
   const agentDefaultsSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Agent defaults", exact: true }) });
   assert.equal(await agentDefaultsSection.getByText("Thinking level", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Save global settings", exact: true }).count(), 0);
+  const retrySwitch = agentDefaultsSection.locator(".settings-row").filter({ hasText: "Automatic retry" }).getByRole("switch");
+  const retryBefore = await retrySwitch.getAttribute("aria-checked");
+  const retrySave = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/agent-defaults");
+  await retrySwitch.click();
+  assert.equal((await retrySave).ok(), true);
+  assert.equal(await retrySwitch.getAttribute("aria-checked"), retryBefore === "true" ? "false" : "true");
+  const retryRestore = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/agent-defaults");
+  await retrySwitch.click();
+  assert.equal((await retryRestore).ok(), true);
   const releaseSection = page.locator(".pi-core-section");
   await releaseSection.getByRole("heading", { name: "Pi-Ark release", exact: true }).waitFor();
   assert.ok((await releaseSection.textContent()).includes("Bundled pi core"));
@@ -440,13 +487,23 @@ try {
   await page.locator(".settings-tabs > button").nth(1).click();
   const workspacePromptSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "System prompt append", exact: true }) });
   const workspaceAppend = workspacePromptSection.getByLabel("Workspace append content");
+  const initialWorkspaceAppend = await workspaceAppend.inputValue();
+  await workspaceAppend.fill("Cancelled browser addition");
+  await workspacePromptSection.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await workspaceAppend.inputValue(), initialWorkspaceAppend);
   await workspaceAppend.fill("Workspace browser addition");
   await workspacePromptSection.getByRole("button", { name: "Save system prompt", exact: true }).click();
   await page.getByText("Workspace system prompt append saved.", { exact: false }).waitFor();
   await workspaceAppend.fill("");
   await workspacePromptSection.getByRole("button", { name: "Save system prompt", exact: true }).click();
-  await workspacePromptSection.getByRole("button", { name: "Refresh", exact: true }).click();
   assert.equal(await workspaceAppend.inputValue(), "");
+  const previewSizeInput = page.getByLabel("Maximum preview size");
+  assert.equal(await previewSizeInput.inputValue(), "1");
+  await previewSizeInput.fill("10");
+  await previewSizeInput.press("Tab");
+  await page.getByText("Preview size saved.", { exact: true }).waitFor();
+  assert.equal(await previewSizeInput.inputValue(), "10");
+  assert.equal(await page.getByRole("button", { name: "Save workspace settings", exact: true }).count(), 0);
   await page.locator(".settings-tabs > button").first().click();
   const subscriptionMode = page.locator(".subscription-mode");
   await subscriptionMode.waitFor();
@@ -498,4 +555,5 @@ try {
   throw error;
 } finally {
   await browser.close();
+  await rm(filesFixtureDirectory, { recursive: true, force: true });
 }

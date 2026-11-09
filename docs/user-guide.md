@@ -63,6 +63,8 @@ npm run dev
 
 Vite 默认使用 `http://localhost:5173`，并将 API 和 WebSocket 请求转发给本地 Pi-Ark HTTPS 服务。
 
+日常迭代使用 `<next-version>-dev.<iteration>` 版本。每次迭代完成后，本机服务从对应的 `/opt/pi-ark/releases/<dev-version>` 运行；该流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。
+
 常用项目命令：
 
 ```bash
@@ -246,10 +248,13 @@ Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧�
 - 点击 breadcrumb 中的任意目录返回对应路径。
 - 拖动桌面端两栏之间的 separator 可以调整文件列表宽度。
 - 打开文件或目录右侧的 action menu，可以选择 Copy path（服务器绝对路径）或 Copy relative path（Workspace-relative path）。
+- 每个文件的 action menu 和阅读区域 header 都提供 Download。
 - Markdown 使用阅读视图，并解析 Workspace 内的相对图片。
+- PNG、JPEG、GIF 和 WebP 文件使用图片预览。
 - 其他文本文件使用代码视图。
+- binary file 或超过预览上限的文件显示 Preview unavailable，并保留 Download file。
 
-是否显示 dotfile 由 Settings → Workspace → File browser 控制。`.pi-ark` 内部状态目录始终从 Files 页面隐藏。
+是否显示 dotfile 和最大预览大小由 Settings → Workspace → File browser 控制。预览大小默认是 10 MB，可设置范围是 1–100 MB。预览上限不限制下载；`.pi-ark` 内部状态目录始终从 Files 页面隐藏。
 
 ## Terminal 页面
 
@@ -259,9 +264,11 @@ Terminal 使用 Pi-Ark 服务账号的系统权限。运行命令前应确认服
 
 ## Settings
 
+Settings 中的普通选择、开关和完成输入的数值会立即保存。页面底部没有统一 Save 按钮。API key 和 Workspace system prompt append 需要明确确认，因此 Save 与 Cancel 位于对应区域内。
+
 ### Global → Appearance
 
-选择以下 theme，并点击 Save global settings：
+选择以下 theme，选择后会立即预览并保存：
 
 - Ark Dark
 - Graphite
@@ -277,9 +284,8 @@ Theme 选择会立即预览，保存后对该 Pi-Ark 服务的浏览器生效。
 2. 通过 API key 或 subscription account 完成认证。
 3. 选择 Model。
 4. 选择该 Model 支持的 Thinking level。
-5. 保存 Global settings。
 
-API key 输入是 write-only。已经保存的 credential 不会返回浏览器。
+已经认证的 Provider、Model 和 Thinking level 在选择后立即保存。API key 输入是 write-only；输入后使用该区域内的 Save API key 或 Cancel。已经保存的 credential 不会返回浏览器。
 
 支持 subscription OAuth 的 Provider 会显示 Use subscription account。登录区可能显示授权链接、device code、文本输入、选择项或进度。Device code 可以使用旁边的 Copy 按钮复制。
 
@@ -289,13 +295,13 @@ Pi-Ark release 区域显示以下信息：
 
 - Pi-Ark version 与 bundled pi core version。
 - Release 或 development checkout 的 install mode。
-- Stable update channel、latest release 和 previous release。
+- Stable 或 development channel、latest release 和 previous release。
 - Install path、Global data path、Pi-Ark agent data path 和 pi core package path。
 - Update、rollback、status、logs 和 restart 命令。
 
 Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-Ark 下载当前 Linux architecture 的完整 artifact，在安装前运行 dependency preflight，保留当前 release 为 `previous`，原子切换 `current`，然后重启 service。Roll back 将 `current` 与 `previous` 对调。两个操作都保留 Global data 与 Workspace data。
 
-Development checkout 会显示版本、路径和运维命令。Update Pi-Ark 需要从 release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开。
+Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开。
 
 ### Global → System prompt
 
@@ -317,17 +323,19 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 - Automatic compaction：接近 context limit 时压缩旧上下文。
 - Automatic retry：按 pi 默认行为重试临时 provider failure。
 
+以上选择和开关会立即保存。
+
 ### Workspace → System prompt append
 
-该文本在 pi 加载 Global prompt 资源后追加。保存空文本可以清除 Workspace append。
+该文本在 pi 加载 Global prompt 资源后追加。编辑完成后使用该区域内的 Save system prompt；Cancel 恢复已经保存的内容。保存空文本可以清除 Workspace append。
 
 ### Workspace → Agent tools
 
-可以选择 read、bash、edit 和 write。至少需要保留一个 tool。设置在新建或重新打开 Session 时生效。
+可以选择 read、bash、edit 和 write。至少需要保留一个 tool。选择后立即保存，并在新建或重新打开 Session 时生效。
 
 ### Workspace → File browser
 
-Show hidden files 控制普通 dotfile 是否进入 Files 列表。
+Show hidden files 控制普通 dotfile 是否进入 Files 列表，切换后立即保存。Maximum preview size 控制文本、Markdown 和支持图片的预览上限，默认是 10 MB，可设置范围是 1–100 MB；输入完成并离开输入框后保存，超过该值的文件仍可下载。
 
 ## 浏览器布局设置
 

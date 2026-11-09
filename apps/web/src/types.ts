@@ -78,13 +78,7 @@ export interface FileEntry {
   size: number;
 }
 
-export interface FileContent {
-  name: string;
-  path: string;
-  content: string;
-  size: number;
-  markdown: boolean;
-}
+export type FileContent = { name: string; path: string; size: number } & ({ kind: "text"; content: string; markdown: boolean } | { kind: "image"; mimeType: string });
 
 export interface ProviderOption {
   id: string;
@@ -167,8 +161,8 @@ export interface GlobalSettings {
 }
 
 export interface WorkspaceSettings {
-  version: 4;
+  version: 5;
   workspaceId: string;
   agent: { tools: Array<"read" | "bash" | "edit" | "write">; systemPrompt: { append: string } };
-  files: { showHiddenFiles: boolean };
+  files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
 }

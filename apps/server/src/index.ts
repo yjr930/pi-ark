@@ -7,10 +7,10 @@ import Fastify from "fastify";
 import { AgentService } from "./agents.js";
 import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadWorkspaceSettings, piArkAgentDir, saveWorkspaceDefinitions, saveWorkspaceSettings, saveWorkspaceSystemPrompt, type WorkspaceSettings } from "./config.js";
+import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadWorkspaceSettings, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveWorkspacePreferences, saveWorkspaceSystemPrompt, type ArkUiSettings, type WorkspaceSettings, type WorkspaceTool } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { PiCoreService } from "./pi-core.js";
-import { SettingsService, type GlobalSettingsInput } from "./settings.js";
+import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput } from "./settings.js";
 import { openTerminal } from "./terminal.js";
 import { WorkspaceService } from "./workspaces.js";
 
@@ -26,6 +26,12 @@ const settings = await SettingsService.create(config.workspaces[0]?.path || proc
 const piCore = new PiCoreService();
 const authFlows = new AuthFlowService((providerId, interaction) => settings.loginSubscription(providerId, interaction));
 const agents = new AgentService(settings);
+
+function contentDispositionFilename(name: string): string {
+  const fallback = name.replace(/[^\x20-\x7e]|["\\]/g, "_") || "download";
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
 
 await app.register(cookie);
 await app.register(websocket, { options: { maxPayload: 28 * 1024 * 1024 } });
@@ -56,6 +62,7 @@ app.post("/api/auth/logout", async (request, reply) => {
 app.get("/api/auth/session", async () => ({ authenticated: true, username: config.auth.username }));
 
 app.get("/api/ui", async () => loadUiSettings());
+app.put<{ Body: ArkUiSettings }>("/api/ui", async (request) => saveGlobalArkSettings(request.body?.theme));
 app.get("/api/workspaces", async () => ({ workspaces: workspaces.list() }));
 app.get<{ Querystring: { path: string } }>("/api/directories", async (request) => workspaces.suggestDirectories(request.query.path || ""));
 app.post<{ Body: { name?: string; path: string } }>("/api/workspaces", async (request, reply) => {
@@ -93,12 +100,13 @@ app.get<{ Params: { flowId: string } }>("/api/settings/subscription-logins/:flow
 app.post<{ Params: { flowId: string }; Body: { promptId: string; value: string } }>("/api/settings/subscription-logins/:flowId/answer", async (request) => authFlows.answer(request.params.flowId, request.body?.promptId, request.body?.value));
 app.delete<{ Params: { flowId: string } }>("/api/settings/subscription-logins/:flowId", async (request, reply) => { authFlows.cancel(request.params.flowId); return reply.code(204).send(); });
 app.put<{ Body: GlobalSettingsInput }>("/api/settings/global", async (request) => settings.saveGlobal(request.body));
+app.put<{ Body: GlobalAgentDefaultsInput }>("/api/settings/agent-defaults", async (request) => settings.saveAgentDefaults(request.body));
 app.get<{ Querystring: { workspaceId?: string } }>("/api/settings/system-prompt", async (request) => {
   const workspace = request.query.workspaceId ? workspaces.get(request.query.workspaceId) : workspaces.list()[0] || { id: "global-preview", name: "Global preview", path: process.cwd() };
   return agents.getGlobalSystemPrompt(workspace);
 });
 app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/settings", async (request) => loadWorkspaceSettings(workspaces.get(request.params.workspaceId)));
-app.put<{ Params: { workspaceId: string }; Body: Pick<WorkspaceSettings, "agent" | "files"> }>("/api/workspaces/:workspaceId/settings", async (request) => saveWorkspaceSettings(workspaces.get(request.params.workspaceId), request.body));
+app.put<{ Params: { workspaceId: string }; Body: { agent: { tools: WorkspaceTool[] }; files: WorkspaceSettings["files"] } }>("/api/workspaces/:workspaceId/settings", async (request) => saveWorkspacePreferences(workspaces.get(request.params.workspaceId), request.body));
 app.put<{ Params: { workspaceId: string }; Body: WorkspaceSettings["agent"]["systemPrompt"] }>("/api/workspaces/:workspaceId/system-prompt", async (request) => saveWorkspaceSystemPrompt(workspaces.get(request.params.workspaceId), request.body));
 app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/api/workspaces/:workspaceId/files", async (request) => {
   const workspace = workspaces.get(request.params.workspaceId);
@@ -107,13 +115,23 @@ app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/a
 });
 app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/api/workspaces/:workspaceId/file", async (request) => {
   if (!request.query.path) throw Object.assign(new Error("A file path is required"), { statusCode: 400 });
-  return workspaces.readTextFile(workspaces.get(request.params.workspaceId), request.query.path);
+  const workspace = workspaces.get(request.params.workspaceId);
+  const workspaceSettings = await loadWorkspaceSettings(workspace);
+  return workspaces.readFilePreview(workspace, request.query.path, workspaceSettings.files.maxPreviewSizeMb * 1024 * 1024);
 });
 app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/api/workspaces/:workspaceId/image", async (request, reply) => {
   if (!request.query.path) throw Object.assign(new Error("An image path is required"), { statusCode: 400 });
-  const image = await workspaces.readImage(workspaces.get(request.params.workspaceId), request.query.path);
-  reply.header("X-Content-Type-Options", "nosniff").header("Cache-Control", "private, max-age=300").type(image.mimeType);
+  const workspace = workspaces.get(request.params.workspaceId);
+  const workspaceSettings = await loadWorkspaceSettings(workspace);
+  const image = await workspaces.readImage(workspace, request.query.path, workspaceSettings.files.maxPreviewSizeMb * 1024 * 1024);
+  reply.header("X-Content-Type-Options", "nosniff").header("Cache-Control", "private, max-age=300").header("Content-Length", image.size).type(image.mimeType);
   return reply.send(image.content);
+});
+app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/api/workspaces/:workspaceId/download", async (request, reply) => {
+  if (!request.query.path) throw Object.assign(new Error("A file path is required"), { statusCode: 400 });
+  const download = await workspaces.downloadFile(workspaces.get(request.params.workspaceId), request.query.path);
+  reply.header("X-Content-Type-Options", "nosniff").header("Content-Length", download.size).header("Content-Disposition", contentDispositionFilename(download.name)).type("application/octet-stream");
+  return reply.send(download.content);
 });
 
 app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/sessions", async (request) => ({
