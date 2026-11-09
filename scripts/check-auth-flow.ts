@@ -39,4 +39,22 @@ const cancelService = new AuthFlowService(async (_providerId, interaction) => { 
 const cancelled = cancelService.start("mock-subscription");
 cancelService.cancel(cancelled.id);
 assert.equal(cancelService.get(cancelled.id).status, "cancelled");
+
+const replacementSignals: AbortSignal[] = [];
+const replacementService = new AuthFlowService(async (_providerId, interaction) => {
+  replacementSignals.push(interaction.signal);
+  interaction.notify({ type: "auth_url", url: "https://example.com/login" });
+  await interaction.prompt({ type: "manual_code", message: "Paste callback URL" });
+});
+const replaced = replacementService.start("openai");
+const replacement = replacementService.start("openai");
+assert.equal(replacementService.get(replaced.id).status, "cancelled");
+assert.equal(replacementSignals[0].aborted, true);
+assert.equal(replacementSignals[1].aborted, false);
+assert.equal(replacementService.get(replacement.id).status, "pending");
+assert.equal(replacementService.get(replacement.id).prompt?.type, "manual_code");
+const otherProvider = replacementService.start("anthropic");
+assert.equal(replacementService.get(replacement.id).status, "pending");
+replacementService.cancel(replacement.id);
+replacementService.cancel(otherProvider.id);
 console.log("auth flow checks passed");

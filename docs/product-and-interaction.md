@@ -163,7 +163,7 @@ Global configuration 对所有 Workspace 生效，并使用以下主题分类：
 - Agent instructions and behavior：System prompt 和 Agent defaults，包含可选 replacement/append 文件路径、effective prompt preview、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Account and security：Sign out。
 
-Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；provider、model、thinking 和 Agent defaults 在选择后保存。API key 与 Workspace system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。API key 和 OAuth credential 由 pi 保存，浏览器不会读取已经保存的 credential 内容。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面不要求用户输入该值。
+Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；provider、model、thinking 和 Agent defaults 在选择后保存。API key 与 Workspace system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。API key 和 OAuth credential 由 pi 保存，浏览器不会读取已经保存的 credential 内容。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面不要求用户输入该值。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，避免页面刷新后遗留的 flow 阻塞新登录。
 
 Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent 和 pi-ai。更新过程保留 Global data 与 Workspace data，将 `current` symlink 切换到新 release，并在延迟重启前保留上一 release。Roll back 将 `current` 和 `previous` 对调。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
 

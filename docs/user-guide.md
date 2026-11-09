@@ -345,7 +345,7 @@ Theme 选择会立即预览，保存后对该 Pi-Ark 服务的浏览器生效。
 
 已经认证的 Provider、Model 和 Thinking level 在选择后立即保存。API key 输入是 write-only；输入后使用该区域内的 Save API key 或 Cancel。已经保存的 credential 不会返回浏览器。
 
-支持 subscription OAuth 的 Provider 会显示 Use subscription account。登录区可能显示授权链接、device code、文本输入、选择项或进度。Device code 可以使用旁边的 Copy 按钮复制。OpenAI 的 Sign in with ChatGPT 会自动使用当前 Pi-Ark 安装实例的 UUID，用户不需要输入该标识。
+支持 subscription OAuth 的 Provider 会显示 Use subscription account。登录区可能显示授权链接、device code、文本输入、选择项或进度。Device code 可以使用旁边的 Copy 按钮复制。OpenAI 的 Sign in with ChatGPT 会自动使用当前 Pi-Ark 安装实例的 UUID，用户不需要输入该标识。同一个 Provider 重新开始登录时，Pi-Ark 会取消此前仍在等待的登录；页面刷新后可以直接重新开始。
 
 ### Global → Installation and maintenance
 

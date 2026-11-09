@@ -18,6 +18,7 @@ export class AuthFlowService {
   constructor(private readonly runner: (providerId: string, interaction: AuthFlowInteraction) => Promise<void>) {}
 
   start(providerId: string): AuthFlowView {
+    for (const existing of this.flows.values()) if (existing.providerId === providerId && existing.status === "pending") this.cancelFlow(existing);
     const id = randomUUID();
     const controller = new AbortController();
     const flow: Flow = { id, providerId, status: "pending", events: [], controller };
@@ -62,6 +63,10 @@ export class AuthFlowService {
   cancel(id: string): void {
     const flow = this.flows.get(id);
     if (!flow) throw Object.assign(new Error("Unknown subscription login"), { statusCode: 404 });
+    this.cancelFlow(flow);
+  }
+
+  private cancelFlow(flow: Flow): void {
     if (flow.status !== "pending") return;
     flow.status = "cancelled";
     flow.answer?.reject(new Error("Login cancelled"));

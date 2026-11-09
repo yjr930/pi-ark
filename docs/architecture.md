@@ -265,7 +265,7 @@ Provider 的 `auth.oauth.isSubscription` 决定 UI 是否显示 subscription log
 
 SettingsService 调用 `ModelRuntime.login(provider, "oauth", interaction, { getDeviceId })`。`getDeviceId` 使用 `SettingsManager.getOrCreateDeviceId()`，首次需要时生成 UUID，并将稳定的安装实例标识保存到 `PI_ARK_AGENT_DIR/settings.json`。OpenAI 的 ChatGPT subscription 登录使用该值作为 agent host ID；Workspace settings 不会覆盖它。
 
-Flow、events 和待回答 prompt 保存在服务内存中。Flow event 最多保留最近 50 条。
+Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同时保留一个 pending flow；启动同一个 Provider 的新登录时，AuthFlowService 会取消此前的 pending flow，使 OAuth callback listener 和 ModelRuntime credential 操作可以释放。不同 Provider 的登录 flow 可以同时进行。Flow event 最多保留最近 50 条。
 
 ### System prompt
 
