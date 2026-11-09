@@ -92,7 +92,7 @@ Rollback 使用 SessionManager tree navigation，目标是最后一条完整 use
 
 ## 版本与 release 更新
 
-Pi-Ark `0.1.3-dev.0` 开发版本将 `@earendil-works/pi-coding-agent` 和 `@earendil-works/pi-ai` 固定为 `1.5.0`。两者作为同一个 Pi-Ark artifact 的 production dependencies 构建和检查，运行中的安装不会单独修改 pi SDK package。
+Pi-Ark `0.1.3` 正式版本将 `@earendil-works/pi-coding-agent` 和 `@earendil-works/pi-ai` 固定为 `1.5.0`。两者作为同一个 Pi-Ark release 的 production dependencies 构建和检查，运行中的安装不会单独修改 pi SDK package。
 
 GitHub Releases 为 Linux x64 和 arm64 分别提供包含 native node-pty 的 artifact。Pi-Ark update 下载完整 artifact，检查 release metadata 与 runtime imports，然后通过 `current` symlink 切换版本。Previous release 继续保留，供 rollback 使用。该方式使 Pi-Ark 代码、Web assets 和 pi SDK 使用同一套已检查的版本组合。
 
