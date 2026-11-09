@@ -15,7 +15,9 @@ Pi-Ark 使用以下公开 API：
 - `SessionManager.list(cwd, sessionDir)`：列出 Workspace Session。
 - `SessionManager.open(path, sessionDir)`：恢复 JSONL Session。
 - `SessionManager.inMemory()`：为 Global effective system prompt preview 创建临时 Session。
-- `buildSessionProjection()`：从当前 branch 生成浏览器 snapshot messages，并保留 source entry。
+- `getBranch()`：读取当前活动 branch 的完整 entry path，用于浏览器 display projection。
+- `sessionEntryToContextMessages(entry)`：将 message、compaction、branch summary 和可显示 custom message entry 转换为 Web message，同时保留 source entry。
+- `buildSessionContext()`：判断已有 Session 并让 Agent runtime 恢复 pi 的 compaction-aware 模型上下文。
 - `createBranchedSession(entryId)`：从指定 entry 创建 Fork。
 - `navigateTree(entryId, ...)`：移动活动 branch，用于 Rollback 和 Restore。
 - `appendCustomEntry(...)`：保存 Pi-Ark rollback marker，同时避免将内部状态作为普通 user/assistant message。
@@ -70,14 +72,14 @@ Pin、Archive 和 Session group 属于 Pi-Ark UI metadata，因此保存在独�
 
 ## Event 与 snapshot 选择
 
-WebSocket 连接后先发送完整 snapshot。运行期间，Server 转发 pi SDK event，使浏览器及时显示 user message、streaming content 和 tool status；在关键 lifecycle event 后，Server 重新发送完整 snapshot。
+WebSocket 连接后先发送完整 snapshot。Snapshot 的 display messages 来自当前活动 branch 的完整 entry path，因此包含 compact 前的原始 messages 和每个 compaction summary。运行期间，Server 转发 pi SDK event，使浏览器及时显示 user message、streaming content 和 tool status；在关键 lifecycle event 后，Server 重新发送完整 snapshot。Agent runtime 仍由 SessionManager 的 compaction-aware projection 构建模型上下文。
 
 pi 的 public `message_end` listener 在 SessionManager 持久化 completed message 之前执行。Pi-Ark 在 listener 返回后的下一次 task 中生成 snapshot，使 event 已经显示的 message 继续存在于权威 projection 中。完整 Agent run 从 agent start 开始，并在 agent settled 时结束；单条 message end 表示其中一条 message 已完成。
 
 这种组合有以下作用：
 
 - Event 提供低延迟更新。
-- Snapshot 纠正浏览器临时状态，并以 SessionManager projection 为权威数据。
+- Snapshot 纠正浏览器临时状态，并以 SessionManager 的完整活动 branch display projection 为权威显示数据。
 - Agent settled 状态用于决定 completed、interrupted 和 working UI。
 - 浏览器断线不会停止 Agent runtime。
 - 多个浏览器连接可以共享同一个 runtime。

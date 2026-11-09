@@ -3,13 +3,27 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { AgentService } from "../apps/server/src/agents.ts";
+import { AgentService, buildSessionDisplayMessages } from "../apps/server/src/agents.ts";
 import { SettingsService } from "../apps/server/src/settings.ts";
 
 const directory = await mkdtemp(join(tmpdir(), "pi-ark-session-actions-"));
 const workspace = { id: "session-actions", name: "Session actions", path: directory };
 try {
   const sessionDirectory = join(directory, ".pi-ark", "sessions");
+  const compactedManager = SessionManager.create(directory, sessionDirectory);
+  compactedManager.appendMessage({ role: "user", content: "Original history", timestamp: 100 });
+  compactedManager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Original answer" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 200 });
+  const compactEntryId = compactedManager.appendCompaction("Compacted history summary", null, 120000, { readFiles: ["README.md"] });
+  compactedManager.appendMessage({ role: "user", content: "Continued history", timestamp: 300 });
+  compactedManager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Continued answer" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 12, output: 6, cacheRead: 0, cacheWrite: 0, totalTokens: 18, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 400 });
+  assert.deepEqual(compactedManager.buildSessionProjection().messages.filter((message) => message.role === "user").map((message) => message.content), ["Continued history"]);
+  const displayMessages = buildSessionDisplayMessages(compactedManager, () => 200000);
+  assert.deepEqual(displayMessages.map((message) => message.role), ["user", "assistant", "compactionSummary", "user", "assistant"]);
+  assert.deepEqual(displayMessages.filter((message) => message.role === "user").map((message) => message.content), ["Original history", "Continued history"]);
+  assert.equal(displayMessages.find((message) => message.role === "compactionSummary")?.summary, "Compacted history summary");
+  assert.equal(displayMessages.find((message) => message.role === "compactionSummary")?.entryId, compactEntryId);
+  assert.equal(displayMessages.find((message) => message.role === "assistant")?.contextWindow, 200000);
+
   const manager = SessionManager.create(directory, sessionDirectory);
   const firstUser = manager.appendMessage({ role: "user", content: "First", timestamp: 1000 });
   const firstAssistant = manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "First answer" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2000 });

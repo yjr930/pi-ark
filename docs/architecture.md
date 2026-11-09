@@ -177,7 +177,7 @@ Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成
 
 ### Streaming events
 
-AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled 和 queue update 后的完整 snapshot。该时序使 snapshot 包含刚完成持久化的 message，并以 SessionManager projection 作为权威状态。
+AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled 和 queue update 后的完整 snapshot。该时序使 snapshot 包含刚完成持久化的 message。Snapshot display projection 遍历 SessionManager 当前活动 branch 的全部 entries；Agent runtime 继续使用 pi 的 compaction-aware Session projection 生成后续模型上下文。
 
 ### Prompt 与 attachments
 
@@ -225,14 +225,18 @@ Server shutdown 会依次清空所有 queue、中止 active Agent、释放 runti
 
 ## Conversation projection
 
-`buildConversationSegments()` 以 user message 划分 turn。
+Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 entry path，并通过 `sessionEntryToContextMessages()` 转换可显示 entry。该 display projection 保留 compact 前的原始 user、assistant 和 tool messages，并将每个 compaction entry 转换为一条 `compactionSummary` message。System message 与 `display: false` 的 custom message 不进入 Web snapshot。pi JSONL 和 Agent runtime 的 compaction-aware context 保持原样。
+
+Web 默认显示最近约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。点击 Show earlier messages 后，Web 再增加一页 earlier messages；message number 始终按完整 display projection 计算，因此分页前后的 permalink 保持一致。
+
+`buildConversationSegments()` 以 user message 划分 turn，并将 compaction summary 与 branch summary 作为独立边界。
 
 - 没有 tool activity 的 turn 按 message 顺序展示。
 - Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output。
 - 已完成 tool turn 将 final assistant response 之前的过程放入 run collapse。
 - Idle 且缺少 final assistant response 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描全部 projection messages，识别包含一个 tool call 的 assistant message，并通过 `toolCall.id` 与下一条 tool result 的 `toolCallId` 配对。该统一 map 同时服务 collapsed segments 与普通 message segments。Web 将 assistant/tool result pair 显示为一行 tool call projection；折叠条摘要来自 command、path、query、pattern、URL 或紧凑 arguments，展开内容显示原 thinking/commentary、arguments 和 result。包含多个 tool calls 的 assistant message 与未配对 tool result 使用通用 details renderer，该 renderer 也通过相同 helper 显示 arguments 或 result 摘要。两条原 message 继续保留各自的 message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 配对。包含一个或多个 tool calls 的 assistant message 都展开为单行 tool rows；multi-tool message 的每个 result 使用自己的 message number，assistant source entry 的 permalink anchor 保留在第一行。无法配对的独立 tool result 也使用相同的单行 renderer。折叠条摘要来自 command、path、query、pattern、URL、紧凑 arguments 或 result 文本，展开内容显示原 thinking/commentary、arguments 和 result。原 messages 继续保留 source entry ID、message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
 
 Message permalink 指向 tool call 或 tool result 时，外层 run 与对应执行条自动打开。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
 

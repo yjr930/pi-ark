@@ -27,6 +27,17 @@ sessionFixture.appendMessage({ role: "toolResult", toolCallId: "browser-read-cal
 sessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Final browser answer" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 180, output: 45, cacheRead: 20, cacheWrite: 0, totalTokens: 245, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - 1000 });
 const sessionFixturePath = sessionFixture.getSessionFile();
 if (!sessionFixturePath) throw new Error("Cannot create browser Session fixture");
+const compactedSessionFixture = SessionManager.create(workspacePath, sessionFixtureDirectory);
+compactedSessionFixture.appendSessionInfo("Compacted history fixture");
+for (let index = 0; index < 60; index += 1) {
+  compactedSessionFixture.appendMessage({ role: "user", content: `Old history question ${index + 1}`, timestamp: Date.now() - (130 - index * 2) * 1000 });
+  compactedSessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: `Old history answer ${index + 1}` }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - (129 - index * 2) * 1000 });
+}
+compactedSessionFixture.appendCompaction("## Compact summary\n\nOlder compacted context remains available.", null, 120000, { readFiles: ["README.md"] });
+compactedSessionFixture.appendMessage({ role: "user", content: "Question after compact", timestamp: Date.now() - 2000 });
+compactedSessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Answer after compact" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 20, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 28, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - 1000 });
+const compactedSessionFixturePath = compactedSessionFixture.getSessionFile();
+if (!compactedSessionFixturePath) throw new Error("Cannot create compacted browser Session fixture");
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });
@@ -89,6 +100,25 @@ try {
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByText("Workspaces", { exact: true }).waitFor();
+  const compactedSessionRow = page.locator(".session-list-item").filter({ hasText: "Compacted history fixture" });
+  await compactedSessionRow.waitFor();
+  await compactedSessionRow.locator(".session-open").click();
+  await page.locator(".composer").waitFor();
+  const historyPageButton = page.getByRole("button", { name: "Show earlier messages" });
+  await historyPageButton.waitFor();
+  assert.equal(await page.getByText("Old history question 1", { exact: true }).count(), 0);
+  const compactMessage = page.locator(".conversation-summary-message");
+  await compactMessage.waitFor();
+  assert.match(await compactMessage.locator(".message-label").textContent(), /^Compact#121$/);
+  const compactDetails = compactMessage.locator(".conversation-summary");
+  assert.equal(await compactDetails.getAttribute("open"), null);
+  assert.equal(await page.getByText("Older compacted context remains available.", { exact: true }).isVisible(), false);
+  await compactDetails.locator(":scope > summary").click();
+  await page.getByText("Older compacted context remains available.", { exact: true }).waitFor();
+  await historyPageButton.click();
+  await page.getByText("Old history question 1", { exact: true }).waitFor();
+  assert.equal(await historyPageButton.count(), 0);
+
   const fixtureSessionRow = page.locator(".session-list-item").filter({ hasText: "Browser UI fixture" });
   await fixtureSessionRow.waitFor();
   await fixtureSessionRow.locator(".session-open").click();
@@ -231,12 +261,13 @@ try {
   await activePage.goto(page.url());
   const activeRun = activePage.locator(".run-collapse.active");
   await activeRun.locator(":scope > summary").filter({ hasText: "Running" }).waitFor();
-  const looseToolRow = activePage.locator(".conversation-content > .single-tool-call-message").first();
-  await looseToolRow.waitFor();
-  assert.match(await looseToolRow.locator(".single-tool-label").textContent(), /bash\s*#1/);
-  assert.equal(await looseToolRow.locator(".single-tool-execution > summary code").textContent(), "echo loose tool call");
-  assert.deepEqual(await activePage.locator(".tool-call-activity > summary code").allTextContents(), ["README.md", "{}"]);
-  assert.deepEqual(await activePage.locator(".tool-result > summary code").allTextContents(), ["Generic read result", "Generic refresh result"]);
+  const ordinaryToolRows = activePage.locator(".conversation-content > .single-tool-call-message");
+  await ordinaryToolRows.first().waitFor();
+  assert.equal(await ordinaryToolRows.count(), 3);
+  assert.match(await ordinaryToolRows.first().locator(".single-tool-label").textContent(), /bash\s*#1/);
+  assert.deepEqual(await ordinaryToolRows.locator(".single-tool-execution > summary code").allTextContents(), ["echo loose tool call", "README.md", "{}"]);
+  assert.equal(await ordinaryToolRows.evaluateAll((rows) => rows.every((row) => row.getBoundingClientRect().height <= 46)), true);
+  assert.equal(await activePage.locator(".tool-call-activity, .tool-result").count(), 0);
   assert.equal(await activePage.getByRole("status").filter({ hasText: "Response interrupted" }).count(), 0);
   assert.equal(await activePage.getByTitle("Send follow-up").count(), 1);
   const activeStop = activePage.getByTitle("Stop");
@@ -795,4 +826,5 @@ try {
   await browser.close();
   await rm(filesFixtureDirectory, { recursive: true, force: true });
   await rm(sessionFixturePath, { force: true });
+  await rm(compactedSessionFixturePath, { force: true });
 }

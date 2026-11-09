@@ -46,6 +46,11 @@ export interface AgentMessage {
   model?: string;
   responseModel?: string;
   contextWindow?: number;
+  summary?: string;
+  tokensBefore?: number;
+  fromId?: string | null;
+  customType?: string;
+  display?: boolean;
   usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost?: { total: number } };
 }
 

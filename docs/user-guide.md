@@ -227,7 +227,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-number>
 
 ### 等待 Session 加载
 
-打开 Session 后，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。
+打开 Session 后，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。长会话默认显示最近约 100 条 messages；点击顶部 Show earlier messages 可以逐页显示 earlier messages，直至看到完整活动 branch。
 
 ### 发送 message
 
@@ -256,11 +256,13 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
-AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量。每个单 tool call 与对应 result 都显示为同一种一行工具消息，包括 run 内外的工具消息。顺序为工具头像、工具名称与 message number、可展开执行条、两个 copy link 按钮。执行条显示 bash command、文件 path 或其他 arguments 摘要；包含多个 tool calls 的 message 与独立 tool result 也会显示 arguments 或 result 文本摘要，空 arguments 显示 `{}`；连续工具行之间没有 message 分隔线。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量。所有 tool call 与 tool result 都显示为同一种一行工具消息，包括 run 内外、multi-tool message 和独立 tool result。顺序为工具头像、工具名称与 message number、可展开执行条、两个 copy link 按钮。执行条显示 bash command、文件 path、其他 arguments 或 result 文本摘要，空 arguments 显示 `{}`；连续工具行之间没有 message 分隔线。
 
 展开执行条可以查看 Process、Arguments 和 Result。Process 保留 reasoning 与 commentary，Result 显示工具输出，Failed 表示工具返回错误。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
 
 Agent settled 后，如果历史 turn 在 final assistant response 之前停止，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过执行条查看。
+
+compact 操作显示为独立的 Compact message。点击 Compact message 的折叠条可以查看 compact summary；compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
 
 ### Queue
 

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { createAgentSession, DefaultResourceLoader, SessionManager, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, SessionManager, sessionEntryToContextMessages, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { WebSocket } from "ws";
 import type { WorkspaceDefinition } from "./config.js";
 import { ensureWorkspaceState, loadWorkspaceSettings, piArkAgentDir } from "./config.js";
@@ -42,6 +42,14 @@ function userMessageText(message: unknown): string {
 
 function isRollbackMarkerData(data: unknown): data is RollbackMarkerData {
   return typeof data === "object" && data !== null && "targetId" in data && typeof data.targetId === "string" && "restoreEntryId" in data && typeof data.restoreEntryId === "string" && "draft" in data && typeof data.draft === "string";
+}
+
+export function buildSessionDisplayMessages(manager: SessionManager, getContextWindow: (provider: string, model: string) => number | undefined = () => undefined) {
+  return manager.getBranch().flatMap((entry) => sessionEntryToContextMessages(entry).filter((message) => message.role !== "system" && !(message.role === "custom" && !message.display)).map((message) => ({
+    ...message,
+    entryId: entry.id,
+    ...(message.role === "assistant" ? { contextWindow: getContextWindow(message.provider, message.model) } : {}),
+  })));
 }
 
 export class AgentService {
@@ -362,11 +370,7 @@ export class AgentService {
   }
 
   private snapshotMessages(handle: AgentHandle) {
-    return handle.session.sessionManager.buildSessionProjection().entries.flatMap((entry) => entry.messages.map((message) => ({
-      ...message,
-      entryId: entry.sourceEntry.id,
-      ...(message.role === "assistant" ? { contextWindow: this.settings.getModelContextWindow(message.provider, message.model) } : {}),
-    })));
+    return buildSessionDisplayMessages(handle.session.sessionManager, (provider, model) => this.settings.getModelContextWindow(provider, model));
   }
 
   private sendSnapshot(handle: AgentHandle, oneClient?: WebSocket): void {

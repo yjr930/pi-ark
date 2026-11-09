@@ -77,7 +77,7 @@ Session 标题优先使用用户设置的名称，其次使用首条 user messag
 
 WebSocket 建立后，页面继续显示 Loading conversation。首个完整 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
 
-首个 snapshot 是 Session 加载完成的判定依据。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
+首个 snapshot 是 Session 加载完成的判定依据。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。长 Session 默认显示最近约 100 条 messages；顶部 Show earlier messages 每次增加一页 earlier messages，直至显示完整活动 branch。
 
 ### 空 Session 与运行状态
 
@@ -89,11 +89,13 @@ Agent settled 且缺少 final assistant response 的历史 turn 在 run collapse
 
 ### 工具展示
 
-Conversation renderer 对所有包含一个 tool call 的 assistant message 使用统一的一行 tool call projection，包括 run collapse 内部与普通 message segment。该行依次显示工具头像、工具名称与 assistant message number、可展开执行条和两个 message link 按钮。执行条显示当前 tool arguments 的实际摘要；bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL 或紧凑 arguments。连续 tool call 行之间不显示 message 分隔线，run 边界继续区分工具过程与普通消息。
+Conversation renderer 对所有 tool call 和 tool result 使用统一的一行 tool projection，包括 run collapse 内部、普通 message segment、multi-tool assistant message 和无法配对的独立 tool result。该行依次显示工具头像、工具名称与 message number、可展开执行条和两个 message link 按钮。执行条显示实际内容摘要；bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool 行之间不显示 message 分隔线，run 边界继续区分工具过程与普通消息。
 
-执行条默认关闭。展开后按 Process、Arguments 和 Result 显示原始 thinking/commentary、格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。包含多个 tool calls 的 assistant message 与未配对的 tool result 继续使用独立 details，并同样显示 arguments 或 result 文本摘要；空 arguments 显示 `{}`。
+执行条默认关闭。展开后按 Process、Arguments 和 Result 显示原始 thinking/commentary、格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。空 arguments 显示 `{}`。
 
 Tool call message 与 tool result message 继续保留各自的 message number、source entry ID 和 permalink anchor。Permalink 指向其中任一 message 时，外层 run collapse 和对应执行条自动展开。
+
+每个 compact entry 显示为独立的 Compact message。Compact message 默认折叠，展开后显示 pi 保存的 compact summary，并显示 compact 前的 token 数量。compact 前的原始会话继续通过 earlier message 分页展示。
 
 Message header 使用 User 与 AI 角色名称。普通 message 使用紧凑的垂直间距。
 

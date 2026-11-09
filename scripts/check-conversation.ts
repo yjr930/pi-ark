@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildConversationSegments } from "../apps/web/src/conversation.ts";
+import { buildConversationSegments, previousConversationPageStart } from "../apps/web/src/conversation.ts";
 import type { AgentMessage } from "../apps/web/src/types.ts";
 
 const messages: AgentMessage[] = [
@@ -36,4 +36,18 @@ assert.equal(streaming[1].type === "collapsed" && streaming[1].active, true);
 assert.equal(streaming[2].type === "message" && streaming[2].message.content?.[0]?.text, "Final answer");
 const direct = buildConversationSegments([{ role: "user", content: "Hi", timestamp: 1 }, { role: "assistant", content: [{ type: "text", text: "Hello" }], timestamp: 2 }], false);
 assert.deepEqual(direct.map((segment) => segment.type), ["message", "message"]);
+const compactBoundary = buildConversationSegments([
+  { role: "user", content: "Before compact", timestamp: 1 },
+  { role: "assistant", content: [{ type: "text", text: "Before compact answer" }], timestamp: 2 },
+  { role: "compactionSummary", summary: "Saved summary", tokensBefore: 120000, timestamp: 3 },
+  { role: "user", content: "After compact", timestamp: 4 },
+  { role: "assistant", content: [{ type: "text", text: "After compact answer" }], timestamp: 5 },
+], false);
+assert.deepEqual(compactBoundary.map((segment) => segment.type), ["message", "message", "message", "message", "message"]);
+assert.equal(compactBoundary[2].type === "message" && compactBoundary[2].message.role, "compactionSummary");
+const pagedMessages = Array.from({ length: 130 }, (_, index) => [{ role: "user", content: `Question ${index + 1}` }, { role: "assistant", content: [{ type: "text", text: `Answer ${index + 1}` }] }]).flat() as AgentMessage[];
+assert.equal(previousConversationPageStart(pagedMessages), 160);
+assert.equal(previousConversationPageStart(pagedMessages, 160), 60);
+const unevenPage = [...pagedMessages.slice(0, 159), { role: "compactionSummary", summary: "Boundary" }, ...pagedMessages.slice(159)] as AgentMessage[];
+assert.equal(previousConversationPageStart(unevenPage), 161);
 console.log("conversation checks passed");
