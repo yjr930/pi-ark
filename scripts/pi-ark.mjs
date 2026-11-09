@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { randomBytes, scrypt as scryptCallback } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { request } from "node:https";
 import { homedir, platform, arch, tmpdir } from "node:os";
