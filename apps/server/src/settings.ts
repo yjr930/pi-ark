@@ -86,7 +86,7 @@ export class SettingsService {
   async loginSubscription(providerId: string, interaction: AuthFlowInteraction): Promise<void> {
     const provider = this.models.getProvider(providerId);
     if (!provider?.auth.oauth?.isSubscription) throw Object.assign(new Error("Provider does not support subscription login"), { statusCode: 400 });
-    await this.models.login(providerId, "oauth", interaction);
+    await this.models.login(providerId, "oauth", interaction, { getDeviceId: () => this.manager.getOrCreateDeviceId() });
   }
 
   async saveAgentDefaults(input: GlobalAgentDefaultsInput) {

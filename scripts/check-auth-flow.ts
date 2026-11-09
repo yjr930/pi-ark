@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { setImmediate as wait } from "node:timers/promises";
 import { AuthFlowService } from "../apps/server/src/auth-flows.ts";
+import { SettingsService } from "../apps/server/src/settings.ts";
 
 const service = new AuthFlowService(async (_providerId, interaction) => {
   interaction.notify({ type: "auth_url", url: "https://example.com/login", instructions: "Open login" });
@@ -21,6 +22,18 @@ assert.equal(manual.prompt?.type, "manual_code");
 service.answer(started.id, manual.prompt!.id, "oauth-code");
 await wait();
 assert.equal(service.get(started.id).status, "success");
+
+const deviceId = "550e8400-e29b-41d4-a716-446655440000";
+let receivedDeviceId: string | undefined;
+const settings = Object.assign(Object.create(SettingsService.prototype), {
+  manager: { getOrCreateDeviceId: () => deviceId },
+  models: {
+    getProvider: (providerId: string) => providerId === "openai" ? { auth: { oauth: { isSubscription: true } } } : undefined,
+    login: async (_providerId: string, _type: string, _interaction: unknown, options?: { getDeviceId?: () => string }) => { receivedDeviceId = options?.getDeviceId?.(); },
+  },
+}) as SettingsService;
+await settings.loginSubscription("openai", { signal: new AbortController().signal, prompt: async () => "", notify: () => undefined });
+assert.equal(receivedDeviceId, deviceId);
 
 const cancelService = new AuthFlowService(async (_providerId, interaction) => { await interaction.prompt({ type: "text", message: "Wait" }); });
 const cancelled = cancelService.start("mock-subscription");

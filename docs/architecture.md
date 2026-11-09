@@ -263,6 +263,8 @@ API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。S
 
 Provider 的 `auth.oauth.isSubscription` 决定 UI 是否显示 subscription login。AuthFlowService 将 pi OAuth interaction 转换为可轮询状态，支持 info、auth URL、device code、progress、text/secret/manual code prompt、select prompt 和 cancel。
 
+SettingsService 调用 `ModelRuntime.login(provider, "oauth", interaction, { getDeviceId })`。`getDeviceId` 使用 `SettingsManager.getOrCreateDeviceId()`，首次需要时生成 UUID，并将稳定的安装实例标识保存到 `PI_ARK_AGENT_DIR/settings.json`。OpenAI 的 ChatGPT subscription 登录使用该值作为 agent host ID；Workspace settings 不会覆盖它。
+
 Flow、events 和待回答 prompt 保存在服务内存中。Flow event 最多保留最近 50 条。
 
 ### System prompt

@@ -33,7 +33,7 @@ Pi-Ark 使用以下能力：
 - `SettingsManager.create(cwd, agentDir)`：读取和写入 default provider/model/thinking、queue modes、compaction 和 retry。
 - `ModelRuntime.create(...)`：读取 provider catalog、credentials 和 custom model config。
 - `ModelRuntime.login(provider, "api_key", interaction)`：保存 API key。
-- `ModelRuntime.login(provider, "oauth", interaction)`：执行 pi 原生 OAuth 或 device code flow。
+- `ModelRuntime.login(provider, "oauth", interaction, { getDeviceId })`：执行 pi 原生 OAuth 或 device code flow，并向需要安装实例标识的 Provider 提供 `SettingsManager.getOrCreateDeviceId()`。
 - `getSupportedThinkingLevels(model)`：获得 model-specific thinking options。
 - `clampThinkingLevel(model, level)`：在读取 Global settings 时处理 model capability 变化。
 
