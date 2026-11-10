@@ -303,7 +303,7 @@ Assistant text 的 Info 信息栏和展开后的 tool item 可以复制 `pi-ark:
 
 ### 查看 Session information
 
-会话状态栏左侧依次显示标题、编辑标题按钮和状态。标题根据实际文字长度占用空间，达到当前上限后截断；编辑按钮紧跟标题。右侧只显示 context 百分比数字和信息按钮。Disconnected、Connection error 和其他错误状态使用红灯、红色系底色和边框。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
+会话状态栏左侧依次显示标题、编辑标题按钮和状态。标题组不占用剩余空间；标题根据实际文字长度占用空间，达到当前上限后截断；编辑按钮紧跟标题。右侧只显示 context 百分比数字和信息按钮。Disconnected、Connection error 和其他错误状态使用完整红灯、红色系底色和边框。移动端的过长状态文字会省略，红灯保持完整显示。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
 
 ## Files 页面
 

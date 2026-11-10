@@ -457,6 +457,11 @@ try {
   assert.equal(disconnectedStyle.border, "solid");
   assert.notEqual(disconnectedStyle.background, "rgba(0, 0, 0, 0)");
   assert.equal(disconnectedStyle.light, disconnectedStyle.color);
+  await activePage.setViewportSize({ width: 390, height: 844 });
+  const disconnectedMobileLayout = await disconnectedStatus.evaluate((element) => { const status = element.getBoundingClientRect(); const light = element.querySelector("i").getBoundingClientRect(); return { viewportWidth: document.documentElement.clientWidth, statusLeft: status.left, statusRight: status.right, lightLeft: light.left, lightRight: light.right, overflow: getComputedStyle(element).overflow }; });
+  assert.ok(disconnectedMobileLayout.statusLeft >= 0 && disconnectedMobileLayout.statusRight <= disconnectedMobileLayout.viewportWidth);
+  assert.ok(disconnectedMobileLayout.lightLeft >= disconnectedMobileLayout.statusLeft && disconnectedMobileLayout.lightRight <= disconnectedMobileLayout.statusRight);
+  assert.equal(disconnectedMobileLayout.overflow, "visible");
   await activePage.close();
   const hiddenReasoningPage = await page.context().newPage();
   await hiddenReasoningPage.route("**/api/ui", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ theme: "ark-dark", hideReasoning: true }) }));
@@ -955,6 +960,9 @@ try {
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
   await page.locator(".composer-thinking .ark-select-trigger").waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
+  const mobileTitleLayout = await page.locator(".chat-title").evaluate((title) => { const heading = title.querySelector("h2"); const rename = title.querySelector('[title="Rename session"]'); const headingBox = heading.getBoundingClientRect(); const renameBox = rename.getBoundingClientRect(); const headingStyle = getComputedStyle(heading); const clone = heading.cloneNode(true); clone.style.position = "fixed"; clone.style.visibility = "hidden"; clone.style.width = "max-content"; clone.style.maxWidth = "none"; clone.style.flex = "none"; clone.style.margin = "0"; clone.style.font = headingStyle.font; clone.style.letterSpacing = headingStyle.letterSpacing; document.body.appendChild(clone); const intrinsicWidth = clone.getBoundingClientRect().width; clone.remove(); const maxWidth = Number.parseFloat(headingStyle.maxWidth); return { headingWidth: headingBox.width, intrinsicWidth, maxWidth, expectedWidth: Math.min(intrinsicWidth, maxWidth), renameGap: renameBox.left - headingBox.right }; });
+  assert.ok(Math.abs(mobileTitleLayout.headingWidth - mobileTitleLayout.expectedWidth) <= 1, JSON.stringify(mobileTitleLayout));
+  assert.ok(mobileTitleLayout.renameGap >= 3 && mobileTitleLayout.renameGap <= 8);
   const mobileHorizontalOverflow = await page.evaluate(() => { const viewportWidth = document.documentElement.clientWidth; const selectors = [".app-shell", ".content-area", ".chat-page", ".chat-header", ".conversation", ".composer"]; return { viewportWidth, overflow: selectors.map((selector) => { const box = document.querySelector(selector)?.getBoundingClientRect(); return box ? { selector, left: Math.round(box.left * 10) / 10, right: Math.round(box.right * 10) / 10, width: Math.round(box.width * 10) / 10 } : null; }).filter((item) => item && (item.left < -0.5 || item.right > viewportWidth + 0.5)) }; });
   assert.deepEqual(mobileHorizontalOverflow.overflow, [], `Mobile elements exceed the ${mobileHorizontalOverflow.viewportWidth}px viewport`);
   await page.locator(".composer-thinking .ark-select-trigger").click();

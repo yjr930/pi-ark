@@ -81,7 +81,7 @@ WebSocket 建立后，页面继续显示 Loading conversation。首个完整 sna
 
 ### 空 Session 与运行状态
 
-没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态；标题使用实际文字宽度并受当前 max-width 限制，编辑按钮紧跟标题。右侧只显示 context 百分比数字和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。Disconnected、Connection error 和其他错误状态使用红灯，并增加红色系底色和边框。移动端 Chat 主列始终限制在 viewport 内，header、conversation、sticky User row、Running 和 composer 不产生页面横向溢出。
+没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态；标题组不占用剩余空间；标题使用实际文字宽度并受当前 max-width 限制，编辑按钮紧跟标题。右侧只显示 context 百分比数字和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。Disconnected、Connection error 和其他错误状态使用完整红灯，并增加红色系底色和边框；移动端只省略过长的状态文字，不裁切红灯。移动端 Chat 主列始终限制在 viewport 内，header、conversation、sticky User row、Running 和 composer 不产生页面横向溢出。
 
 每个 turn 的 User 内容显示为一条 feed 起点，并保留用户头像、`User` 标签、message number、内部链接与 Rollback。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
 
