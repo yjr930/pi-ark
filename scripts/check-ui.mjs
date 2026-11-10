@@ -876,6 +876,32 @@ try {
     assert.notEqual(palette.separator, palette.background, `${palette.theme} user separator`);
     assert.notEqual(palette.user, palette.ai, `${palette.theme} role accents`);
   }
+  const themeFoldPalettes = await foldedToolTurn.evaluate((run) => {
+    const root = document.documentElement;
+    const originalTheme = root.dataset.theme;
+    const palettes = ["ark-dark", "graphite", "midnight", "paper", "snow"].map((theme) => {
+      root.dataset.theme = theme;
+      const runContent = run.querySelector(":scope > div");
+      const tool = run.querySelector(".feed-tool-details");
+      return { theme, run: getComputedStyle(run).backgroundColor, runContent: getComputedStyle(runContent).backgroundColor, tool: getComputedStyle(tool).backgroundColor, page: getComputedStyle(document.body).backgroundColor };
+    });
+    root.dataset.theme = originalTheme;
+    return palettes;
+  });
+  const colorChannels = (value) => (value.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+  for (const palette of themeFoldPalettes) {
+    const runChannels = colorChannels(palette.run);
+    const toolChannels = colorChannels(palette.tool);
+    assert.notEqual(palette.run, palette.page, `${palette.theme} run surface`);
+    assert.notEqual(palette.run, palette.tool, `${palette.theme} run/tool hierarchy`);
+    assert.equal(palette.runContent, palette.run, `${palette.theme} run content`);
+    assert.ok(toolChannels.reduce((total, channel) => total + channel, 0) > runChannels.reduce((total, channel) => total + channel, 0), `${palette.theme} tool surface`);
+  }
+  const paperFoldPalette = themeFoldPalettes.find((palette) => palette.theme === "paper");
+  const paperRunChannels = colorChannels(paperFoldPalette.run);
+  const paperToolChannels = colorChannels(paperFoldPalette.tool);
+  assert.ok(paperRunChannels[0] >= paperRunChannels[1] && paperRunChannels[1] > paperRunChannels[2]);
+  assert.ok(paperToolChannels.every((channel, index) => channel > paperRunChannels[index]));
   const rollbackButtonCount = await page.getByRole("button", { name: "Roll back latest message" }).count();
   assert.equal(rollbackButtonCount, 1);
   const rollbackButton = latestUserMessage.getByRole("button", { name: "Roll back latest message" });
