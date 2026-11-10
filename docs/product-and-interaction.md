@@ -89,9 +89,9 @@ Agent settled 且缺少 final assistant response 的历史 turn 在 run collapse
 
 ### 工具展示
 
-Conversation renderer 对恰好包含一个 tool call 的 assistant message 使用一行 tool projection，包括 run collapse 内部与普通 message segment。该行依次显示工具头像、工具名称与 assistant message number、可展开执行条和两个 message link 按钮。执行条显示当前 tool arguments 的实际摘要；bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL 或紧凑 arguments。连续单行 tool rows 之间不显示 message 分隔线，run 边界继续区分工具过程与普通消息。
+Conversation renderer 对只包含 tool call blocks 的 assistant message 使用一行 tool projection，包括 run collapse 内部与普通 message segment。一项或多项 tool calls 分别显示为单行 rows；每行依次显示工具头像、工具名称与对应 message number、可展开执行条和两个 message link 按钮。执行条显示当前 tool arguments 的实际摘要；bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL 或紧凑 arguments。连续单行 tool rows 使用紧凑的内部上下间距和行间距，run 边界继续区分工具过程与普通消息。
 
-执行条默认关闭。展开后按 Process、Arguments 和 Result 显示原始 thinking/commentary、格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。包含多个 tool calls 的 assistant message 使用普通 AI message renderer，LLM text 与 reasoning 保持直接可见，各 tool call 使用独立 details；对应 tool result 继续作为独立 message 显示。空 arguments 显示 `{}`。
+执行条默认关闭。展开后按 Arguments 和 Result 显示格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。assistant message 包含可见的 text、reasoning 或 image 时使用普通 AI message renderer，LLM 内容保持直接可见，各 tool call 使用独立 details；对应 tool result 继续作为独立 message 显示。空 arguments 显示 `{}`。
 
 Tool call message 与 tool result message 继续保留各自的 message number、source entry ID 和 permalink anchor。Permalink 指向其中任一 message 时，外层 run collapse 和对应执行条自动展开。
 

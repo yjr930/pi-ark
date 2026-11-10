@@ -236,9 +236,9 @@ Web 默认显示最近约 100 条 messages。分页起点向前对齐到 user、
 - 已完成 tool turn 将 final assistant response 之前的过程放入 run collapse。
 - Idle 且缺少 final assistant response 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages。一个 assistant message 恰好包含一个 tool call 时，renderer 通过 `toolCall.id` 与紧随其后的 tool result 的 `toolCallId` 配对，并显示单行 tool row。该折叠条摘要来自 command、path、query、pattern、URL 或紧凑 arguments，展开内容显示原 thinking/commentary、arguments 和 result。包含多个 tool calls 的 assistant message 保持普通 AI message renderer，其中的 LLM text、reasoning 和 tool call details 按原顺序显示；对应 tool results 保持独立 message renderer。原 messages 继续保留 source entry ID、message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages。assistant message 只包含 tool call blocks 时，renderer 通过 `toolCall.id` 与 tool result 的 `toolCallId` 配对，并将其中的一项或多项 tool calls 分别显示为单行 tool rows。该折叠条摘要来自 command、path、query、pattern、URL 或紧凑 arguments，展开内容显示 arguments 和 result。assistant message 包含可见的 text、reasoning 或 image 时保持普通 AI message renderer，其中的 LLM 内容和 tool call details 按原顺序显示；对应 tool results 保持独立 message renderer。原 messages 继续保留 source entry ID、message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
 
-Message permalink 指向 tool call 或 tool result 时，外层 run 与对应执行条自动打开。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
+Message permalink 指向 tool-only compact row 的 tool call 或 tool result 时，外层 run 与对应执行条自动打开；指向完整 message 时，Web 打开外层 run 并高亮对应 message。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
 
 Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Message content 位于独立的 padding wrapper 中。Web 根据 user message top 与 scroll container top 的关系选择 sticky User bar，因此向上和向下滚动都会在 message 越过顶部时切换。User bar 使用真实高度与等量负 margin 保持布局位置，并使用覆盖整条 bar 的 button 与不透明背景遮住下方内容；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
 

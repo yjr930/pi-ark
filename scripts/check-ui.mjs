@@ -208,9 +208,12 @@ try {
   let activeMessages = [
     { role: "assistant", content: [{ type: "toolCall", id: "loose-bash-call", name: "bash", arguments: { command: "echo loose tool call" } }], timestamp: 500, entryId: "loose-bash" },
     { role: "toolResult", toolCallId: "loose-bash-call", toolName: "bash", content: [{ type: "text", text: "Loose tool result" }], timestamp: 600, entryId: "loose-bash-result" },
-    { role: "assistant", content: [{ type: "text", text: "Parallel tool preface remains visible" }, { type: "toolCall", id: "multi-read-call", name: "read", arguments: { path: "README.md" } }, { type: "toolCall", id: "multi-refresh-call", name: "refresh", arguments: {} }], timestamp: 700, entryId: "multi-tool-call" },
-    { role: "toolResult", toolCallId: "multi-read-call", toolName: "read", content: [{ type: "text", text: "Generic read result" }], timestamp: 800, entryId: "multi-read-result" },
-    { role: "toolResult", toolCallId: "multi-refresh-call", toolName: "refresh", content: [{ type: "text", text: "Generic refresh result" }], timestamp: 900, entryId: "multi-refresh-result" },
+    { role: "assistant", content: [{ type: "toolCall", id: "compact-read-call", name: "read", arguments: { path: "README.md" } }, { type: "toolCall", id: "compact-refresh-call", name: "refresh", arguments: {} }], timestamp: 700, entryId: "compact-multi-tool-call" },
+    { role: "toolResult", toolCallId: "compact-read-call", toolName: "read", content: [{ type: "text", text: "Compact read result" }], timestamp: 800, entryId: "compact-read-result" },
+    { role: "toolResult", toolCallId: "compact-refresh-call", toolName: "refresh", content: [{ type: "text", text: "Compact refresh result" }], timestamp: 900, entryId: "compact-refresh-result" },
+    { role: "assistant", content: [{ type: "text", text: "Parallel tool preface remains visible" }, { type: "toolCall", id: "multi-read-call", name: "read", arguments: { path: "README.md" } }, { type: "toolCall", id: "multi-refresh-call", name: "refresh", arguments: {} }], timestamp: 1000, entryId: "multi-tool-call" },
+    { role: "toolResult", toolCallId: "multi-read-call", toolName: "read", content: [{ type: "text", text: "Generic read result" }], timestamp: 1100, entryId: "multi-read-result" },
+    { role: "toolResult", toolCallId: "multi-refresh-call", toolName: "refresh", content: [{ type: "text", text: "Generic refresh result" }], timestamp: 1200, entryId: "multi-refresh-result" },
     ...Array.from({ length: 12 }, (_, index) => [
       { role: "user", content: [{ type: "text", text: `History question ${index + 1}` }], timestamp: 1000 + index * 200, entryId: `history-user-${index}` },
       { role: "assistant", content: [{ type: "text", text: `History answer ${index + 1}` }], timestamp: 1100 + index * 200, entryId: `history-answer-${index}` },
@@ -220,6 +223,8 @@ try {
     { role: "toolResult", toolCallId: "active-read-call", toolName: "read", content: [{ type: "text", text: "Active tool result" }], timestamp: 5200, entryId: "active-result" },
     { role: "assistant", content: [{ type: "thinking", thinking: "Checking the file metadata" }, { type: "toolCall", id: "active-bash-call", name: "bash", arguments: { command: "git status --short" } }], timestamp: 5300, entryId: "active-bash" },
     { role: "toolResult", toolCallId: "active-bash-call", toolName: "bash", content: [{ type: "text", text: ["Active bash result", ...Array.from({ length: 80 }, (_, index) => `status line ${index + 1}`)].join("\n") }], timestamp: 5400, entryId: "active-bash-result" },
+    { role: "assistant", content: [{ type: "toolCall", id: "active-refresh-call", name: "refresh", arguments: {} }], timestamp: 5500, entryId: "active-refresh" },
+    { role: "toolResult", toolCallId: "active-refresh-call", toolName: "refresh", content: [{ type: "text", text: "Active refresh result" }], timestamp: 5600, entryId: "active-refresh-result" },
   ];
   await activePage.route("**/api/workspaces/*/sessions/*/queue/**", async (route) => {
     const request = route.request();
@@ -263,15 +268,20 @@ try {
   await activeRun.locator(":scope > summary").filter({ hasText: "Running" }).waitFor();
   const ordinaryToolRows = activePage.locator(".conversation-content > .single-tool-call-message");
   await ordinaryToolRows.first().waitFor();
-  assert.equal(await ordinaryToolRows.count(), 1);
+  assert.equal(await ordinaryToolRows.count(), 3);
   assert.match(await ordinaryToolRows.first().locator(".single-tool-label").textContent(), /bash\s*#1/);
-  assert.equal(await ordinaryToolRows.locator(".single-tool-execution > summary code").textContent(), "echo loose tool call");
-  assert.equal(await ordinaryToolRows.first().evaluate((row) => row.getBoundingClientRect().height <= 46), true);
-  const multiToolMessage = activePage.locator('.message-agent[data-message-number="3"]');
+  assert.deepEqual(await ordinaryToolRows.locator(".single-tool-execution > summary code").allTextContents(), ["echo loose tool call", "README.md", "{}"]);
+  assert.equal(await ordinaryToolRows.evaluateAll((rows) => rows.every((row) => row.getBoundingClientRect().height <= 36)), true);
+  assert.equal(await ordinaryToolRows.evaluateAll((rows) => rows.slice(1).every((row, index) => row.getBoundingClientRect().top - rows[index].getBoundingClientRect().bottom <= 4)), true);
+  const multiToolMessage = activePage.locator(".message-agent").filter({ hasText: "Parallel tool preface remains visible" });
   await multiToolMessage.getByText("Parallel tool preface remains visible", { exact: true }).waitFor();
-  assert.match(await multiToolMessage.locator(".message-label").textContent(), /^AI#3$/);
+  assert.match(await multiToolMessage.locator(".message-label").textContent(), /^AI#6$/);
   assert.deepEqual(await multiToolMessage.locator(".tool-call-activity > summary code").allTextContents(), ["README.md", "{}"]);
-  assert.deepEqual(await activePage.locator(".tool-result > summary code").allTextContents(), ["Generic read result", "Generic refresh result"]);
+  assert.deepEqual(await activePage.locator(".conversation-content > .message .tool-result > summary code").allTextContents(), ["Generic read result", "Generic refresh result"]);
+  assert.equal(await activeRun.getByText("Reading a file", { exact: true }).count(), 1);
+  assert.equal(await activeRun.locator(".message-agent .thinking").count(), 1);
+  assert.equal(await activeRun.locator(".message-agent .tool-call-activity").count(), 2);
+  assert.equal(await activeRun.locator(".single-tool-call-message").count(), 1);
   assert.equal(await activePage.getByRole("status").filter({ hasText: "Response interrupted" }).count(), 0);
   assert.equal(await activePage.getByTitle("Send follow-up").count(), 1);
   const activeStop = activePage.getByTitle("Stop");
@@ -304,24 +314,22 @@ try {
   await activePage.waitForFunction((currentNumber) => { const match = /#(\d+)/.exec(document.querySelector(".sticky-user-label")?.textContent || ""); return Boolean(match && Number(match[1]) < currentNumber); }, stickyUserNumber);
   await activeConversation.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event("scroll")); });
   await activeRun.locator(":scope > summary").click();
+  await activeRun.getByText("Reading a file", { exact: true }).waitFor();
   const toolRows = activeRun.locator(".single-tool-call-message");
-  assert.equal(await toolRows.count(), 2);
-  assert.equal(await toolRows.evaluateAll((rows) => rows.every((row) => row.getBoundingClientRect().height <= 46)), true);
-  assert.match(await toolRows.nth(1).locator(".single-tool-label").textContent(), /bash\s*#\d+/);
-  assert.equal(await toolRows.nth(1).locator(".single-tool-execution > summary code").textContent(), "git status --short");
+  assert.equal(await toolRows.count(), 1);
+  assert.equal(await toolRows.evaluateAll((rows) => rows.every((row) => row.getBoundingClientRect().height <= 36)), true);
+  assert.match(await toolRows.first().locator(".single-tool-label").textContent(), /refresh\s*#\d+/);
+  assert.equal(await toolRows.first().locator(".single-tool-execution > summary code").textContent(), "{}");
   assert.equal(await activePage.getByText("Execution", { exact: true }).count(), 0);
-  assert.equal(await toolRows.nth(1).locator(".message-heading-actions button").count(), 2);
+  assert.equal(await toolRows.first().locator(".message-heading-actions button").count(), 2);
   assert.equal(await toolRows.evaluateAll((rows) => rows.every((row) => getComputedStyle(row).borderBottomWidth === "0px")), true);
-  const toolRowLayout = await toolRows.nth(1).evaluate((row) => { const avatar = row.querySelector(".message-avatar").getBoundingClientRect(); const label = row.querySelector(".single-tool-label").getBoundingClientRect(); const execution = row.querySelector(".single-tool-execution").getBoundingClientRect(); const actions = row.querySelector(".message-heading-actions").getBoundingClientRect(); return { avatar: avatar.x, label: label.x, execution: execution.x, actions: actions.x, summaryPosition: getComputedStyle(row.closest(".run-collapse").querySelector(":scope > summary")).position }; });
+  const toolRowLayout = await toolRows.first().evaluate((row) => { const avatar = row.querySelector(".message-avatar").getBoundingClientRect(); const label = row.querySelector(".single-tool-label").getBoundingClientRect(); const execution = row.querySelector(".single-tool-execution").getBoundingClientRect(); const actions = row.querySelector(".message-heading-actions").getBoundingClientRect(); return { avatar: avatar.x, label: label.x, execution: execution.x, actions: actions.x, summaryPosition: getComputedStyle(row.closest(".run-collapse").querySelector(":scope > summary")).position }; });
   assert.ok(toolRowLayout.avatar < toolRowLayout.label && toolRowLayout.label < toolRowLayout.execution && toolRowLayout.execution < toolRowLayout.actions);
   assert.equal(toolRowLayout.summaryPosition, "sticky");
   const firstExecution = toolRows.first().locator(".single-tool-execution");
-  assert.equal(await activePage.getByText("Active tool result", { exact: true }).isVisible(), false);
+  assert.equal(await activePage.getByText("Active refresh result", { exact: true }).isVisible(), false);
   await firstExecution.locator(":scope > summary").click();
-  await activePage.getByText("Active tool result", { exact: true }).waitFor();
-  const secondExecution = toolRows.nth(1).locator(".single-tool-execution");
-  await secondExecution.locator(":scope > summary").click();
-  await activePage.getByText(/Active bash result/).waitFor();
+  await activePage.getByText("Active refresh result", { exact: true }).waitFor();
   await activeConversation.evaluate((element) => { const summary = element.querySelector(".run-collapse.active > summary"); const delta = summary.getBoundingClientRect().top - element.getBoundingClientRect().top + 80; element.scrollTop += delta; element.dispatchEvent(new Event("scroll")); });
   await activePage.waitForTimeout(100);
   const activeRunSummary = activeRun.locator(":scope > summary");
@@ -398,15 +406,17 @@ try {
   const interruptedRun = interruptedPage.locator(".run-collapse");
   assert.equal(await interruptedRun.count(), 1);
   assert.equal(await interruptedRun.getAttribute("open"), null);
-  assert.equal(await interruptedPage.getByText("Hidden until the result frame opens", { exact: true }).isVisible(), false);
+  const interruptedResultContent = interruptedRun.locator(".tool-result .tool-activity-content").getByText("Hidden until the result frame opens", { exact: true });
+  assert.equal(await interruptedResultContent.isVisible(), false);
   await interruptedRun.locator(":scope > summary").click();
-  const interruptedToolRow = interruptedRun.locator(".single-tool-call-message");
-  assert.equal(await interruptedToolRow.count(), 1);
-  const interruptedExecution = interruptedToolRow.locator(".single-tool-execution");
-  assert.equal(await interruptedExecution.getAttribute("open"), null);
-  assert.equal(await interruptedPage.getByText("Hidden until the result frame opens", { exact: true }).isVisible(), false);
-  await interruptedExecution.locator(":scope > summary").click();
-  await interruptedPage.getByText("Hidden until the result frame opens", { exact: true }).waitFor();
+  assert.equal(await interruptedRun.locator(".single-tool-call-message").count(), 0);
+  await interruptedRun.getByText("Reading a file", { exact: true }).waitFor();
+  const interruptedResult = interruptedRun.locator(".tool-result");
+  assert.equal(await interruptedResult.getAttribute("open"), null);
+  assert.equal(await interruptedResult.locator(":scope > summary code").textContent(), "Hidden until the result frame opens");
+  assert.equal(await interruptedResultContent.isVisible(), false);
+  await interruptedResult.locator(":scope > summary").click();
+  await interruptedResultContent.waitFor();
   await interruptedPage.close();
   let currentUrl = new URL(page.url());
   assert.equal(currentUrl.searchParams.get("page"), "agent");
@@ -515,17 +525,18 @@ try {
   assert.equal(await foldedToolTurn.getAttribute("open"), null);
   await foldedToolTurn.locator(":scope > summary").click();
   assert.notEqual(await foldedToolTurn.getAttribute("open"), null);
-  const singleToolRow = foldedToolTurn.locator(".single-tool-call-message");
-  assert.equal(await singleToolRow.count(), 1);
-  assert.match(await singleToolRow.locator(".single-tool-label").textContent(), /read\s*#2/);
-  assert.equal(await singleToolRow.locator(".message-heading-actions button").count(), 2);
-  assert.equal(await singleToolRow.evaluate((row) => getComputedStyle(row).borderBottomWidth), "0px");
-  const singleExecution = singleToolRow.locator(".single-tool-execution");
-  assert.equal(await singleExecution.locator(":scope > summary code").textContent(), "README.md");
-  assert.equal(await singleExecution.getAttribute("open"), null);
-  assert.equal(await page.getByText("Browser fixture tool result", { exact: true }).isVisible(), false);
-  await singleExecution.locator(":scope > summary").click();
-  await page.getByText("Browser fixture tool result", { exact: true }).waitFor();
+  assert.equal(await foldedToolTurn.locator(".single-tool-call-message").count(), 0);
+  const browserToolAssistant = foldedToolTurn.locator('.message[data-message-number="2"]');
+  await browserToolAssistant.getByText("Checking the browser fixture", { exact: true }).waitFor();
+  assert.match(await browserToolAssistant.locator(".message-label").textContent(), /^AI#2$/);
+  assert.equal(await browserToolAssistant.locator(".tool-call-activity > summary code").textContent(), "README.md");
+  const browserToolResult = foldedToolTurn.locator('.message[data-message-number="3"] .tool-result');
+  assert.equal(await browserToolResult.locator(":scope > summary code").textContent(), "Browser fixture tool result");
+  assert.equal(await browserToolResult.getAttribute("open"), null);
+  const browserToolResultContent = browserToolResult.locator(".tool-activity-content").getByText("Browser fixture tool result", { exact: true });
+  assert.equal(await browserToolResultContent.isVisible(), false);
+  await browserToolResult.locator(":scope > summary").click();
+  await browserToolResultContent.waitFor();
   await foldedToolTurn.locator(":scope > summary").click();
   const finalFooter = page.locator(".message-footer").last();
   await finalFooter.getByText("gpt-5.6-sol", { exact: true }).waitFor();
