@@ -77,7 +77,7 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 ### 新建与选择
 
-新建 Session 后，应用切换到 Agent 页面并打开新 Session。切换 Workspace 时，应用优先恢复 URL 指定的 Session，其次选择第一个未归档 Session。
+新建 Session 后，应用切换到 Agent 页面并打开新 Session。切换 Workspace 时，应用优先恢复 URL 指定的 Session，其次选择第一个未归档的普通 Session。侧栏的 Session 列表展示普通 Session，subagent 通过会话状态栏的列表与内部链接进入。
 
 ## Agent conversation
 
@@ -109,6 +109,8 @@ Tool item 在没有已保存 disclosure 状态时默认关闭；active Running �
 
 连续的工具调用按可见内容分组，默认保留最后 3 个 tool call；较早的调用通过 `show more tool call` 与 `show less tool call` 展开或折叠。一个 message 中的多个调用分别计数。Hide reasoning 开启后，分组会跳过隐藏的 thinking block，包括只包含 thinking 的独立 message，因此这些内容前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，含普通正文或图片的 message 保持原有显示。分组保留原始 message 与 permalink，展开状态随 Session UI cache 保留，较早调用的 permalink target 会在首次访问时展开对应分组。
 
+`subagent` tool 的收起高度为普通 tool row 的 3 倍，并使用分支 logo；该 tool 独立于连续 tool call 的分组显示。包含 `subagent` 调用的 message 中断前后普通调用的连续分组，同一 message 中的混合调用按原顺序保留。
+
 Compact 的收起高度为普通 tool row 的 3 倍。收起时显示 Duration、Before、After、System prompt、Summary、Retained 和 Saved；After 与各组成的 token 用量使用 pi SDK 估算，并以 `≈` 标记。展开后显示 source Message ID、内部链接、压缩触发原因、生成摘要的 input/output token 用量，以及 pi 保存的 Markdown summary。耗时来自 Server 对后续压缩事件的记录。历史字段使用已有记录展示，空字段显示 `—`；System prompt 尚未记录时，After 显示已知部分并附加 `+ system`。compact 前的原始会话继续通过 earlier message 分页展示。
 
 页面中的短 Message ID 统一使用斜体，包括 User header、sticky User 和消息信息按钮。Tool call message 与 tool result message 继续保留各自的短 Message ID、source entry ID 和 permalink anchor。Permalink 指向其中任一 source message 时，外层 run collapse 和对应 tool item 自动展开。
@@ -127,11 +129,15 @@ Workspace link 返回 Session 摘要。Session link 默认返回末尾 20 条消
 
 ### Subagent 任务
 
-Agent 可以通过 `subagent` 委派独立任务，子 Session 继承本次委派的模型与 thinking level，并在同一个 Workspace 中工作。每次委派支持 1–8 个任务，每个父 Session 同时执行的任务上限为 4，服务实例同时执行的任务上限为 8。父 Session 的任务面板显示任务标题、状态、当前工具、结果摘录、用量与错误信息。
+Agent 可以通过 `subagent` 委派独立任务。新建的子 Session 继承本次委派的模型与 thinking level，并在同一个 Workspace 中工作；父 Agent 可以通过工具的可选 `sessionId` 继续向已有的子 Session 发送任务，已有的子 Session 保留自身的上下文与配置。每次委派支持 1–8 个任务，每个父 Session 同时执行的任务上限为 4，服务实例同时执行的任务上限为 8。
 
-状态使用 `queued`、`running`、`completed`、`failed`、`cancelled` 和 `interrupted`。运行中的任务面板自动展开；任务结束后，用户可以展开结果。Open session 进入子 Session，Open result 进入任务完成时的结果消息，Stop task 停止对应任务。父 Session 的 Stop 会停止其当前等待的子任务。浏览器重连后，snapshot 恢复任务面板；服务中断后，遗留任务显示 `interrupted`。
+存在 subagent 时，父会话的状态左侧显示分支 logo 与 `running / complete / total` 数量。数量按子 Session 合并，`running` 统计最新状态为 `running` 的子 Session，`complete` 统计最新状态为 `completed` 的子 Session，`total` 统计保留的子 Session。点击 logo 可以展开或收起 agent 列表。
 
-子 Session 的来源栏显示 Open parent request，用于定位委派时的父消息。侧栏通过分支图标标识子 Session。运行中的子任务显示 Parent-managed task，并提供 Stop；任务结束后，页面显示 Composer，用户可以继续对话。父子 Session 的关系独立于 Session group。
+列表中每个 agent 使用一行，内容为标题、状态与最后更新时间，点击该行进入对应的子 Session。列表按最后更新时间倒序排列，最大高度为 `32vh` 与 `320 px` 中的较小值，溢出内容在列表内滚动。上方显示 `queued` 与 `running` 的 agent；底部的 Completed 分组包含 `completed`、`failed`、`cancelled` 与 `interrupted` 的 agent。Completed 初始折叠，出现新的结束状态时自动折叠，用户可以手动展开。再次委派后，对应的 agent 回到上方的活动列表，并沿用同一行与数量统计。
+
+子会话的顶部显示 Parent Agent 栏，包含父会话的标题、运行状态与相同的 subagent 数量入口。点击父会话的标题可以返回当前父会话，Open parent request 定位本轮委派时的父消息。子会话的角色名称使用 `Parent Agent` 与 `SubAgent`，消息 header、sticky header 与消息信息栏使用相同名称；角色的配色与头像沿用原有样式，普通会话继续使用 `User` 与 `AI`。
+
+子会话的空消息状态显示 `SubAgent conversation`，并说明 Parent Agent 管理该会话。子 Session 始终隐藏 Composer，后续任务由父 Agent 的工具委派进入。运行中的子任务显示 `The parent is managing this task.`，并提供 Stop；父 Session 的 Stop 会停止其当前等待的子任务。浏览器重连后，snapshot 恢复最新的任务状态；服务中断后，遗留任务显示 `interrupted`。父子 Session 的关系独立于 Session group。
 
 引用与结果链接可以携带 `leafEntryId`，用于保留当时的历史分支。历史页面显示 Historical conversation branch 与 Open current conversation，用户可以切换到当前对话。页面中的内部 Session 或 Message 链接在应用内跳转；带修饰键的点击可以使用浏览器的新标签页操作。历史页面复制的消息链接保留分支参数。
 

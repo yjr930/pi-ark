@@ -28,7 +28,7 @@ export function buildToolCallGroups(messages: AgentMessage[], pairedResults: Rea
     const hiddenReasoningOnly = hideReasoning && message.role === "assistant" && content.some((block) => block.type === "thinking") && content.every((block) => block.type === "thinking" || block.type === "text" && !block.text?.trim());
     if (hiddenReasoningOnly) { if (current) current.messages.push(message); else groups.push({ type: "message", message }); continue; }
     const calls = content.filter((block) => block.type === "toolCall");
-    const toolOnly = message.role === "assistant" && calls.length > 0 && content.every((block) => block.type === "toolCall" || block.type === "text" && !block.text?.trim() || block.type === "thinking" && (hideReasoning || !block.thinking?.trim()));
+    const toolOnly = message.role === "assistant" && calls.length > 0 && !calls.some((call) => call.name === "subagent") && content.every((block) => block.type === "toolCall" || block.type === "text" && !block.text?.trim() || block.type === "thinking" && (hideReasoning || !block.thinking?.trim()));
     if (!toolOnly) { current = undefined; groups.push({ type: "message", message }); continue; }
     if (!current) { current = { type: "tools", messages: [], calls: [] }; groups.push(current); }
     current.messages.push(message);

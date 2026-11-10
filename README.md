@@ -7,7 +7,7 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 - 使用 `@earendil-works/pi-coding-agent` SDK 管理持久化 Session、流式消息、tool activity、queue、Fork 和 Rollback。
 - 管理多个服务器 Workspace，并将 Session、metadata 和附件保存在 Workspace 的 `.pi-ark` 目录中。
 - Agent 自带 `read_pi_ark_link`，可以读取内部链接所指向的会话和消息，并按需取得前后文。
-- Agent 可以通过 `subagent` 并行委派任务，Web 提供持久化子 Session 的任务状态、停止操作与双向消息引用。
+- Agent 可以通过 `subagent` 并行委派任务，并继续向已有子 Session 发送后续任务；Web 在状态栏提供 subagent 的数量与列表，以及父子会话导航。
 - 提供 Files 文本、Markdown 与图片预览、可配置的预览上限，以及所有文件的原始下载。
 - 通过 xterm.js 和 node-pty 提供以 Workspace 为 cwd 的浏览器 Terminal。
 - 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、Pi-Ark release update/rollback、全局 system prompt 和文件浏览设置。

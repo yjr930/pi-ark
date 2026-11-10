@@ -1,12 +1,15 @@
 export type SubagentTaskState = "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
 export interface SubagentReference { link: string; purpose: string; leafEntryId?: string }
-export interface SubagentTaskInput { title: string; task: string; expectedResult: string; references?: SubagentReference[] }
+export interface SubagentTaskInput { sessionId?: string; title: string; task: string; expectedResult: string; references?: SubagentReference[] }
 export interface SubagentUsage { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
+export interface SubagentConfigurationSnapshot { model: { provider: string; id: string }; thinkingLevel: string; tools: string[]; systemPromptAppend: string }
 export interface SubagentTask extends SubagentTaskInput {
   sessionId: string;
   sessionLink: string;
   state: SubagentTaskState;
   references: SubagentReference[];
+  updatedAt?: string;
+  configuration?: SubagentConfigurationSnapshot;
   startedAt?: string;
   finishedAt?: string;
   currentTool?: string;
@@ -36,5 +39,5 @@ export interface SubagentRun {
   tasks: SubagentTask[];
 }
 export interface SubagentOrigin { runId: string; parentSessionId: string; parentLink: string; parentLeafEntryId?: string; parentDeleted?: boolean; title: string; state: SubagentTaskState }
-export interface SubagentSessionState { runs: SubagentRun[]; origin?: SubagentOrigin; managed: boolean }
+export interface SubagentSessionState { runs: SubagentRun[]; parentRuns?: SubagentRun[]; origin?: SubagentOrigin; managed: boolean }
 export function isSubagentActive(state: SubagentTaskState): boolean { return state === "queued" || state === "running"; }

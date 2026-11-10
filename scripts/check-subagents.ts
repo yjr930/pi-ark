@@ -33,14 +33,14 @@ const configuration: SubagentConfiguration = { model, thinkingLevel: "off", tool
 const gates = new Map<string, () => void>();
 const seenImages = new Map<string, number>();
 const seenReferences = new Set<string>();
+const seenContexts = new Map<string, string>();
+const seenModels = new Map<string, string>();
 let active = 0;
 let maximumActive = 0;
 let created = 0;
 const runtimeFactory = agents.subagents as unknown as { createSession(workspace: typeof workspace, manager: SessionManager, config: SubagentConfiguration): Promise<AgentSession> };
 const createSession = runtimeFactory.createSession.bind(runtimeFactory);
-runtimeFactory.createSession = async (target, manager, config) => {
-  const child = await createSession(target, manager, config);
-  created += 1;
+async function prepareChild(child: AgentSession, service = agents) {
   await child.modelRuntime.setRuntimeApiKey("openai", "local-fixture-key");
   child.agent.streamFunction = (_model, context, options) => {
     const stream = createAssistantMessageEventStream();
@@ -50,6 +50,8 @@ runtimeFactory.createSession = async (target, manager, config) => {
       const message: AssistantMessage = { role: "assistant", api: model.api, provider: model.provider, model: model.id, content: [], usage: structuredClone(usage), stopReason: "stop", timestamp: Date.now() };
       if (!toolResult) {
         active += 1; maximumActive = Math.max(maximumActive, active);
+        seenContexts.set(title, JSON.stringify(context.messages));
+        seenModels.set(title, _model.id);
         seenImages.set(title, context.messages.flatMap((item) => "content" in item && Array.isArray(item.content) ? item.content : []).filter((block) => block.type === "image").length);
         await new Promise<void>((resolve) => {
           const done = () => { options?.signal?.removeEventListener("abort", done); gates.delete(title); resolve(); };
@@ -64,7 +66,7 @@ runtimeFactory.createSession = async (target, manager, config) => {
         message.errorMessage = options?.signal?.aborted ? "Fixture aborted" : "Fixture provider error";
         stream.push({ type: "error", reason: message.stopReason, error: message });
       } else if (!toolResult) {
-        const source = agents.subagents.store.findTask(workspace, child.sessionId)!.task.references[0];
+        const source = service.subagents.store.findTask(workspace, child.sessionId)!.task.references[0];
         message.content = [{ type: "toolCall", id: `read-${child.sessionId}`, name: "read_pi_ark_link", arguments: { link: source.link, leafEntryId: source.leafEntryId } }];
         message.stopReason = "toolUse";
         stream.push({ type: "done", reason: "toolUse", message });
@@ -85,6 +87,11 @@ runtimeFactory.createSession = async (target, manager, config) => {
     });
     return stream;
   };
+}
+runtimeFactory.createSession = async (target, manager, config) => {
+  const child = await createSession(target, manager, config);
+  created += 1;
+  await prepareChild(child);
   return child;
 };
 function releaseAll() { for (const release of [...gates.values()]) release(); }
@@ -96,6 +103,7 @@ try {
   await mkdir(process.env.PI_ARK_AGENT_DIR!, { recursive: true }); await mkdir(workspace.path);
   await writeFile(join(process.env.PI_ARK_HOME!, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace], preferences: { agent: { tools: ["read"], systemPrompt: { append: configuration.systemPromptAppend } } } }));
   await writeFile(join(process.env.PI_ARK_AGENT_DIR!, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false } }));
+  await writeFile(join(process.env.PI_ARK_AGENT_DIR!, "models.json"), JSON.stringify({ providers: { openai: { baseUrl: model.baseUrl, api: model.api, apiKey: "local-fixture-key", models: [model] } } }));
   const parent = await agents.create(workspace);
   const parentSession = session(parent.id);
   parentSession.sessionManager.appendMessage({ role: "user", content: [{ type: "text", text: "Parent request: inspect independently." }, { type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" }], timestamp: Date.now() });
@@ -107,11 +115,18 @@ try {
   const running = runFor(parent.id, "parallel");
   assert.equal(running.tasks.filter((task) => task.state === "queued").length, 2);
   assert.equal((await agents.list(workspace)).filter((item) => item.subagentOrigin?.parentSessionId === parent.id).length, 6);
+  const queued = running.tasks.find((task) => task.state === "queued")!;
+  const queuedConnection: Array<any> = [];
+  const closeQueued = await agents.connect(workspace, queued.sessionId, { ...socket, send: (payload: string) => queuedConnection.push(JSON.parse(payload)) } as never);
+  assert.equal(queuedConnection[0].session.subagents.origin.state, "queued");
+  closeQueued();
   const child = running.tasks.find((task) => task.state === "running")!;
   assert.deepEqual(session(child.sessionId).model, model);
   assert.equal(session(child.sessionId).thinkingLevel, configuration.thinkingLevel);
-  assert.deepEqual(session(child.sessionId).getActiveToolNames().sort(), configuration.tools.slice().sort());
-  assert.deepEqual(parentSession.getActiveToolNames().sort(), [...configuration.tools, "subagent"].sort());
+  const childTools = ["read", "bash", "edit", "write", "read_pi_ark_link"].sort();
+  assert.deepEqual(parentSession.getActiveToolNames().sort(), [...childTools, "subagent"].sort());
+  assert.deepEqual(session(child.sessionId).getActiveToolNames().sort(), childTools);
+  assert.deepEqual(running.tools, configuration.tools);
   assert.match(session(child.sessionId).systemPrompt, /Shared subagent fixture instructions/);
   assert.match(session(child.sessionId).systemPrompt, /First check that the delegated task is complete/);
   assert.equal(session(child.sessionId).getActiveToolNames().includes("subagent"), false);
@@ -146,6 +161,89 @@ try {
   parentSession.sessionManager.branch(parentLeaf!);
   const disk = JSON.parse(await readFile(join(workspace.path, ".pi-ark", "subagent-runs", `${completed.id}.json`), "utf8"));
   assert.equal(disk.tasks.every((task: any) => task.state === "completed"), true);
+  assert.deepEqual(disk.tools, configuration.tools);
+  assert.equal(completed.tasks.every((task) => Boolean(task.updatedAt) && task.updatedAt === task.finishedAt), true);
+  await assert.rejects(agents.prompt(workspace, first.sessionId, "interfere after completion"), /managed by its parent/);
+  assert.equal(agents.subagents.store.state(workspace, first.sessionId).managed, false);
+
+  const originalFirst = structuredClone(first);
+  const originalRuntime = session(first.sessionId);
+  const preservedChildTools = ["read", "read_pi_ark_link"];
+  originalRuntime.setActiveToolsByName(preservedChildTools);
+  const originalCreated = created;
+  const siblingMessages: Array<Record<string, any>> = [];
+  const siblingSocket = { readyState: 1, OPEN: 1, send: (payload: string) => siblingMessages.push(JSON.parse(payload)) };
+  const disconnectSibling = await agents.connect(workspace, completed.tasks[1].sessionId, siblingSocket as never);
+  const progress: SubagentRun[] = [];
+  const changedParentConfiguration = { ...configuration, model: { ...model, id: "different-parent-model" }, tools: ["read_pi_ark_link"], systemPromptAppend: "Different parent instructions" };
+  const repeatInput = { ...taskInput("repeat-child"), sessionId: first.sessionId };
+  await assert.rejects(agents.subagents.run(workspace, parentSession, configuration, "duplicate-target", [repeatInput, repeatInput]), /same child Session twice/);
+  await assert.rejects(agents.subagents.run(workspace, parentSession, configuration, "unknown-target", [{ ...repeatInput, sessionId: crypto.randomUUID() }]), /existing child Session/);
+  const repeated = agents.subagents.run(workspace, parentSession, changedParentConfiguration, "repeat-child", [repeatInput], undefined, (run) => progress.push(structuredClone(run)));
+  await waitFor(() => gates.has("repeat-child"), "existing child receives another delegation");
+  assert.equal(session(first.sessionId), originalRuntime);
+  assert.equal(created, originalCreated);
+  assert.equal(agents.subagents.store.findTask(workspace, first.sessionId)!.run.toolCallId, "repeat-child");
+  const latestState = agents.subagents.store.state(workspace, first.sessionId);
+  assert.equal(latestState.origin?.state, "running");
+  assert.equal(latestState.origin?.title, "repeat-child");
+  assert.equal(latestState.managed, true);
+  assert.equal(latestState.parentRuns?.length, 2);
+  assert.equal(new Set(latestState.parentRuns?.flatMap((run) => run.tasks.map((task) => task.sessionId))).size, 6);
+  assert.equal(latestState.runs.length, 0);
+  assert.match(seenContexts.get("repeat-child")!, /Result for parallel-0/);
+  assert.match(seenContexts.get("repeat-child")!, /Read the parent request and report the result for repeat-child/);
+  assert.equal(seenModels.get("repeat-child"), model.id);
+  assert.deepEqual(originalRuntime.getActiveToolNames().sort(), preservedChildTools.slice().sort());
+  assert.match(originalRuntime.systemPrompt, /Shared subagent fixture instructions/);
+  assert.equal(originalRuntime.systemPrompt.includes("Different parent instructions"), false);
+  assert.deepEqual(runFor(parent.id, "repeat-child").tasks[0].configuration, { model: { provider: model.provider, id: model.id }, thinkingLevel: configuration.thinkingLevel, tools: originalRuntime.getActiveToolNames(), systemPromptAppend: configuration.systemPromptAppend });
+  assert.equal(progress[0].tasks[0].state, "queued");
+  assert.ok(progress[0].tasks[0].updatedAt! > originalFirst.updatedAt!);
+  assert.equal(siblingMessages.some((payload) => payload.type === "subagent-state" && payload.subagents.parentRuns.length === 2 && payload.subagents.parentRuns.some((run: SubagentRun) => run.toolCallId === "repeat-child" && run.tasks[0].state === "queued")), true);
+  const overlapping = await Promise.allSettled(["active-target-a", "active-target-b"].map((call) => agents.subagents.run(workspace, parentSession, configuration, call, [repeatInput])));
+  assert.equal(overlapping.every((result) => result.status === "rejected" && /active delegation/.test(String(result.reason))), true);
+  await assert.rejects(agents.prompt(workspace, first.sessionId, "interfere while repeating"), /managed by its parent/);
+  releaseAll();
+  const repeatedRun = await repeated;
+  assert.notEqual(repeatedRun.id, completed.id);
+  assert.equal(repeatedRun.tasks[0].sessionId, first.sessionId);
+  assert.equal(repeatedRun.tasks[0].state, "completed");
+  assert.deepEqual(repeatedRun.tasks[0].usage, originalFirst.usage);
+  assert.equal(repeatedRun.tasks[0].updatedAt, repeatedRun.tasks[0].finishedAt);
+  assert.equal(progress.some((run) => run.tasks[0].currentTool === "read_pi_ark_link" && Boolean(run.tasks[0].updatedAt)), true);
+  assert.deepEqual(first, originalFirst);
+  assert.equal((await reader.read({ link: originalFirst.resultLink! })).target!.entryId, originalFirst.resultEntryId);
+  assert.match((await reader.read({ link: repeatedRun.tasks[0].resultLink! })).messages![0].content, /Result for repeat-child/);
+  assert.equal(agents.subagents.store.state(workspace, first.sessionId).origin?.runId, repeatedRun.id);
+  assert.equal(agents.subagents.store.state(workspace, first.sessionId).origin?.state, "completed");
+  await assert.rejects(agents.prompt(workspace, first.sessionId, "interfere after repeat"), /managed by its parent/);
+  disconnectSibling();
+
+  const racedResults: Array<{ run?: SubagentRun; error?: unknown }> = [];
+  const raced = ["race-child-a", "race-child-b"].map((title) => agents.subagents.run(workspace, parentSession, configuration, title, [{ ...taskInput(title), sessionId: first.sessionId }]).then((run) => { const result = { run }; racedResults.push(result); return result; }, (error: unknown) => { const result = { error }; racedResults.push(result); return result; }));
+  await waitFor(() => racedResults.length === 1 && (gates.has("race-child-a") || gates.has("race-child-b")), "one concurrent delegation owns the existing child");
+  assert.match(String(racedResults[0].error), /active delegation/);
+  releaseAll();
+  await Promise.all(raced);
+  assert.equal(racedResults.filter((result) => result.run?.tasks[0].state === "completed").length, 1);
+  assert.equal(racedResults.filter((result) => result.error).length, 1);
+
+  const repeatStop = agents.subagents.run(workspace, parentSession, configuration, "repeat-stop-child", [{ ...taskInput("repeat-stop-child"), sessionId: first.sessionId }]);
+  await waitFor(() => gates.has("repeat-stop-child"), "repeated child before child Stop");
+  await agents.abort(workspace, first.sessionId);
+  assert.equal((await repeatStop).tasks[0].state, "cancelled");
+  assert.equal(agents.subagents.store.state(workspace, first.sessionId).origin?.state, "cancelled");
+  await assert.rejects(agents.prompt(workspace, first.sessionId, "interfere after Stop"), /managed by its parent/);
+  const repeatParentStop = agents.subagents.run(workspace, parentSession, configuration, "repeat-stop-parent", [{ ...taskInput("repeat-stop-parent"), sessionId: first.sessionId }]);
+  await waitFor(() => gates.has("repeat-stop-parent"), "repeated child before parent Stop");
+  await agents.abort(workspace, parent.id);
+  assert.equal((await repeatParentStop).tasks[0].state, "cancelled");
+  const repeatSignal = new AbortController();
+  const repeatSignalRun = agents.subagents.run(workspace, parentSession, configuration, "repeat-signal", [{ ...taskInput("repeat-signal"), sessionId: first.sessionId }], repeatSignal.signal);
+  await waitFor(() => gates.has("repeat-signal"), "repeated child before AbortSignal");
+  repeatSignal.abort();
+  assert.equal((await repeatSignalRun).tasks[0].state, "cancelled");
 
   const stopping = agents.subagents.run(workspace, parentSession, configuration, "stop-one", [taskInput("stop-one"), taskInput("continue-one")]);
   await waitFor(() => gates.size === 2, "tasks before stopping one child");
@@ -153,7 +251,12 @@ try {
   await agents.abort(workspace, stopRun.tasks[0].sessionId);
   assert.equal(stopRun.tasks[0].state, "cancelled");
   assert.equal(stopRun.tasks[1].state, "running");
-  releaseAll(); assert.equal((await stopping).tasks[1].state, "completed");
+  const stopAgain = agents.subagents.run(workspace, parentSession, configuration, "stop-one-again", [{ ...taskInput("stop-one-again"), sessionId: stopRun.tasks[0].sessionId }]);
+  await waitFor(() => gates.has("stop-one-again"), "a finished child is available while an earlier sibling is running");
+  gates.get("continue-one")!();
+  assert.equal((await stopping).tasks[1].state, "completed");
+  await agents.abort(workspace, stopRun.tasks[0].sessionId);
+  assert.equal((await stopAgain).tasks[0].state, "cancelled");
 
   const parentStop = agents.subagents.run(workspace, parentSession, configuration, "stop-parent", Array.from({ length: 6 }, (_, index) => taskInput(`stop-parent-${index}`)));
   await waitFor(() => gates.size === 4, "parent stop with queued tasks");
@@ -173,12 +276,28 @@ try {
   assert.ok(Buffer.byteLength(longRun.tasks[0].result!) <= 4096);
   assert.ok((await reader.read({ link: longRun.tasks[0].resultLink! })).messages![0].content.length > longRun.tasks[0].result!.length);
   assert.equal(toolResult.content[0].type, "text");
+  assert.equal(JSON.parse(toolResult.content[0].type === "text" ? toolResult.content[0].text : "{}").tasks[0].sessionId, longRun.tasks[0].sessionId);
   const failed = agents.subagents.run(workspace, parentSession, configuration, "failure", [taskInput("failure")]);
   await waitFor(() => gates.has("failure"), "provider failure task start"); releaseAll();
   assert.equal((await failed).tasks[0].state, "failed");
   assert.match(runFor(parent.id, "failure").tasks[0].error!, /Fixture provider error/);
 
+  const invalidReference = await agents.subagents.run(workspace, parentSession, configuration, "invalid-reference", [{ ...taskInput("invalid-reference"), references: [{ link: "pi-ark://workspace/unregistered/session/missing", purpose: "Missing source fixture" }] }]);
+  const invalidChild = invalidReference.tasks[0];
+  assert.equal(invalidChild.state, "failed");
+  assert.equal(internal.handles.has(`${workspace.id}:${invalidChild.sessionId}`), false);
+  const failedMessages: Array<any> = [];
+  const closeFailed = await agents.connect(workspace, invalidChild.sessionId, { ...socket, send: (payload: string) => failedMessages.push(JSON.parse(payload)) } as never);
+  assert.equal(failedMessages[0].session.subagents.origin.state, "failed");
+  assert.equal(failedMessages[0].session.messages.length, 0);
+  assert.equal(session(invalidChild.sessionId).model?.id, model.id);
+  closeFailed();
+  await assert.rejects(agents.prompt(workspace, invalidChild.sessionId, "interfere after reference failure"), /managed by its parent/);
+
   const parentB = await agents.create(workspace); const parentC = await agents.create(workspace);
+  await assert.rejects(agents.subagents.run(workspace, session(parentB.id), configuration, "wrong-parent", [repeatInput]), /existing child Session/);
+  const otherWorkspace = { id: "other-workspace", name: "Other Workspace", path: join(directory, "other-workspace") };
+  await assert.rejects(agents.subagents.run(otherWorkspace, parentSession, configuration, "wrong-workspace", [repeatInput]), /existing child Session/);
   for (const id of [parentB.id, parentC.id]) session(id).sessionManager.appendMessage({ role: "user", content: "Parent request for global parallelism", timestamp: Date.now() });
   maximumActive = 0;
   const globalRuns = [parent.id, parentB.id, parentC.id].map((id, index) => agents.subagents.run(workspace, session(id), configuration, `global-${index}`, Array.from({ length: 4 }, (_, taskIndex) => taskInput(`global-${index}-${taskIndex}`))));
@@ -193,6 +312,7 @@ try {
   assert.equal(queuedChild.deleted, true); assert.equal(queuedChild.state, "cancelled");
   await agents.abort(workspace, parent.id); await queuedDeletion;
   assert.equal(internal.handles.has(`${workspace.id}:${queuedChild.sessionId}`), false);
+  await assert.rejects(agents.subagents.run(workspace, parentSession, configuration, "deleted-target", [{ ...repeatInput, sessionId: queuedChild.sessionId }]), /deleted Session/);
 
   const restoredAgents = new AgentService(settings as never, registry);
   try {
@@ -202,18 +322,49 @@ try {
     assert.equal(firstOpen, secondOpen);
     const [firstHandle, secondHandle] = await Promise.all([firstOpen, secondOpen]);
     assert.equal(firstHandle.session, secondHandle.session); assert.equal(restoredInternal.handles.size, 1);
+    const recoveredFailed = await restoredInternal.getOrOpen(workspace, invalidChild.sessionId);
+    assert.equal(recoveredFailed.session.sessionId, invalidChild.sessionId);
+    assert.equal(recoveredFailed.session.model?.id, model.id);
+    assert.equal(restoredAgents.subagents.store.state(workspace, invalidChild.sessionId).origin?.state, "failed");
+    await assert.rejects(restoredAgents.prompt(workspace, invalidChild.sessionId, "interfere after failed child recovery"), /managed by its parent/);
+    assert.deepEqual(firstHandle.session.getActiveToolNames().sort(), childTools);
+    assert.match(firstHandle.session.systemPrompt, /Shared subagent fixture instructions/);
+    assert.deepEqual(restoredAgents.subagents.store.state(workspace, parent.id).runs.find((run) => run.id === completed.id)!.tools, configuration.tools);
     assert.equal(restoredAgents.subagents.store.state(workspace, completed.tasks[1].sessionId).origin?.parentSessionId, parent.id);
-    assert.deepEqual(firstHandle.session.getActiveToolNames().sort(), configuration.tools.slice().sort());
+    await assert.rejects(restoredAgents.prompt(workspace, completed.tasks[1].sessionId, "interfere after restart"), /managed by its parent/);
+    const restoredRepeat = await restoredInternal.getOrOpen(workspace, first.sessionId);
+    assert.equal(restoredAgents.subagents.store.state(workspace, first.sessionId).origin?.state, "cancelled");
+    assert.match(restoredRepeat.session.systemPrompt, /Shared subagent fixture instructions/);
+    assert.equal(restoredRepeat.session.systemPrompt.includes("Different parent instructions"), false);
+    assert.deepEqual(restoredRepeat.session.getActiveToolNames().sort(), childTools);
+    assert.equal(restoredRepeat.session.model?.id, model.id);
+    await prepareChild(restoredRepeat.session, restoredAgents);
+    const reopenedRun = restoredAgents.subagents.run(workspace, parentSession, changedParentConfiguration, "repeat-after-restart", [{ ...taskInput("repeat-after-restart"), sessionId: first.sessionId }]);
+    await waitFor(() => gates.has("repeat-after-restart"), "existing child resumes after service restart");
+    assert.match(seenContexts.get("repeat-after-restart")!, /Result for repeat-child/);
+    releaseAll();
+    assert.equal((await reopenedRun).tasks[0].state, "completed");
+    const latestDiskStore = new SubagentStore(); await latestDiskStore.load(workspace);
+    assert.equal(latestDiskStore.findTask(workspace, first.sessionId)!.run.toolCallId, "repeat-after-restart");
+    assert.equal(latestDiskStore.state(workspace, first.sessionId).origin?.state, "completed");
   } finally { await restoredAgents.dispose(); }
 
   const recoveredStore = new SubagentStore();
   const recovered = await recoveredStore.load(workspace);
   assert.equal(recovered.get(completed.id)!.tasks[0].state, "completed");
   const interrupted: SubagentRun = structuredClone(completed); interrupted.id = crypto.randomUUID(); interrupted.toolCallId = "interrupted";
+  interrupted.createdAt = new Date(Date.now() + 1).toISOString();
   interrupted.tasks[0].state = "running"; interrupted.tasks[1].state = "queued";
+  delete interrupted.tasks[2].updatedAt;
   await recoveredStore.save(workspace, interrupted);
   const restartStore = new SubagentStore(); const restarted = await restartStore.load(workspace);
   assert.deepEqual(restarted.get(interrupted.id)!.tasks.slice(0, 2).map((task) => task.state), ["interrupted", "interrupted"]);
+  assert.equal(restarted.get(interrupted.id)!.tasks.slice(0, 2).every((task) => task.updatedAt === task.finishedAt && task.updatedAt! > completed.createdAt), true);
+  assert.equal(restartStore.findTask(workspace, first.sessionId)!.run.id, interrupted.id);
+  assert.equal(restartStore.state(workspace, first.sessionId).origin?.state, "interrupted");
+  assert.equal(restartStore.state(workspace, first.sessionId).managed, false);
+  assert.equal(restarted.get(interrupted.id)!.tasks[2].updatedAt, undefined);
+  assert.equal(restartStore.state(workspace, interrupted.tasks[2].sessionId).origin?.state, "completed");
   const countBefore = created;
   assert.equal((await agents.subagents.run(workspace, parentSession, configuration, "parallel", inputs)).id, completed.id);
   assert.equal(created, countBefore);

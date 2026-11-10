@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { buildConversationSegments, buildToolCallGroups } from "../apps/web/src/conversation.ts";
-import type { AgentMessage, ContentBlock } from "../apps/web/src/types.ts";
+import type { AgentMessage, ContentBlock, SubagentRun } from "../apps/web/src/types.ts";
+import { subagentCounts, subagentFinished, subagentListItems } from "../apps/web/src/subagent-view.ts";
 
 const messages: AgentMessage[] = [
   { role: "user", content: "Inspect", timestamp: 1000 },
@@ -91,4 +92,30 @@ assert.equal(hiddenGroups[1].type === "tools" && hiddenGroups[1].calls.length, 7
 assert.equal(hiddenGroups[1].type === "tools" && hiddenGroups[1].messages.includes(hiddenReasoningOnly), true);
 assert.deepEqual(buildToolCallGroups([firstTools, hiddenReasoningOnly, secondTools], new Set(), false).map((group) => group.type), ["tools", "message", "tools"]);
 for (const boundary of [{ role: "assistant", content: [{ type: "image", data: "image", mimeType: "image/png" }] }, { role: "compactionSummary", summary: "Context" }, { role: "branchSummary", summary: "Branch" }, orphanResult, { role: "user", content: "Next turn" }] as AgentMessage[]) assert.deepEqual(buildToolCallGroups([firstTools, boundary, secondTools], new Set(), true).map((group) => group.type), ["tools", "message", "tools"]);
+const delegation: AgentMessage = { role: "assistant", content: [{ type: "toolCall", id: "delegate", name: "subagent", arguments: { tasks: [] } }] };
+const delegationResult: AgentMessage = { role: "toolResult", toolCallId: "delegate", toolName: "subagent", content: "Delegated result" };
+const mixedDelegation: AgentMessage = { role: "assistant", content: [...firstTools.content as ContentBlock[], ...delegation.content as ContentBlock[], ...secondTools.content as ContentBlock[]] };
+for (const hideReasoning of [false, true]) {
+  for (const boundary of [delegation, mixedDelegation, { ...delegation, content: [{ type: "thinking", thinking: "Delegate independent work" }, ...delegation.content as ContentBlock[]] }]) {
+    const separated = buildToolCallGroups([firstTools, boundary, delegationResult, secondTools], new Set([delegationResult]), hideReasoning);
+    assert.deepEqual(separated.map((group) => group.type), ["tools", "message", "tools"]);
+    assert.equal(separated[1].type === "message" && separated[1].message, boundary);
+    assert.equal(separated.some((group) => group.type === "tools" && group.calls.some((call) => call.name === "subagent")), false);
+  }
+}
+const time = (minute: number) => new Date(1700000000000 + minute * 60000).toISOString();
+const task = (sessionId: string, state: SubagentRun["tasks"][number]["state"], updatedAt?: string): SubagentRun["tasks"][number] => ({ sessionId, sessionLink: `pi-ark://workspace/check/session/${sessionId}`, title: `Agent ${sessionId}`, task: "Inspect files", expectedResult: "Report", references: [], state, updatedAt });
+const run = (id: string, createdAt: string, tasks: SubagentRun["tasks"]): SubagentRun => ({ version: 1, id, createdAt, tasks, parentSessionId: "parent", parentLink: "pi-ark://workspace/check/session/parent", toolCallId: id, revision: 1, model: { provider: "fixture", id: "model" }, thinkingLevel: "off", tools: [], systemPromptAppend: "" });
+const olderRun = run("first-delegation", time(1), [task("continued", "completed", time(100)), task("failed", "failed", time(4)), task("complete", "completed", time(3)), task("deleted", "completed", time(2))]);
+const nextRun = run("next-delegation", time(5), [task("continued", "running", time(7)), { ...task("deleted", "completed", time(6)), deleted: true }]);
+const agents = subagentListItems([nextRun, olderRun]);
+assert.deepEqual(agents.map((item) => item.sessionId), ["continued", "failed", "complete"]);
+assert.equal(agents[0].runId, "next-delegation");
+assert.deepEqual(subagentCounts(agents), { running: 1, complete: 1, total: 3 });
+assert.deepEqual(agents.filter(subagentFinished).map((item) => item.state), ["failed", "completed"]);
+assert.equal(subagentFinished({ ...agents[0], state: "queued" }), false);
+for (const state of ["completed", "failed", "cancelled", "interrupted"] as const) assert.equal(subagentFinished({ ...agents[0], state }), true);
+const legacyAgents = subagentListItems([run("legacy", time(1), [{ ...task("finished", "completed"), finishedAt: time(4), startedAt: time(2) }, { ...task("started", "running"), startedAt: time(3) }, task("queued", "queued")])]);
+assert.deepEqual(legacyAgents.map((item) => item.updatedAt), [time(4), time(3), time(1)]);
+assert.deepEqual(subagentCounts([]), { running: 0, complete: 0, total: 0 });
 console.log("conversation checks passed");

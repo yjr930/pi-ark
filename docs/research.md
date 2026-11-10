@@ -77,11 +77,13 @@ Web 和工具共用内部链接解析、完整活动分支的 display projection
 
 Pi-Ark 通过 `defineTool()` 注册 `subagent`，并复用进程内的 `createAgentSession()` 为委派任务创建持久化的子 Session。任务使用独立的 SessionManager 与消息上下文，模型、thinking level 和 Global system prompt append 取自父 Session 的当次配置。父子 Session 在新建和恢复时统一启用文件工具（`read`、`bash`、`edit` 和 `write`）以及 `read_pi_ark_link`；父 Session 还启用 `subagent`。委派快照保留当次配置的 `tools` 字段作为记录，恢复时使用统一启用的文件工具列表。进行中的创建与恢复共享同一个 Promise，WebSocket 打开子 Session 时复用已有 runtime。
 
-工具等待各任务的 `AgentSession.prompt()` 结束，通过工具的 `onUpdate` 回调发送进度，并在返回正文中提供结果摘录与来源链接。Server 同时发送独立的 `subagent-state` 消息，snapshot 保留完整的委派关系与状态，便于浏览器重连。AbortSignal 与 `AgentSession.abort()` 配合完成停止操作。
+工具等待各任务的 `AgentSession.prompt()` 结束，通过工具的 `onUpdate` 回调发送进度，并在返回正文中提供 `sessionId`、结果摘录与来源链接。再次委派通过可选的任务 `sessionId` 取得当前父 Session 已有的子 Session，复用其 AgentSession 与 SessionManager；该子 Session 沿用自身的配置与历史上下文，每轮委派分别保存结果链接。用量通过 `getSessionStats()` 在本轮 prompt 前后的累计差值取得。
+
+Server 同时向父会话与同一父会话的子会话发送独立的 `subagent-state` 消息，snapshot 保留完整的委派关系与状态，便于浏览器重连。子会话的 `parentRuns` 支持 Web 按子 Session 合并数量与列表，任务的 `updatedAt` 记录本轮活动时间。AbortSignal 与 `AgentSession.abort()` 配合完成停止操作。用户的 prompt 在 Server 按持久化 origin 检查，父 Agent 的任务输入直接调用 SDK。
 
 `SessionManager.getBranch(fromId)` 支持读取指定历史分支，`getEntry(id)` 用于确认 entry 存在，读取保持当前活动 leaf。Pi-Ark 将来源与结果的分支 entry 存入委派记录，并通过 `leafEntryId` 工具参数与内部链接 query 传递。Message 引用中的原始图片由 Server 另外传入子 Session 的 `prompt({ images })`；链接工具的文本结果继续保留 MIME type 说明。
 
-委派关系采用独立的 JSON 记录，子 Session 保持原生 JSONL。首版由父 Session 组织后续委派与顺序任务，并通过服务实例与父 Session 的并发限制管理同时执行的任务。
+委派关系采用独立的 JSON 记录，子 Session 保持原生 JSONL。父 Session 通过新建或继续已有子 Session 组织后续委派与顺序任务，并通过服务实例与父 Session 的并发限制管理同时执行的任务。
 
 ## Session 存储选择
 

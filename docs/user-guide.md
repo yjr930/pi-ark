@@ -280,6 +280,8 @@ Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面
 
 连续的工具调用按可见内容分组，默认显示最后 3 个调用，点击 `show more tool call` 可显示较早的调用，点击 `show less tool call` 可恢复折叠。一个 message 中的多个调用分别计数。开启 Hide reasoning 后，隐藏的 thinking block（包括只包含 thinking 的独立 message）前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，包含普通正文或图片的 message 按原样显示。分组保留原始消息及其 permalink，并随 Session UI cache 恢复展开状态；较早调用的 permalink 会在首次访问时展开对应分组。
 
+`subagent` 的工具行使用普通工具行 3 倍的收起高度，并独立于连续 tool call 的折叠分组显示。
+
 Compact 的收起高度为普通工具行的 3 倍，并显示压缩耗时、压缩前后的 token 用量，以及 System prompt、Summary 和 Retained 的 token 用量。`≈` 表示 pi SDK 的估算值。展开后可以查看触发原因、生成摘要的 token 用量、source Message ID、内部链接和 compact summary。后续压缩会记录实际耗时；历史字段按已有记录展示。compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
 
 ### Queue
@@ -341,15 +343,19 @@ Web 的任务预期结果是列出用户可见状态与对应组件。
 请在父 Session 中汇总结果。
 ```
 
-Agent 委派后，父 Session 的 Subagent tasks 面板显示各任务的进度。运行状态包括 `queued`（等待执行）与 `running`（正在执行）；结束状态包括 `completed`（已完成）、`failed`（执行出错）、`cancelled`（已停止）与 `interrupted`（服务中断）。每次委派支持 1–8 个任务，每个父 Session 最多同时执行 4 个任务，服务实例最多同时执行 8 个任务。
+Agent 委派后，父 Session 的状态左侧显示 subagent 的分支 logo 与 `running / complete / total` 数量。`running` 统计正在执行的子 Session，`complete` 统计最新任务已完成的子 Session，`total` 统计保留的子 Session；同一子 Session 的多轮任务合并统计。每次委派支持 1–8 个任务，每个父 Session 最多同时执行 4 个任务，服务实例最多同时执行 8 个任务。
 
-- 点击 Open session，查看子 Session 的完整过程。
-- 点击 Open result，定位任务完成时的结果消息。
-- 在子 Session 中点击 Open parent request，返回委派时的父消息。
-- 点击 Stop task，停止对应任务；在父 Session 中点击 Stop，停止该 Session 当前等待的子任务。
-- 任务结束或停止后，可以在子 Session 中继续对话。
+- 点击状态栏的 subagent logo，展开 agent 列表。
+- 列表中每个 agent 使用一行，显示标题、状态与最后更新时间，点击该行进入子 Session。
+- 上方显示 `queued`（等待执行）与 `running`（正在执行）的 agent，按最后更新时间倒序排列；列表内容较多时可以在列表内滚动。
+- 底部的 Completed 分组包含 `completed`（已完成）、`failed`（执行出错）、`cancelled`（已停止）与 `interrupted`（服务中断）的 agent，默认折叠，点击可以展开；新的任务结束时，该分组自动折叠。
+- 子 Session 顶部的 Parent Agent 栏显示父会话的标题、状态与 subagent 数量，点击标题返回父会话；点击 Open parent request 返回本轮委派时的父消息。
+- 在运行中的子 Session 页面点击 Stop，停止对应任务；在父 Session 中点击 Stop，停止该 Session 当前等待的子任务。
+- 需要继续原来的任务时，在父 Session 中要求 Agent 向已有的 subagent 发送后续任务；该 agent 会回到上方的活动列表，并保留原来的会话上下文。
 
-父 Session 自带 `subagent`，子 Session 的后续委派由父 Session 组织。任务使用独立的会话上下文，并共享 Workspace 文件。并行修改任务应明确各任务负责的文件，父 Session 负责组织共同文件的修改与后续交付。任务面板分别显示子任务用量与汇总，父 Session 的 Session information 保留自身的用量。
+子 Session 始终隐藏输入框，任务输入由 Parent Agent 委派。子会话中的角色名称显示为 `Parent Agent` 与 `SubAgent`，其中包括消息 header、顶部的 sticky header 与消息信息栏；配色与头像沿用原有样式。普通会话继续显示 `User` 与 `AI`。侧栏的 Session 列表展示普通 Session，subagent 通过状态栏的列表进入。
+
+父 Session 自带 `subagent`，子 Session 的后续委派由父 Session 组织。任务使用独立的会话上下文，并共享 Workspace 文件。并行修改任务应明确各任务负责的文件，父 Session 负责组织共同文件的修改与后续交付。再次委派时，Agent 在 `subagent` 的任务参数中提供已有的 `sessionId`，子 Session 沿用自身配置。工具结果保留每轮任务的结果摘录、用量与结果消息链接，父 Session 的 Session information 保留自身的用量。
 
 任务结果与来源链接会保留当时的分支参数 `leafEntryId`。打开后，页面显示 Historical conversation branch，点击 Open current conversation 可以切换到当前对话。父 Session 或子 Session 后续发生 Rollback 时，这些历史链接继续指向原来的消息。
 

@@ -205,16 +205,17 @@ try {
     try {
       await legacyAgents.subagents.store.load(workspace);
       const legacySnapshot = { model: { provider: "openai-codex", id: "gpt-5.6-sol" }, thinkingLevel: "off", tools: ["read"], systemPromptAppend: "Historical task append" };
-      const legacyRun: import("../apps/server/src/subagent-types.ts").SubagentRun = { version: 1, id: crypto.randomUUID(), parentSessionId: opened.id, parentLink: internalSessionLink(workspace.id, opened.id), toolCallId: "historical-tools", createdAt: new Date().toISOString(), revision: 0, ...legacySnapshot, systemPromptAppend: "Historical run append", tasks: [{ sessionId: legacyManager.getSessionId(), sessionLink: internalSessionLink(workspace.id, legacyManager.getSessionId()), title: "Historical task", task: "Preserve the historical configuration", expectedResult: "The historical configuration remains available", state: "completed", references: [] }] };
+      const legacyRun: import("../apps/server/src/subagent-types.ts").SubagentRun = { version: 1, id: crypto.randomUUID(), parentSessionId: opened.id, parentLink: internalSessionLink(workspace.id, opened.id), toolCallId: "historical-tools", createdAt: new Date().toISOString(), revision: 0, ...legacySnapshot, systemPromptAppend: "Historical run append", tasks: [{ sessionId: legacyManager.getSessionId(), sessionLink: internalSessionLink(workspace.id, legacyManager.getSessionId()), title: "Historical task", task: "Preserve the historical configuration", expectedResult: "The historical configuration remains available", state: "completed", references: [], configuration: { ...legacySnapshot, tools: [] } }] };
       await legacyAgents.subagents.store.save(workspace, legacyRun);
       const closeLegacy = await legacyAgents.connect(workspace, legacyManager.getSessionId(), socket as never);
       const legacyHandle = (legacyAgents as unknown as typeof internals).handles.get(`${workspace.id}:${legacyManager.getSessionId()}`)!;
       assert.deepEqual(legacyHandle.session.getActiveToolNames().sort(), ["read", "bash", "edit", "write", READ_PI_ARK_LINK].sort());
-      assert.match(legacyHandle.session.systemPrompt, /Historical run append/);
+      assert.match(legacyHandle.session.systemPrompt, /Historical task append/);
       closeLegacy();
       const recorded = JSON.parse(await readFile(join(workspace.path, ".pi-ark", "subagent-runs", `${legacyRun.id}.json`), "utf8"));
       assert.deepEqual(recorded, legacyRun);
       assert.deepEqual(recorded.tools, ["read"]);
+      assert.deepEqual(recorded.tasks[0].configuration.tools, []);
     } finally { await legacyAgents.dispose(); }
   } finally { await agents.dispose(); }
   const referenceSource = process.env.PI_ARK_CHECK_LINK_SESSION;

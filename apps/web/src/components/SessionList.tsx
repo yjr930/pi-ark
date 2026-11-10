@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, GitFork, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { internalSessionLink } from "../permalinks";
@@ -69,7 +69,7 @@ function SessionRow({ workspaceId, session, status, groups, active, onSelect, on
   const title = session.name || session.firstMessage || "New session";
   return <>
     <div className={`session-list-item ${active ? "active" : ""}`}>
-      <button className="session-open" title={lastUpdatedTooltip(session.modified)} onClick={onSelect}>{session.pinned && <Pin className="session-pin" size={10} />}{session.subagentOrigin && <GitFork className="session-subagent-icon" size={12} aria-label={`Subagent · ${session.subagentOrigin.state}`} />}<strong>{title}</strong><SessionState status={status} /></button>
+      <button className="session-open" title={lastUpdatedTooltip(session.modified)} onClick={onSelect}>{session.pinned && <Pin className="session-pin" size={10} />}<strong>{title}</strong><SessionState status={status} /></button>
       <div className="session-menu-root" ref={menuRef}><button className="row-menu-trigger" title={`Actions for ${title}`} aria-label={`Actions for ${title}`} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><MoreHorizontal size={15} /></button>
         {menuOpen && <div className="row-actions-menu session-actions-menu">
           <button onClick={() => { setMenuOpen(false); setRenameOpen(true); }}><Pencil size={14} />Rename</button>
@@ -111,8 +111,8 @@ function GroupSection({ group, sessions, statuses, workspaceId, activeSessionId,
 
 export function SessionList({ workspaceId, sessions, statuses, activeSessionId, showArchived, notebookActive, createGroupOpen, onSelect, onOpenNotebook, onCreateGroupClose, onChanged }: { workspaceId: string; sessions: SessionInfo[]; statuses: Record<string, SessionStatusView>; activeSessionId: string; showArchived: boolean; notebookActive: boolean; createGroupOpen: boolean; onSelect: (sessionId: string) => void; onOpenNotebook: () => void; onCreateGroupClose: () => void; onChanged: Changed }) {
   const [groups, setGroups] = useState<SessionGroup[]>([]);
-  const active = sessions.filter((session) => !session.archived);
-  const archived = sessions.filter((session) => session.archived);
+  const active = sessions.filter((session) => !session.archived && !session.subagentOrigin);
+  const archived = sessions.filter((session) => session.archived && !session.subagentOrigin);
   const ungrouped = active.filter((session) => session.groups.length === 0);
   const loadGroups = () => { void api.sessionGroups(workspaceId).then((result) => setGroups(result.groups)); };
   useEffect(loadGroups, [workspaceId]);

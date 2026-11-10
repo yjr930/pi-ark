@@ -574,7 +574,7 @@ try {
   const mergedQueueText = [2, 3, 4, 5, 6, 1].map((index) => `Queued follow-up ${index}`).join("\n\n");
   const activeTextarea = activePage.locator(".composer textarea");
   await activePage.getByRole("button", { name: "Edit queued message" }).click();
-  await activePage.waitForFunction(() => document.querySelectorAll(".queued-message").length === 0);
+  await activePage.waitForFunction((expectedText) => document.querySelectorAll(".queued-message").length === 0 && document.querySelector(".composer textarea")?.value === expectedText, mergedQueueText);
   assert.equal(await activeTextarea.inputValue(), mergedQueueText);
   activeQueue = [{ id: "active-editable", mode: "followUp", text: "Edit this queued follow-up" }];
   activeQueueRevision += 1;

@@ -104,11 +104,12 @@ export class AgentService {
   constructor(private readonly settings: SettingsService, workspaces: Pick<WorkspaceService, "get">) {
     this.sessionReader = new SessionReader(workspaces, (workspace, sessionId) => this.handles.get(this.key(workspace, sessionId))?.session.sessionManager);
     this.subagents = new SubagentService(this.sessionReader, async (workspace, manager, configuration) => (await this.instantiate(workspace, manager, configuration)).session, (workspace, run) => {
-      for (const sessionId of [run.parentSessionId, ...run.tasks.map((task) => task.sessionId)]) {
+      const runs = this.subagents.store.state(workspace, run.parentSessionId).runs;
+      for (const sessionId of new Set([run.parentSessionId, ...runs.flatMap((record) => record.tasks.map((task) => task.sessionId))])) {
         const handle = this.handles.get(this.key(workspace, sessionId));
         if (handle) this.broadcast(handle, { type: "subagent-state", subagents: this.subagents.store.state(workspace, sessionId) });
       }
-    });
+    }, async (workspace, sessionId) => (await this.getOrOpen(workspace, sessionId)).session);
   }
 
   private key(workspace: WorkspaceDefinition, sessionId: string): string {
@@ -121,7 +122,7 @@ export class AgentService {
     for (const handle of this.handles.values()) {
       const source = this.subagents.store.findTask(workspace, handle.session.sessionId);
       if (handle.workspace.id !== workspace.id || !source || sessions.some((session) => session.id === handle.session.sessionId)) continue;
-      sessions.push({ id: handle.session.sessionId, path: handle.session.sessionFile || "", cwd: workspace.path, name: handle.session.sessionName, created: new Date(source.run.createdAt), modified: new Date(source.task.finishedAt || source.task.startedAt || source.run.createdAt), messageCount: this.snapshotMessages(handle).length, firstMessage: source.task.task, allMessagesText: source.task.task });
+      sessions.push({ id: handle.session.sessionId, path: handle.session.sessionFile || "", cwd: workspace.path, name: handle.session.sessionName, created: new Date(source.run.createdAt), modified: new Date(source.task.updatedAt || source.task.finishedAt || source.task.startedAt || source.run.createdAt), messageCount: this.snapshotMessages(handle).length, firstMessage: source.task.task, allMessagesText: source.task.task });
     }
     return sessions.map(({ path: _path, ...info }) => ({ ...info, subagentOrigin: this.subagents.store.state(workspace, info.id).origin, pinned: metadata[info.id]?.pinned || false, archived: metadata[info.id]?.archived || false, groups: metadata[info.id]?.groups || [] })).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.modified.getTime() - a.modified.getTime());
   }
@@ -342,6 +343,7 @@ export class AgentService {
 
   async prompt(workspace: WorkspaceDefinition, sessionId: string, text: string, attachments: IncomingAttachment[] = []): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
+    if (this.subagents.store.state(workspace, sessionId).origin) throw Object.assign(new Error("This subagent is managed by its parent. Send further tasks from the parent Session."), { statusCode: 409 });
     this.assertInteractive(workspace, sessionId);
     if (handle.session.sessionManager.getEntries().length >= MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
     const saved = attachments.length ? await saveAttachments(workspace, sessionId, attachments) : [];
@@ -403,8 +405,15 @@ export class AgentService {
     return this.openOnce(workspace, sessionId, async () => {
       const sessionDir = await ensureWorkspaceState(workspace);
       const info = (await SessionManager.list(workspace.path, sessionDir)).find((session) => session.id === sessionId);
-      if (!info) throw Object.assign(new Error("Unknown agent session"), { statusCode: 404 });
-      return this.instantiateSession(workspace, SessionManager.open(info.path, sessionDir));
+      if (info) return this.instantiateSession(workspace, SessionManager.open(info.path, sessionDir));
+      await this.subagents.store.load(workspace);
+      const source = this.subagents.store.findTask(workspace, sessionId);
+      if (!source || source.task.deleted) throw Object.assign(new Error("Unknown agent session"), { statusCode: 404 });
+      const manager = SessionManager.create(workspace.path, sessionDir, { id: sessionId });
+      manager.appendCustomEntry("pi-ark.subagent-origin", { runId: source.run.id, parentSessionId: source.run.parentSessionId });
+      manager.appendSessionInfo(source.task.title);
+      const saved = source.task.configuration ?? source.run;
+      return this.instantiateSession(workspace, manager, { model: await this.settings.resolveModel(saved.model.provider, saved.model.id), thinkingLevel: saved.thinkingLevel as ThinkingLevel, tools: saved.tools, systemPromptAppend: saved.systemPromptAppend });
     });
   }
 
@@ -446,7 +455,8 @@ export class AgentService {
     const origin = this.subagents.store.findTask(workspace, manager.getSessionId());
     const preferences = await loadGlobalPreferences();
     const settingsManager = createGlobalSettingsManager(workspace.path);
-    const systemPromptAppend = configuration?.systemPromptAppend ?? origin?.run.systemPromptAppend ?? preferences.agent.systemPrompt.append;
+    const childConfiguration = origin?.task.configuration ?? origin?.run;
+    const systemPromptAppend = configuration?.systemPromptAppend ?? childConfiguration?.systemPromptAppend ?? preferences.agent.systemPrompt.append;
     const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;

@@ -61,7 +61,7 @@ export default function App() {
       const pendingTarget = pendingInternalTarget.current?.workspaceId === workspaceId ? pendingInternalTarget.current : undefined;
       const initialTarget = initialPermalink.current;
       const linkedSessionId = pendingTarget?.sessionId || (initialTarget.workspaceId === workspaceId ? initialTarget.sessionId : undefined);
-      const selectedId = result.sessions.find((session) => session.id === linkedSessionId)?.id || result.sessions.find((session) => !session.archived)?.id || "";
+      const selectedId = result.sessions.find((session) => session.id === linkedSessionId)?.id || result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
       setSessions(result.sessions); setSessionId(selectedId);
       if (pendingTarget && selectedId === pendingTarget.sessionId) {
         setTargetMessageId(pendingTarget.messageId); setLeafEntryId(pendingTarget.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageId, pendingTarget.leafEntryId));
@@ -94,7 +94,7 @@ export default function App() {
       if (removedFromActiveId && !result.sessions.some((session) => session.id === removedFromActiveId)) deleteCachedSessionSnapshot(sessionCacheKey(workspaceId, removedFromActiveId));
       setSessions(result.sessions);
       setSessionId((current) => {
-        const next = current !== removedFromActiveId && result.sessions.some((session) => session.id === current) ? current : result.sessions.find((session) => !session.archived)?.id || "";
+        const next = current !== removedFromActiveId && result.sessions.some((session) => session.id === current) ? current : result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
         if (next !== current) window.history.replaceState(null, "", appLocation(page, workspaceId, next));
         return next;
       });
@@ -231,7 +231,7 @@ export default function App() {
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
       {!workspace && page !== "settings" && <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>}
-      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}`} workspace={workspace} session={selectedSession} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
+      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}`} workspace={workspace} session={selectedSession} sessions={sessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} />}
         {workspace && page === "files" && <Files workspace={workspace} />}
