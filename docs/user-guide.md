@@ -258,7 +258,7 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
-每条 User message 在 turn 起点显示为全宽色带，其中包含用户头像、`User` 标签、message number、内部链接和可用的 Rollback。色带使用与 conversation 底色有区分的背景，只有上、下 separator，没有左右边框、圆角或阴影，并延伸到 conversation 内容列的左右边界。Separator 与上下内容之间保留更大的间距。User 使用与 AI 不同的颜色；User 与 AI 的头像和名称都使用更大的尺寸。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。角色头像只占用 header 行，后续内容继续使用 conversation 的完整宽度。普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。Reasoning 使用较小字号和与普通 text 一致的行高。
+每条 User message 在 turn 起点显示为全宽色带，其中包含用户头像、`User` 标签、message number、内部链接和可用的 Rollback。色带使用与 conversation 底色有区分的背景，只有上、下 separator，没有左右边框、圆角或阴影，并延伸到 conversation 内容列的左右边界。Separator 与上下内容之间保留更大的间距。色带内部的左侧和上侧留白略大于右侧和下侧。每个 theme 都使用与自身背景协调的 User 颜色，并与 AI 颜色保持区分；User 与 AI 的头像和名称都使用更大的尺寸。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。角色头像只占用 header 行，后续内容继续使用 conversation 的完整宽度。普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。Reasoning 使用较小字号和与普通 text 一致的行高。
 
 AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。没有已保存状态时，Running 默认展开，其中正在执行和已经完成的 tool items 都默认关闭；用户可以手动展开 tool item。AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。切换 Session 后再返回时，页面恢复用户后来手动调整的 Running、Tool、Reasoning、Compact 和 Message Info 状态。
 

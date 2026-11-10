@@ -770,8 +770,9 @@ try {
   const browserFinalMessage = page.locator(".feed-ai-message").filter({ hasText: "Final browser answer" });
   const firstUserMessage = page.locator(".message-user").first();
   assert.match(await firstUserMessage.locator(".feed-user-label").textContent(), /^User #1$/);
-  const feedAlignment = await page.locator(".conversation-content").evaluate((conversation) => { const user = conversation.querySelector(".message-user").getBoundingClientRect(); const userContent = conversation.querySelector(".message-user > .feed-message-content").getBoundingClientRect(); const aiHeader = conversation.querySelector(".ai-turn-header").getBoundingClientRect(); const aiContent = conversation.querySelector(".ai-feed-segment.start > .ai-feed-content").getBoundingClientRect(); return { userX: user.x, userContentX: userContent.x, aiHeaderX: aiHeader.x, aiContentX: aiContent.x }; });
-  assert.ok(Math.abs(feedAlignment.userX - feedAlignment.userContentX) <= 1);
+  const feedAlignment = await page.locator(".conversation-content").evaluate((conversation) => { const user = conversation.querySelector(".message-user").getBoundingClientRect(); const userHeader = conversation.querySelector(".message-user > .feed-user-header").getBoundingClientRect(); const userContent = conversation.querySelector(".message-user > .feed-message-content").getBoundingClientRect(); const aiHeader = conversation.querySelector(".ai-turn-header").getBoundingClientRect(); const aiContent = conversation.querySelector(".ai-feed-segment.start > .ai-feed-content").getBoundingClientRect(); return { userX: user.x, userHeaderX: userHeader.x, userContentX: userContent.x, aiHeaderX: aiHeader.x, aiContentX: aiContent.x }; });
+  assert.ok(Math.abs(feedAlignment.userHeaderX - feedAlignment.userContentX) <= 1);
+  assert.ok(feedAlignment.userContentX - feedAlignment.userX >= 22);
   assert.ok(Math.abs(feedAlignment.aiHeaderX - feedAlignment.aiContentX) <= 1);
   assert.equal(await browserFinalMessage.locator(".feed-text-meta").count(), 0);
   assert.equal(await browserFinalMessage.getByRole("button", { name: "Copy Markdown" }).count(), 1);
@@ -845,7 +846,7 @@ try {
   assert.equal(await page.locator(".archived-sessions").count(), 0);
   const finalMessage = browserFinalMessage;
   const latestUserMessage = page.locator(".feed-user.message-user").filter({ hasText: "Browser folding check" });
-  const userBandStyle = await latestUserMessage.evaluate((element) => { const style = getComputedStyle(element); const box = element.getBoundingClientRect(); const content = element.closest(".conversation-content"); const contentBox = content.getBoundingClientRect(); const contentStyle = getComputedStyle(content); const contentLeft = contentBox.left + Number.parseFloat(contentStyle.paddingLeft); const contentRight = contentBox.right - Number.parseFloat(contentStyle.paddingRight); const avatar = element.querySelector(".feed-user-avatar"); const aiAvatar = element.parentElement.querySelector(".ai-turn-avatar"); const aiLabel = element.parentElement.querySelector(".ai-turn-label"); return { background: style.backgroundColor, conversation: getComputedStyle(element.closest(".conversation")).backgroundColor, borderTop: style.borderTopStyle, borderRight: style.borderRightStyle, borderBottom: style.borderBottomStyle, borderLeft: style.borderLeftStyle, radius: Number.parseFloat(style.borderRadius), shadow: style.boxShadow, marginTop: Number.parseFloat(style.marginTop), marginBottom: Number.parseFloat(style.marginBottom), leftDelta: Math.abs(box.left - contentLeft), rightDelta: Math.abs(box.right - contentRight), userAvatarSize: avatar.getBoundingClientRect().width, aiAvatarSize: aiAvatar.getBoundingClientRect().width, userColor: getComputedStyle(avatar).color, aiColor: getComputedStyle(aiAvatar).color, userLabelSize: Number.parseFloat(getComputedStyle(element.querySelector(".feed-user-label")).fontSize), aiLabelSize: Number.parseFloat(getComputedStyle(aiLabel).fontSize) }; });
+  const userBandStyle = await latestUserMessage.evaluate((element) => { const style = getComputedStyle(element); const box = element.getBoundingClientRect(); const content = element.closest(".conversation-content"); const contentBox = content.getBoundingClientRect(); const contentStyle = getComputedStyle(content); const contentLeft = contentBox.left + Number.parseFloat(contentStyle.paddingLeft); const contentRight = contentBox.right - Number.parseFloat(contentStyle.paddingRight); const avatar = element.querySelector(".feed-user-avatar"); const aiAvatar = element.parentElement.querySelector(".ai-turn-avatar"); const aiLabel = element.parentElement.querySelector(".ai-turn-label"); return { background: style.backgroundColor, conversation: getComputedStyle(element.closest(".conversation")).backgroundColor, borderTop: style.borderTopStyle, borderRight: style.borderRightStyle, borderBottom: style.borderBottomStyle, borderLeft: style.borderLeftStyle, radius: Number.parseFloat(style.borderRadius), shadow: style.boxShadow, marginTop: Number.parseFloat(style.marginTop), marginBottom: Number.parseFloat(style.marginBottom), paddingTop: Number.parseFloat(style.paddingTop), paddingRight: Number.parseFloat(style.paddingRight), paddingBottom: Number.parseFloat(style.paddingBottom), paddingLeft: Number.parseFloat(style.paddingLeft), leftDelta: Math.abs(box.left - contentLeft), rightDelta: Math.abs(box.right - contentRight), userAvatarSize: avatar.getBoundingClientRect().width, aiAvatarSize: aiAvatar.getBoundingClientRect().width, userColor: getComputedStyle(avatar).color, aiColor: getComputedStyle(aiAvatar).color, userLabelSize: Number.parseFloat(getComputedStyle(element.querySelector(".feed-user-label")).fontSize), aiLabelSize: Number.parseFloat(getComputedStyle(aiLabel).fontSize) }; });
   assert.notEqual(userBandStyle.background, userBandStyle.conversation);
   assert.equal(userBandStyle.borderTop, "solid");
   assert.equal(userBandStyle.borderBottom, "solid");
@@ -853,11 +854,28 @@ try {
   assert.equal(userBandStyle.borderLeft, "none");
   assert.equal(userBandStyle.radius, 0);
   assert.equal(userBandStyle.shadow, "none");
-  assert.ok(userBandStyle.marginTop >= 13 && userBandStyle.marginBottom >= 16);
+  assert.ok(userBandStyle.marginTop >= 20 && userBandStyle.marginBottom >= 19);
+  assert.ok(userBandStyle.paddingTop >= 18 && userBandStyle.paddingRight >= 18 && userBandStyle.paddingBottom >= 16 && userBandStyle.paddingLeft >= 22);
   assert.ok(userBandStyle.leftDelta <= 0.5 && userBandStyle.rightDelta <= 0.5);
   assert.ok(userBandStyle.userAvatarSize >= 29 && userBandStyle.aiAvatarSize >= 29);
   assert.ok(userBandStyle.userLabelSize >= 12 && userBandStyle.aiLabelSize >= 12);
   assert.notEqual(userBandStyle.userColor, userBandStyle.aiColor);
+  const themeUserPalettes = await latestUserMessage.evaluate((element) => {
+    const root = document.documentElement;
+    const originalTheme = root.dataset.theme;
+    const palettes = ["ark-dark", "graphite", "midnight", "paper", "snow"].map((theme) => {
+      root.dataset.theme = theme;
+      const style = getComputedStyle(element);
+      return { theme, background: style.backgroundColor, conversation: getComputedStyle(element.closest(".conversation")).backgroundColor, separator: style.borderTopColor, user: getComputedStyle(element.querySelector(".feed-user-avatar")).color, ai: getComputedStyle(element.parentElement.querySelector(".ai-turn-avatar")).color };
+    });
+    root.dataset.theme = originalTheme;
+    return palettes;
+  });
+  for (const palette of themeUserPalettes) {
+    assert.notEqual(palette.background, palette.conversation, `${palette.theme} user background`);
+    assert.notEqual(palette.separator, palette.background, `${palette.theme} user separator`);
+    assert.notEqual(palette.user, palette.ai, `${palette.theme} role accents`);
+  }
   const rollbackButtonCount = await page.getByRole("button", { name: "Roll back latest message" }).count();
   assert.equal(rollbackButtonCount, 1);
   const rollbackButton = latestUserMessage.getByRole("button", { name: "Roll back latest message" });
