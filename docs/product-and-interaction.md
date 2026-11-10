@@ -81,19 +81,19 @@ WebSocket 建立后，页面继续显示 Loading conversation。首个完整 sna
 
 ### 空 Session 与运行状态
 
-没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。状态栏在连接、加载、工作、运行工具、就绪和连接错误之间变化。
+没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态，右侧显示 Context 百分比和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。
 
-每个 turn 的 User 内容显示为一条 feed 起点，并保留用户头像、`User` 标签、message number、内部链接与 Rollback。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。
+每个 turn 的 User 内容显示为一条 feed 起点，并保留用户头像、`User` 标签、message number、内部链接与 Rollback。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
 
-正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse，最新的非工具 assistant output 保持可见。Agent settled 后，已完成的 run collapse 显示用时和工具消息数量，最后一条非工具内容保持展开。
+正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse，Running 默认展开，最新的非工具 assistant output 保持可见。Agent settled 后，该 run collapse 自动折叠并显示用时和工具消息数量，最后一条非工具内容保持展开。
 
 Agent settled 且缺少最后一条非工具内容的历史 turn 在 run collapse 后显示紧凑的单行 Response interrupted warning。
 
 ### 工具展示
 
-Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text item 包含普通文字、图片和 reasoning，并直接显示在连续 feed 中。每条含 text 内容的 assistant source message 在内容左侧显示小喇叭按钮，信息栏默认折叠；用户点击小喇叭后，信息栏显示 source message number 和内部链接。已完成的 message 还显示 model、context、input/output token 与操作按钮；流式 message 的信息栏隐藏这些完成态信息和按钮。
+Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text item 包含普通文字、图片和 reasoning，并直接显示在连续 feed 中；reasoning 使用较小字号和与普通 text 一致的行高。每条含 text 内容的 assistant source message 在末尾显示操作行：已完成的 message 默认显示 Copy Markdown、Fork session 和 Info，流式 message 显示 Info。Info 控制的信息栏默认折叠，展开后显示 source message number、内部链接、model、context 和 input/output token；流式 message 只显示当前可用的信息。
 
-每个 tool call 与对应 tool result 合并为一行 tool item。该行由工具 logo 和折叠框组成；折叠框依次显示工具名称、实际摘要和状态。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
+每个 tool call 与对应 tool result 合并为一行 tool item。工具 logo 位于折叠框的 summary 内，后面依次显示工具名称、实际摘要和状态；展开内容与折叠框左边界对齐。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
 
 Tool item 默认关闭。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。空 arguments 显示 `{}`。
 
@@ -103,7 +103,7 @@ Tool call message 与 tool result message 继续保留各自的 message number�
 
 ### Message 标识与链接
 
-每条 snapshot message 按当前 projection 顺序编号。User header、assistant text 的折叠信息栏与 tool item 的展开内容只提供 `pi-ark://` message link copy 按钮，不提供绝对浏览器 URL copy 按钮。内部链接可以通过侧栏的 Open Pi-Ark session link 对话框打开；带 message query 的浏览器 URL 仍可以定位并高亮目标 source message。
+每条 snapshot message 按当前 projection 顺序编号。User header、assistant text 的 Info 信息栏与 tool item 的展开内容只提供 `pi-ark://` message link copy 按钮，不提供绝对浏览器 URL copy 按钮。内部链接可以通过侧栏的 Open Pi-Ark session link 对话框打开；带 message query 的浏览器 URL 仍可以定位并高亮目标 source message。
 
 ### Composer
 
@@ -127,10 +127,11 @@ Session 正在运行时，新 message 默认进入 Follow-up queue。Queue 区�
 
 ### Assistant response actions
 
-已完成的 assistant text item 在用户点击小喇叭后显示的信息栏中提供 model、context 使用百分比、`I/input token` 和 `O/output token`，并提供以下操作：
+已完成的 assistant text item 在内容末尾默认提供以下操作；Info 展开的信息栏显示 model、context 使用百分比、`I/input token`、`O/output token`、source message number 和内部链接：
 
 - Copy Markdown：复制 assistant response 的文字 Markdown。
 - Fork session：从该 response 对应的 session entry 创建新分支，并要求输入新 Session 名称。
+- Info：展开或折叠该 source message 的信息栏。
 
 ### Rollback 与 Restore
 
@@ -140,7 +141,7 @@ Rollback 只改变 conversation branch，不修改 Workspace 文件。用户可�
 
 ### Session information
 
-Header 的 Session information 面板显示创建时间、更新时间、消息数量、context token、context window、context 使用百分比、input token 总量、output token 总量和费用。
+Header 的 Session information 面板显示创建时间、更新时间、消息数量、context token、context window、context 使用百分比、input token 总量、output token 总量和费用，并提供 Copy session URL 与 Compact、Wide、Full conversation width 选项。
 
 ## Files
 

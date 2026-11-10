@@ -256,13 +256,13 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
-每条 User message 在 turn 起点显示用户头像、`User` 标签、message number、内部链接和可用的 Rollback。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。后续的普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。每条含 text 内容的 assistant message 在左侧显示小喇叭；点击小喇叭可以展开或折叠该 source message 的信息栏。
+每条 User message 在 turn 起点显示用户头像、`User` 标签、message number、内部链接和可用的 Rollback。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。角色头像只占用 header 行，后续内容继续使用 conversation 的完整宽度。普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。Reasoning 使用较小字号和与普通 text 一致的行高。
 
-AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。Running 默认展开；AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
 
-每个 tool call 与 result 合并为一行工具项。该行显示工具 logo，折叠框内显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。连续工具项使用紧凑间距。展开后，第一行显示 Call 与 Result 的全局 message number，并提供对应的 `pi-ark://` link copy 按钮；下面显示 Arguments 和 Result，空 arguments 显示 `{}`。
+每个 tool call 与 result 合并为一行工具项。工具 logo 位于折叠框内，后面显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。连续工具项使用紧凑间距。展开内容与折叠框左边界对齐；第一行显示 Call 与 Result 的全局 message number，并提供对应的 `pi-ark://` link copy 按钮，下面显示 Arguments 和 Result，空 arguments 显示 `{}`。
 
-Text item 直接显示普通文字、图片和 reasoning。已完成的 assistant text 在内容后显示 model、context、input/output token、`pi-ark://` link、Copy Markdown 和 Fork；流式输出期间依赖完成状态的信息和按钮暂不显示。User text 的 inline 信息行提供内部链接与 Rollback。
+Text item 直接显示普通文字、图片和 reasoning。已完成的 assistant text 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；流式 assistant text 显示 Info。点击 Info 后，信息栏显示 model、context、input/output token、source message number 与 `pi-ark://` link；流式输出期间的信息栏只显示当前可用的信息。User header 提供内部链接与 Rollback。
 
 Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过折叠框查看。
 
@@ -284,7 +284,7 @@ Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follo
 
 ### Fork
 
-已完成的 assistant text item 在小喇叭控制的信息栏中显示 model、Context 百分比、`I/input token` 和 `O/output token`。Fork session 从该 text 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
+已完成的 assistant text item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info。Info 信息栏显示 model、Context 百分比、`I/input token`、`O/output token`、source message number 和内部链接。Fork session 从该 text 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
 
 ### Rollback 与 Restore
 
@@ -299,11 +299,11 @@ Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follo
 
 ### Copy 与链接
 
-Text 的 inline 信息行和展开后的 tool item 可以复制 `pi-ark://` message link。页面不提供绝对浏览器 message URL 的复制按钮。已完成的 assistant text 可以 Copy Markdown。复制成功后，按钮会短暂显示完成状态。
+Assistant text 的 Info 信息栏和展开后的 tool item 可以复制 `pi-ark://` message link。页面不提供绝对浏览器 message URL 的复制按钮。已完成的 assistant text 可以 Copy Markdown。复制成功后，按钮会短暂显示完成状态。
 
 ### 查看 Session information
 
-点击 header 的信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用。
+会话状态栏左侧依次显示标题、编辑标题按钮和状态，右侧显示 Context 百分比和信息按钮。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
 
 ## Files 页面
 
