@@ -845,6 +845,13 @@ try {
   assert.equal(await page.locator(".archived-sessions").count(), 0);
   const finalMessage = browserFinalMessage;
   const latestUserMessage = page.locator(".feed-user.message-user").filter({ hasText: "Browser folding check" });
+  const userCardStyle = await latestUserMessage.evaluate((element) => { const style = getComputedStyle(element); const separator = getComputedStyle(element, "::after"); return { background: style.backgroundColor, conversation: getComputedStyle(element.closest(".conversation")).backgroundColor, border: style.borderStyle, marginTop: Number.parseFloat(style.marginTop), marginBottom: Number.parseFloat(style.marginBottom), separatorHeight: Number.parseFloat(separator.height), separatorBottom: Number.parseFloat(separator.bottom), separatorColor: separator.backgroundColor }; });
+  assert.notEqual(userCardStyle.background, userCardStyle.conversation);
+  assert.equal(userCardStyle.border, "solid");
+  assert.ok(userCardStyle.marginTop >= 12 && userCardStyle.marginBottom >= 16);
+  assert.equal(userCardStyle.separatorHeight, 1);
+  assert.ok(userCardStyle.separatorBottom <= -8);
+  assert.notEqual(userCardStyle.separatorColor, "rgba(0, 0, 0, 0)");
   const rollbackButtonCount = await page.getByRole("button", { name: "Roll back latest message" }).count();
   assert.equal(rollbackButtonCount, 1);
   const rollbackButton = latestUserMessage.getByRole("button", { name: "Roll back latest message" });
