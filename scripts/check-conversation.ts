@@ -2,6 +2,14 @@ import assert from "node:assert/strict";
 import { buildConversationSegments, buildToolCallGroups } from "../apps/web/src/conversation.ts";
 import type { AgentMessage, ContentBlock, SubagentRun } from "../apps/web/src/types.ts";
 import { subagentCounts, subagentFinished, subagentListItems } from "../apps/web/src/subagent-view.ts";
+import { formatMessageTime } from "../apps/web/src/message-time.ts";
+
+const localMessageDate = new Date(2026, 0, 2, 3, 4, 5);
+assert.deepEqual(formatMessageTime(localMessageDate.getTime()), { dateTime: localMessageDate.toISOString(), label: "2026-01-02 03:04:05" });
+assert.equal(formatMessageTime(new Date(2026, 10, 12, 13, 14, 15).getTime())?.label, "2026-11-12 13:14:15");
+assert.equal(formatMessageTime(0)?.dateTime, "1970-01-01T00:00:00.000Z");
+assert.equal(formatMessageTime(undefined), undefined);
+assert.equal(formatMessageTime(Number.NaN), undefined);
 
 const messages: AgentMessage[] = [
   { role: "user", content: "Inspect", timestamp: 1000 },
