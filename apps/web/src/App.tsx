@@ -8,6 +8,7 @@ import { NameDialog } from "./components/NameDialog";
 import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
 import { appLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
+import { deleteCachedSessionSnapshot, sessionCacheKey } from "./session-cache";
 import { applyTheme } from "./theme";
 import type { SessionInfo, UiSettings, Workspace } from "./types";
 
@@ -70,6 +71,7 @@ export default function App() {
   const refreshSessions = useCallback((removedFromActiveId?: string) => {
     if (!workspaceId) return;
     void api.sessions(workspaceId).then((result) => {
+      if (removedFromActiveId && !result.sessions.some((session) => session.id === removedFromActiveId)) deleteCachedSessionSnapshot(sessionCacheKey(workspaceId, removedFromActiveId));
       setSessions(result.sessions);
       setSessionId((current) => {
         const next = current !== removedFromActiveId && result.sessions.some((session) => session.id === current) ? current : result.sessions.find((session) => !session.archived)?.id || "";
@@ -197,7 +199,7 @@ export default function App() {
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
       {!workspace && page !== "settings" && <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>}
-      {workspace && page === "agent" && (selectedSession ? <Chat workspace={workspace} session={selectedSession} targetMessageNumber={targetMessageNumber} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
+      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageNumber || "latest"}`} workspace={workspace} session={selectedSession} targetMessageNumber={targetMessageNumber} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "files" && <Files workspace={workspace} />}
         {workspace && page === "terminal" && <Terminal workspace={workspace} />}

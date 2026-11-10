@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type ReactNode } from "react";
 import { Archive, ArrowDown, ArrowUp, Check, CircleStop, Clock3, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { api, websocketUrl } from "../api";
-import { buildConversationSegments, previousConversationPageStart } from "../conversation";
+import { buildConversationSegments } from "../conversation";
 import { internalMessageLink, sessionPermalink } from "../permalinks";
+import { cacheSessionSnapshot, getCachedSessionSnapshot, sessionCacheKey } from "../session-cache";
 import type { AgentMessage, AgentSnapshot, ContentBlock, SessionInfo, SessionModelOption, Workspace } from "../types";
 import { Markdown } from "./Markdown";
 import { NameDialog } from "./NameDialog";
@@ -182,12 +183,18 @@ function number(value: number): string { return new Intl.NumberFormat(undefined,
 function fileData(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.onerror = () => reject(reader.error || new Error("Cannot read attachment")); reader.readAsDataURL(file); }); }
 
 export function Chat({ workspace, session, targetMessageNumber, hideReasoning, onSessionChanged, onSessionForked }: { workspace: Workspace; session: SessionInfo; targetMessageNumber?: number; hideReasoning: boolean; onSessionChanged: () => void; onSessionForked: (sessionId: string) => void }) {
-  const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(null);
+  const cacheKey = sessionCacheKey(workspace.id, session.id);
+  const [cachedSnapshot] = useState<AgentSnapshot | null>(() => {
+    const cached = getCachedSessionSnapshot(cacheKey);
+    if (!cached || !targetMessageNumber) return cached || null;
+    return targetMessageNumber > cached.messageNumberOffset && targetMessageNumber <= cached.messageNumberOffset + cached.messages.length ? cached : null;
+  });
+  const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(cachedSnapshot);
   const [models, setModels] = useState<SessionModelOption[]>([]);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [preparingAttachments, setPreparingAttachments] = useState(false);
-  const [status, setStatus] = useState("Connecting session");
+  const [status, setStatus] = useState(cachedSnapshot ? "Refreshing conversation" : "Connecting session");
   const [chatWidth, setChatWidth] = useState<ChatWidth>(() => (localStorage.getItem("pi-ark-chat-width") as ChatWidth) || "wide");
   const [infoOpen, setInfoOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -197,7 +204,7 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   const [actionBusy, setActionBusy] = useState(false);
   const [sessionLinkCopied, setSessionLinkCopied] = useState(false);
   const [stickyUserMessageNumber, setStickyUserMessageNumber] = useState<number>();
-  const [historyStartIndex, setHistoryStartIndex] = useState(0);
+  const [loadingEarlierMessages, setLoadingEarlierMessages] = useState(false);
   const [queuedEditCandidate, setQueuedEditCandidate] = useState<{ id: string; text: string } | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
   const [pendingQueuedMessages, setPendingQueuedMessages] = useState<PendingQueuedMessage[]>([]);
@@ -210,10 +217,10 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   const attachmentRef = useRef<PendingAttachment[]>([]);
   const rollbackDraftRef = useRef("");
   const scrolledPermalinkRef = useRef("");
-  const historyInitializedRef = useRef(false);
 
   useEffect(() => { void api.sessionModels().then((result) => setModels(result.models)).catch(() => setModels([])); }, [workspace.id]);
   useEffect(() => { attachmentRef.current = attachments; }, [attachments]);
+  useEffect(() => { if (snapshot) cacheSessionSnapshot(cacheKey, snapshot); }, [cacheKey, snapshot]);
   useLayoutEffect(() => {
     const textarea = composerTextareaRef.current;
     if (!textarea) return;
@@ -229,13 +236,16 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   useEffect(() => () => { for (const attachment of attachmentRef.current) if (attachment.preview) URL.revokeObjectURL(attachment.preview); }, []);
   useEffect(() => {
     for (const attachment of attachmentRef.current) if (attachment.preview) URL.revokeObjectURL(attachment.preview);
-    setAttachments([]); setDraft(""); setSnapshot(null); setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageNumber(undefined); setHistoryStartIndex(0); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setStatus("Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; historyInitializedRef.current = false; followOutputRef.current = true;
+    setAttachments([]); setDraft(""); setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageNumber(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = true;
     let active = true;
-    const socket = new WebSocket(websocketUrl(`/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}`));
+    const connectionQuery = new URLSearchParams();
+    if (targetMessageNumber) connectionQuery.set("message", String(targetMessageNumber));
+    else if (cachedSnapshot) connectionQuery.set("start", String(cachedSnapshot.messageNumberOffset || 0));
+    const socket = new WebSocket(websocketUrl(`/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}${connectionQuery.size ? `?${connectionQuery}` : ""}`));
     socketRef.current = socket;
-    socket.onopen = () => { if (active) setStatus("Loading conversation"); };
-    socket.onclose = () => { if (active) { setStatus("Disconnected"); setPendingQueuedMessages((current) => current.map((item) => item.status === "scheduling" ? { ...item, status: "failed", error: "Connection lost" } : item)); } };
-    socket.onerror = () => { if (active) setStatus("Connection error"); };
+    socket.onopen = () => { if (active) setStatus(cachedSnapshot ? "Refreshing conversation" : "Loading conversation"); };
+    socket.onclose = () => { if (active) { setStatus("Disconnected"); setLoadingEarlierMessages(false); setPendingQueuedMessages((current) => current.map((item) => item.status === "scheduling" ? { ...item, status: "failed", error: "Connection lost" } : item)); } };
+    socket.onerror = () => { if (active) { setStatus("Connection error"); setLoadingEarlierMessages(false); } };
     socket.onmessage = (event) => {
       if (!active) return;
       const payload = JSON.parse(event.data);
@@ -243,13 +253,7 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
         const nextSnapshot = payload.session as AgentSnapshot;
         if (nextSnapshot.rollback && rollbackDraftRef.current !== nextSnapshot.rollback.id) { rollbackDraftRef.current = nextSnapshot.rollback.id; setDraft(nextSnapshot.rollback.draft); window.requestAnimationFrame(() => composerTextareaRef.current?.focus()); }
         if (!nextSnapshot.rollback) rollbackDraftRef.current = "";
-        if (!historyInitializedRef.current) {
-          const displayMessages = nextSnapshot.messages.filter((message) => message.role !== "system");
-          const defaultStart = previousConversationPageStart(displayMessages);
-          const targetStart = targetMessageNumber && targetMessageNumber <= displayMessages.length ? previousConversationPageStart(displayMessages, targetMessageNumber) : defaultStart;
-          setHistoryStartIndex(Math.min(defaultStart, targetStart));
-          historyInitializedRef.current = true;
-        }
+        setLoadingEarlierMessages(false);
         setPendingQueuedMessages((current) => current.filter((item) => nextSnapshot.queue.filter((queued) => queued.mode === "followUp" && queuedTextMatches(queued.text, item.matchText)).length < item.expectedMatchCount));
         setSnapshot(nextSnapshot); setStatus(nextSnapshot.isStreaming ? "AI is working" : "Ready");
       }
@@ -267,14 +271,14 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
             const replaceLast = agentEvent.type !== "message_start" && last?.role === incoming.role;
             if (replaceLast) messages[messages.length - 1] = incoming;
             else if (last?.timestamp !== incoming.timestamp || last?.role !== incoming.role) messages.push(incoming);
-            return { ...current, messages, isStreaming: true, isIdle: false };
+            return { ...current, messages, totalDisplayMessages: current.totalDisplayMessages + Math.max(0, messages.length - current.messages.length), isStreaming: true, isIdle: false };
           });
         }
       }
-      if (payload.type === "error") { setStatus(payload.message); setPendingQueuedMessages((current) => { let pendingIndex = -1; for (let index = current.length - 1; index >= 0; index -= 1) if (current[index].status === "scheduling") { pendingIndex = index; break; } return pendingIndex < 0 ? current : current.map((item, index) => index === pendingIndex ? { ...item, status: "failed", error: payload.message } : item); }); }
+      if (payload.type === "error") { setStatus(payload.message); setLoadingEarlierMessages(false); setPendingQueuedMessages((current) => { let pendingIndex = -1; for (let index = current.length - 1; index >= 0; index -= 1) if (current[index].status === "scheduling") { pendingIndex = index; break; } return pendingIndex < 0 ? current : current.map((item, index) => index === pendingIndex ? { ...item, status: "failed", error: payload.message } : item); }); }
     };
     return () => { active = false; socket.close(); };
-  }, [workspace.id, session.id, onSessionChanged]);
+  }, [workspace.id, session.id, onSessionChanged, cachedSnapshot]);
 
   useEffect(() => {
     if (!infoOpen) return;
@@ -301,9 +305,8 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   const isLoading = snapshot === null;
   const active = Boolean(snapshot && !snapshot.isIdle);
   const allMessages = useMemo(() => snapshot?.messages.filter((message) => message.role !== "system") || [], [snapshot]);
-  const visibleStartIndex = historyStartIndex < allMessages.length ? historyStartIndex : previousConversationPageStart(allMessages);
-  const visibleMessages = useMemo(() => allMessages.slice(visibleStartIndex), [allMessages, visibleStartIndex]);
-  const stickyUserMessage = stickyUserMessageNumber ? allMessages[stickyUserMessageNumber - 1] : undefined;
+  const messageNumberOffset = snapshot?.messageNumberOffset || 0;
+  const stickyUserMessage = stickyUserMessageNumber ? allMessages[stickyUserMessageNumber - messageNumberOffset - 1] : undefined;
   const stickyUserText = stickyUserMessage?.role === "user" ? messageMarkdown(stickyUserMessage).trim().split("\n", 1)[0] || "User message" : "";
   const title = snapshot?.name || session.name || session.firstMessage || "New session";
   const modelValue = snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "";
@@ -311,14 +314,16 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   const thinkingLevels = snapshot?.availableThinkingLevels?.length ? snapshot.availableThinkingLevels : selectedSessionModel?.thinkingLevels || ["off"];
   const queuedFollowUpCount = snapshot?.queue.filter((item) => item.mode === "followUp").length || 0;
   const sessionContextPercent = snapshot?.stats?.contextUsage?.percent;
-  const statusIsError = !["Connecting session", "Loading conversation", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
+  const statusIsError = !["Connecting session", "Loading conversation", "Refreshing conversation", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
 
   function send(command: object): boolean { if (socketRef.current?.readyState !== WebSocket.OPEN) return false; socketRef.current.send(JSON.stringify(command)); return true; }
   function selectWidth(width: ChatWidth) { setChatWidth(width); localStorage.setItem("pi-ark-chat-width", width); }
   function showEarlierMessages() {
+    if (!snapshot?.hasEarlierMessages || loadingEarlierMessages) return;
     followOutputRef.current = false;
     setStickyUserMessageNumber(undefined);
-    setHistoryStartIndex((current) => previousConversationPageStart(allMessages, current));
+    setLoadingEarlierMessages(true);
+    if (!send({ type: "load-earlier" })) setLoadingEarlierMessages(false);
   }
   function updateConversationPosition(element: HTMLDivElement) {
     followOutputRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 96;
@@ -366,7 +371,7 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
       const escapedBaseName = baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const pattern = new RegExp(`^${escapedBaseName} - fork (\\d+)$`);
       const highestForkNumber = result.sessions.reduce((highest, item) => { const match = pattern.exec(item.name || item.firstMessage || "New session"); return Math.max(highest, match ? Number(match[1]) : 0); }, 0);
-      setForkDialog({ entryId, defaultName: `${baseName} - fork ${highestForkNumber + 1}` }); setStatus("Ready");
+      setForkDialog({ entryId, defaultName: `${baseName} - fork ${highestForkNumber + 1}` }); setStatus(snapshot && !snapshot.isIdle ? "AI is working" : "Ready");
     } catch (reason) { setStatus(reason instanceof Error ? reason.message : "Cannot prepare fork"); }
     finally { setActionBusy(false); }
   }
@@ -454,10 +459,10 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   return <section className={`chat-page chat-width-${chatWidth}`} aria-busy={isLoading}>
     <header className="page-header chat-header">
       <div className="chat-title"><h2>{title}</h2><button className="subtle-icon-button" title="Rename session" disabled={isLoading} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button><span className={`status-dot ${statusIsError ? "error" : ""}`}><i className={statusIsError ? "error" : active || isLoading ? "working" : ""} /><span>{status}</span></span></div>
-      <div className="chat-header-actions"><span className="chat-context-usage" aria-label={sessionContextPercent == null ? "Context usage unavailable" : `Context usage ${sessionContextPercent.toFixed(1)}%`}>{sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.stats?.totalMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
+      <div className="chat-header-actions"><span className="chat-context-usage" aria-label={sessionContextPercent == null ? "Context usage unavailable" : `Context usage ${sessionContextPercent.toFixed(1)}%`}>{sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.totalDisplayMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
     </header>
-    <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : visibleMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => updateConversationPosition(event.currentTarget)}>
-      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : visibleMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>#{stickyUserMessageNumber}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{visibleStartIndex > 0 && <div className="conversation-history-page"><button type="button" onClick={showEarlierMessages}>Show earlier messages</button><span>{number(visibleStartIndex)} earlier messages</span></div>}<TurnMessages messages={visibleMessages} messageNumberOffset={visibleStartIndex} active={active} targetMessageNumber={targetMessageNumber} hideReasoning={hideReasoning} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber) => void navigator.clipboard.writeText(internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
+    <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : allMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => updateConversationPosition(event.currentTarget)}>
+      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : allMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>#{stickyUserMessageNumber}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{snapshot?.hasEarlierMessages && <div className="conversation-history-page"><button type="button" disabled={loadingEarlierMessages} onClick={showEarlierMessages}>{loadingEarlierMessages ? "Loading earlier messages" : "Show earlier messages"}</button><span>{number(messageNumberOffset)} earlier messages</span></div>}<TurnMessages messages={allMessages} messageNumberOffset={messageNumberOffset} active={active} targetMessageNumber={targetMessageNumber} hideReasoning={hideReasoning} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber) => void navigator.clipboard.writeText(internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
     </div>
     {!isLoading && <form className="composer" onSubmit={(event) => void submit(event)}>
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}

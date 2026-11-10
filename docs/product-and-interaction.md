@@ -75,9 +75,11 @@ Session 标题优先使用用户设置的名称，其次使用首条 user messag
 
 ### 加载状态
 
-WebSocket 建立后，页面继续显示 Loading conversation。首个完整 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
+首次打开 Session 且浏览器没有内存 cache 时，WebSocket 建立后页面继续显示 Loading conversation。首个 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
 
-首个 snapshot 是 Session 加载完成的判定依据。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。长 Session 默认显示最近约 100 条 messages；顶部 Show earlier messages 每次增加一页 earlier messages，直至显示完整活动 branch。
+浏览器在内存中保存最近五个 Session 的 snapshot。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。该 cache 不写入 localStorage，浏览器刷新后重新加载。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
+
+Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完整 projection 的全局 offset 和总数。顶部 Show earlier messages 每次请求 Server 将当前 client 的 display window 向前扩展一页，直至显示完整活动 branch。
 
 ### 空 Session 与运行状态
 
@@ -130,7 +132,7 @@ Session 正在运行时，新 message 默认进入 Follow-up queue。Web 在提�
 含普通 text 或 image 的已完成 assistant item 在内容末尾默认提供以下操作；只包含 reasoning 和 toolCall 的 message 不显示操作行。Info 展开的信息栏显示 model、context 使用百分比、`I/input token`、`O/output token`、source message number 和内部链接：
 
 - Copy Markdown：复制 assistant response 的文字 Markdown。
-- Fork session：从该 response 对应的 session entry 创建新分支，并要求输入新 Session 名称。
+- Fork session：从该 response 对应的 session entry 创建新分支，并要求输入新 Session 名称。AI working 时，已经完成并持久化的旧 assistant response 仍可 Fork；原 Session 继续运行。
 - Info：展开或折叠该 source message 的信息栏。
 
 ### Rollback 与 Restore

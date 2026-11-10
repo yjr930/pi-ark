@@ -169,13 +169,16 @@ app.delete<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspa
   return reply.code(204).send();
 });
 
-app.get<{ Params: { workspaceId: string; sessionId: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
+app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
   const workspace = workspaces.get(request.params.workspaceId);
-  const connection = agents.connect(workspace, request.params.sessionId, socket);
+  const targetMessageNumber = Number(request.query.message);
+  const requestedStart = Number(request.query.start);
+  const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessageNumber: Number.isInteger(targetMessageNumber) && targetMessageNumber > 0 ? targetMessageNumber : undefined, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
   const onMessage = async (raw: Buffer) => {
     try {
       const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; attachments?: Array<{ name: string; mimeType: string; data: string }> };
       if (message.type === "prompt" && (message.text?.trim() || message.attachments?.length)) await agents.prompt(workspace, request.params.sessionId, message.text || "", message.attachments || []);
+      else if (message.type === "load-earlier") agents.loadEarlier(workspace, request.params.sessionId, socket);
       else if (message.type === "abort") await agents.abort(workspace, request.params.sessionId);
       else if (message.type === "rename-session" && message.name?.trim()) await agents.updateSession(workspace, request.params.sessionId, { name: message.name });
       else if (message.type === "set-model" && message.provider && message.model) await agents.setModel(workspace, request.params.sessionId, message.provider, message.model);

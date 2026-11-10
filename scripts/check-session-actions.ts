@@ -36,8 +36,14 @@ try {
   const agents = new AgentService(settings);
   const forked = await agents.fork(workspace, manager.getSessionId(), firstAssistant);
   assert.notEqual(forked.id, manager.getSessionId());
-  const service = agents as unknown as { rollbackEntryId(handle: unknown): string | undefined; rollbackState(handle: unknown): { id: string; targetId: string; restoreEntryId: string; draft: string } | undefined; onEvent(handle: unknown, event: unknown): void; handles: Map<string, { clients: Set<{ readyState: number; OPEN: number; send(payload: string): void }>; queue: Array<{ id: string; mode: "steering" | "followUp"; text: string; images: [] }>; session: { sessionManager: SessionManager; getSteeringMessages(): readonly string[]; getFollowUpMessages(): readonly string[] } }> };
+  const service = agents as unknown as { rollbackEntryId(handle: unknown): string | undefined; rollbackState(handle: unknown): { id: string; targetId: string; restoreEntryId: string; draft: string } | undefined; onEvent(handle: unknown, event: unknown): void; handles: Map<string, { clients: Map<{ readyState: number; OPEN: number; send(payload: string): void }, { start: number }>; queue: Array<{ id: string; mode: "steering" | "followUp"; text: string; images: [] }>; session: { sessionManager: SessionManager; getSteeringMessages(): readonly string[]; getFollowUpMessages(): readonly string[] } }> };
   const handle = service.handles.get(`${workspace.id}:${manager.getSessionId()}`)!;
+  const activeForkLeaf = handle.session.sessionManager.getLeafId();
+  Object.defineProperty(handle.session, "isIdle", { value: false, configurable: true });
+  const activeForked = await agents.fork(workspace, manager.getSessionId(), firstAssistant);
+  assert.notEqual(activeForked.id, manager.getSessionId());
+  assert.equal(handle.session.sessionManager.getLeafId(), activeForkLeaf);
+  delete (handle.session as unknown as { isIdle?: boolean }).isIdle;
   assert.equal(service.rollbackEntryId(handle), secondAssistant);
   await assert.rejects(() => agents.rollbackLatest(workspace, manager.getSessionId(), firstAssistant), /Only the latest conversation message/);
   const preRollbackLeafId = handle.session.sessionManager.getLeafId();
@@ -96,10 +102,33 @@ try {
   assert.equal(interruptedRollback.targetId, interruptedResult);
   await agents.restoreRollback(workspace, interruptedManager.getSessionId());
 
+  const pagedSession = await agents.create(workspace);
+  const pagedHandle = service.handles.get(`${workspace.id}:${pagedSession.id}`)!;
+  for (let turn = 1; turn <= 61; turn += 1) {
+    pagedHandle.session.sessionManager.appendMessage({ role: "user", content: `Question ${turn}`, timestamp: 7000 + turn * 2 });
+    pagedHandle.session.sessionManager.appendMessage({ role: "assistant", content: [{ type: "text", text: `Answer ${turn}` }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 7001 + turn * 2 });
+  }
+  const pagedPayloads: string[] = [];
+  const pagedSocket = { readyState: 1, OPEN: 1, send: (payload: string) => pagedPayloads.push(payload) };
+  const disconnectPaged = await agents.connect(workspace, pagedSession.id, pagedSocket as never);
+  const initialPage = JSON.parse(pagedPayloads.at(-1)!).session;
+  assert.equal(initialPage.messageNumberOffset, 22);
+  assert.equal(initialPage.totalDisplayMessages, 122);
+  assert.equal(initialPage.hasEarlierMessages, true);
+  assert.equal(initialPage.messages.length, 100);
+  assert.equal(initialPage.messages[0].content, "Question 12");
+  agents.loadEarlier(workspace, pagedSession.id, pagedSocket as never);
+  const expandedPage = JSON.parse(pagedPayloads.at(-1)!).session;
+  assert.equal(expandedPage.messageNumberOffset, 0);
+  assert.equal(expandedPage.hasEarlierMessages, false);
+  assert.equal(expandedPage.messages.length, 122);
+  disconnectPaged();
+
   const snapshotSession = await agents.create(workspace);
   const snapshotHandle = service.handles.get(`${workspace.id}:${snapshotSession.id}`)!;
   const sent: string[] = [];
-  snapshotHandle.clients.add({ readyState: 1, OPEN: 1, send: (payload) => sent.push(payload) });
+  const snapshotSocket = { readyState: 1, OPEN: 1, send: (payload: string) => sent.push(payload) };
+  snapshotHandle.clients.set(snapshotSocket, { start: 0 });
   const delayedMessage = { role: "user" as const, content: "Visible in the scheduled snapshot", timestamp: 7000 };
   service.onEvent(snapshotHandle, { type: "message_end", message: delayedMessage });
   snapshotHandle.session.sessionManager.appendMessage(delayedMessage);

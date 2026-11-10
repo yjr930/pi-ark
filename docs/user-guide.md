@@ -227,7 +227,9 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-number>
 
 ### 等待 Session 加载
 
-打开 Session 后，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。长会话默认显示最近约 100 条 messages；点击顶部 Show earlier messages 可以逐页显示 earlier messages，直至看到完整活动 branch。
+首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器在内存中保存最近五个 Session 的 snapshot；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。浏览器刷新会清空该内存 cache。
+
+长会话的初始 Server snapshot 默认只包含最新约 100 条 messages。点击顶部 Show earlier messages 会向 Server 请求 earlier messages，并逐页扩展当前 display window，直至看到完整活动 branch。
 
 ### 发送 message
 
@@ -284,7 +286,7 @@ Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follo
 
 ### Fork
 
-含普通 text 或 image 的已完成 assistant item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；只包含 reasoning 和 toolCall 的 message 不显示操作行。Info 信息栏显示 model、Context 百分比、`I/input token`、`O/output token`、source message number 和内部链接。Fork session 从该 text 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
+含普通 text 或 image 的已完成 assistant item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；只包含 reasoning 和 toolCall 的 message 不显示操作行。Info 信息栏显示 model、Context 百分比、`I/input token`、`O/output token`、source message number 和内部链接。Fork session 从该 text 对应的 session entry 创建分支。AI working 时也可以从已经完成的旧 assistant message 执行 Fork；当前正在流式生成且尚未持久化的 output 不显示 Fork action。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支并继续原来的 Agent run。
 
 ### Rollback 与 Restore
 

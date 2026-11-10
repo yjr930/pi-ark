@@ -107,6 +107,12 @@ try {
   const historyPageButton = page.getByRole("button", { name: "Show earlier messages" });
   await historyPageButton.waitFor();
   assert.equal(await page.getByText("Old history question 1", { exact: true }).count(), 0);
+  const earlierPermalinkUrl = new URL(page.url());
+  earlierPermalinkUrl.searchParams.set("message", "1");
+  const earlierPermalinkPage = await page.context().newPage();
+  await earlierPermalinkPage.goto(earlierPermalinkUrl.toString());
+  await earlierPermalinkPage.locator('.feed-source-message.permalink-target[data-message-number="1"]').filter({ hasText: "Old history question 1" }).waitFor();
+  await earlierPermalinkPage.close();
   const compactMessage = page.locator('.feed-source-message[data-message-role="compactionSummary"]');
   await compactMessage.waitFor();
   const compactDetails = compactMessage.locator(".feed-tool-details");
@@ -124,6 +130,31 @@ try {
   await fixtureSessionRow.waitFor();
   await fixtureSessionRow.locator(".session-open").click();
   await page.locator(".composer").waitFor();
+
+  let delayedSessionConnections = 0;
+  await page.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
+    const delayInitialSnapshot = delayedSessionConnections < 2;
+    delayedSessionConnections += 1;
+    let initialSnapshot = true;
+    const server = webSocket.connectToServer();
+    webSocket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      let isSnapshot = false;
+      try { isSnapshot = JSON.parse(String(message)).type === "snapshot"; } catch { /* forward non-JSON messages */ }
+      if (delayInitialSnapshot && initialSnapshot && isSnapshot) { initialSnapshot = false; setTimeout(() => webSocket.send(message), 1200); }
+      else webSocket.send(message);
+    });
+  });
+  await compactedSessionRow.locator(".session-open").click();
+  await page.getByText("Answer after compact", { exact: true }).waitFor({ timeout: 500 });
+  await page.locator(".status-dot").filter({ hasText: "Refreshing conversation" }).waitFor({ timeout: 500 });
+  assert.equal(await page.locator(".session-loading").count(), 0);
+  await page.locator(".status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
+  await fixtureSessionRow.locator(".session-open").click();
+  await page.getByText("Final browser answer", { exact: true }).waitFor({ timeout: 500 });
+  await page.locator(".status-dot").filter({ hasText: "Refreshing conversation" }).waitFor({ timeout: 500 });
+  assert.equal(await page.locator(".session-loading").count(), 0);
+  await page.locator(".status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
 
   assert.equal(await page.locator(".sidebar-resizer > button").count(), 1);
   assert.equal(await page.locator(".sidebar-footer, .collapsed-workspace-entry").count(), 0);

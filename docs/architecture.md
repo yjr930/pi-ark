@@ -85,6 +85,7 @@ docs/               产品、架构、使用和集成文档
 |---|---|---|
 | Application shell | `apps/web/src/App.tsx` | Auth 状态、Workspace/Session 选择、页面导航、URL 和响应式侧栏 |
 | Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、message renderer、composer、queue、fork 和 rollback |
+| Session snapshot cache | `apps/web/src/session-cache.ts` | 最近五个 Session 的浏览器内存 LRU snapshot cache |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
 | Workspace list | `apps/web/src/components/WorkspaceList.tsx` | 选择、重命名和关闭 Workspace |
 | Session list | `apps/web/src/components/SessionList.tsx` | Session actions、groups 和 Archived 区域 |
@@ -136,12 +137,13 @@ Directory suggestions 只返回服务账号可以读取的目录和直接子目�
 AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含以下状态：
 
 - `AgentSession`
-- 已连接的 WebSocket clients
+- 已连接的 WebSocket clients，以及每个 client 已加载的 display window 起点
 - pi event unsubscribe function
 - Pi-Ark queue metadata
 - queue rebuild 状态
+- 当前活动 branch 的 display projection cache
 
-多个浏览器连接共享同一个 Session runtime。浏览器断开不会中止 Agent；重新连接会收到当前 snapshot。
+多个浏览器连接共享同一个 Session runtime。浏览器断开不会中止 Agent；重新连接会收到当前 snapshot。Session message/tree 变化时，AgentService 清除 display projection cache；后续 snapshot 重新构建 projection。
 
 ### Session 创建与恢复
 
@@ -160,12 +162,13 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 
 ### Snapshot
 
-连接成功后，Server 立即发送 snapshot。Snapshot message 来源是 `buildSessionProjection()`；每条 message 附加 source entry ID，assistant message 还附加 model context window。
+连接成功后，Server 立即发送 snapshot。Snapshot message 来源是当前活动 branch 的 display projection；每条 message 附加 source entry ID，assistant message 还附加 model context window。普通连接从最新约 100 条 messages 所在的 turn boundary 开始发送。带 `message` query 的 permalink 连接从包含目标 message 的页面开始发送；带 `start` query 的缓存恢复连接从浏览器已经加载的全局 offset 开始发送。
 
 Snapshot 包含以下状态：
 
 - Session ID 和名称。
-- Projection messages。
+- 当前 client display window 的 messages。
+- `messageNumberOffset`、`totalDisplayMessages` 和 `hasEarlierMessages`。
 - Streaming 和 idle 状态。
 - 当前 model 和 thinking level。
 - 可用 thinking levels。
@@ -173,11 +176,11 @@ Snapshot 包含以下状态：
 - Rollback 和 restore 状态。
 - Session statistics。
 
-Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。
+首次打开且浏览器没有内存 cache 时，Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。切回最近查看的 Session 时，Web 先显示最多五个 Session 的内存 LRU cache，再连接 Server，并以权威 snapshot 更新 cache。Session 删除后，Web 清除对应 cache entry。该 cache 不写入 localStorage，浏览器刷新后重新从 Server 加载。
 
 ### Streaming events
 
-AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled 和 queue update 后的完整 snapshot。该时序使 snapshot 包含刚完成持久化的 message。Snapshot display projection 遍历 SessionManager 当前活动 branch 的全部 entries；Agent runtime 继续使用 pi 的 compaction-aware Session projection 生成后续模型上下文。
+AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled 和 queue update 后的权威 snapshot。该时序使 snapshot 包含刚完成持久化的 message。Server 为每个 client 保留 display window 起点，并只发送该起点到最新 message 的 projection slice；Agent runtime 继续使用 pi 的 compaction-aware Session projection 生成后续模型上下文。
 
 ### Prompt 与 attachments
 
@@ -203,7 +206,7 @@ Runtime 启动时，Pi-Ark 从 pi 的 steering/follow-up queues 建立带随机 
 
 ### Fork
 
-Fork 使用单独打开的 SessionManager，并调用 `createBranchedSession(entryId)`。该操作不会移动当前 Session 的活动 leaf。新 Session 建立后，浏览器设置名称并切换到新分支。
+Fork 使用单独打开的 SessionManager，并调用 `createBranchedSession(entryId)`。Target 必须是当前 active branch 上已经持久化的 assistant entry。Fork 不要求当前 AgentSession idle，因此 AI working 时可以从更早的已完成 assistant output 创建分支；尚未持久化的流式 output 没有 source entry ID，也不会提供 Fork action。该操作不会移动当前 Session 的活动 leaf，也不会中止原 Session 的 Agent run。新 Session 建立后，浏览器设置名称并切换到新分支。
 
 ### Rollback 与 Restore
 
@@ -225,9 +228,9 @@ Server shutdown 会依次清空所有 queue、中止 active Agent、释放 runti
 
 ## Conversation projection
 
-Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 entry path，并通过 `sessionEntryToContextMessages()` 转换可显示 entry。该 display projection 保留 compact 前的原始 user、assistant 和 tool messages，并将每个 compaction entry 转换为一条 `compactionSummary` message。System message 与 `display: false` 的 custom message 不进入 Web snapshot。pi JSONL 和 Agent runtime 的 compaction-aware context 保持原样。
+Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 entry path，并通过 `sessionEntryToContextMessages()` 转换可显示 entry。该 display projection 保留 compact 前的原始 user、assistant 和 tool messages，并将每个 compaction entry 转换为一条 `compactionSummary` message。System message 与 `display: false` 的 custom message 不进入 Web snapshot。AgentHandle 缓存该 display projection，Session message/tree 变化时清除 cache。pi JSONL 和 Agent runtime 的 compaction-aware context 保持原样。
 
-Web 默认显示最近约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。点击 Show earlier messages 后，Web 再增加一页 earlier messages；message number 始终按完整 display projection 计算，因此分页前后的 permalink 保持一致。
+Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。Snapshot 使用 `messageNumberOffset` 保存当前 slice 之前的 message 数量，并使用 `totalDisplayMessages` 保存完整 projection 数量。点击 Show earlier messages 后，Web 发送 `load-earlier`；Server 将该 client 的 window 起点向前移动一页，并发送扩展后的权威 snapshot。message number 始终按 `messageNumberOffset + slice index` 计算，因此分页前后的 permalink、Fork 和 Rollback identity 保持一致。
 
 `buildConversationSegments()` 只以 user message 划分 turn；compaction summary、branch summary、assistant message 与 tool result 都保留在当前 AI response 中。每轮 response 的第一个 segment 带 `aiStart` 标记，Web 只在该位置显示一次 AI 头像和 `AI` 标签。分页内容从 response 中间开始时，当前页面中的 response 前缀共同使用一次 `aiStart`。User source message 保留独立的用户头像、`User` 标签、message number 与操作按钮。角色 header 与后续 feed 内容使用独立布局，因此头像不会缩进后续内容。含普通 text 或 image 的 assistant source message 在末尾渲染操作行：完成态显示 Copy Markdown、Fork session 和 Info，流式状态显示 Info；只包含 reasoning 和 toolCall 的 source message 不渲染操作行。Info 控制 source information 与 metrics 的显示。
 
@@ -426,9 +429,15 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 
 Path：`/ws/agent/:workspaceId/:sessionId`
 
+可选 query：
+
+- `message`：打开包含指定全局 message number 的 display window。
+- `start`：从指定的全局 message offset 恢复已经加载的 display window。
+
 Browser commands：
 
 - `prompt`
+- `load-earlier`
 - `abort`
 - `rename-session`
 - `set-model`
@@ -436,7 +445,7 @@ Browser commands：
 
 Server messages：
 
-- `snapshot`
+- `snapshot`，其中包含 `messageNumberOffset`、`totalDisplayMessages` 和 `hasEarlierMessages`
 - `agent-event`
 - `notice`
 - `error`
@@ -502,4 +511,4 @@ npm run check:ui
 npm run release:build
 ```
 
-Behavior scripts 覆盖 conversation segmentation、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、loading snapshot、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。
+Behavior scripts 覆盖 conversation segmentation、Session snapshot LRU、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

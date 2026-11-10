@@ -72,7 +72,7 @@ Pin、Archive 和 Session group 属于 Pi-Ark UI metadata，因此保存在独�
 
 ## Event 与 snapshot 选择
 
-WebSocket 连接后先发送完整 snapshot。Snapshot 的 display messages 来自当前活动 branch 的完整 entry path，因此包含 compact 前的原始 messages 和每个 compaction summary。运行期间，Server 转发 pi SDK event，使浏览器及时显示 user message、streaming content 和 tool status；在关键 lifecycle event 后，Server 重新发送完整 snapshot。Agent runtime 仍由 SessionManager 的 compaction-aware projection 构建模型上下文。
+WebSocket 连接后先发送权威 snapshot。Server 从当前活动 branch 的完整 entry path 构建并缓存 display projection，因此该 projection 包含 compact 前的原始 messages 和每个 compaction summary；普通初始 snapshot 只传输最新约 100 条 messages 所在的 display window，并携带全局 offset、完整数量和 earlier 状态。浏览器通过 `load-earlier` 扩展当前 client 的 window。运行期间，Server 转发 pi SDK event，使浏览器及时显示 user message、streaming content 和 tool status；在关键 lifecycle event 后，Server 清除已变化的 display projection cache，并为每个 client 发送其当前 window 的权威 snapshot。Agent runtime 仍由 SessionManager 的 compaction-aware projection 构建模型上下文。
 
 pi 的 public `message_end` listener 在 SessionManager 持久化 completed message 之前执行。Pi-Ark 在 listener 返回后的下一次 task 中生成 snapshot，使 event 已经显示的 message 继续存在于权威 projection 中。完整 Agent run 从 agent start 开始，并在 agent settled 时结束；单条 message end 表示其中一条 message 已完成。
 
@@ -84,7 +84,7 @@ pi 的 public `message_end` listener 在 SessionManager 持久化 completed mess
 - 浏览器断线不会停止 Agent runtime。
 - 多个浏览器连接可以共享同一个 runtime。
 
-Web 以首个 snapshot 判定 Session 加载完成。Socket open 只说明 transport 已经建立。
+首次打开且没有浏览器内存 cache 时，Web 以首个 snapshot 判定 Session 加载完成。切回最近五个 Session 时，Web 先显示内存 LRU snapshot，再在后台以 Server snapshot 更新。Socket open 只说明 transport 已经建立。
 
 ## Queue 处理
 

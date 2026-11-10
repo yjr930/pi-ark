@@ -18,10 +18,11 @@ interface QueueItem { id: string; mode: QueueItemMode; text: string; images: Arr
 interface RollbackMarkerData { targetId: string; restoreEntryId: string; draft: string }
 interface AgentHandle {
   session: AgentSession;
-  clients: Set<WebSocket>;
+  clients: Map<WebSocket, { start: number }>;
   unsubscribe: () => void;
   queue: QueueItem[];
   rebuildingQueue: boolean;
+  displayMessages?: ReturnType<typeof buildSessionDisplayMessages>;
 }
 
 function send(socket: WebSocket, payload: unknown): void {
@@ -61,6 +62,19 @@ export function buildSessionDisplayMessages(manager: SessionManager, getContextW
     entryId: entry.id,
     ...(message.role === "assistant" ? { contextWindow: getContextWindow(message.provider, message.model) } : {}),
   })));
+}
+
+const DISPLAY_PAGE_SIZE = 100;
+
+function isDisplayPageBoundary(message: ReturnType<typeof buildSessionDisplayMessages>[number]): boolean {
+  return message.role === "user" || message.role === "compactionSummary" || message.role === "branchSummary";
+}
+
+function previousDisplayPageStart(messages: ReturnType<typeof buildSessionDisplayMessages>, currentStart = messages.length): number {
+  const boundedStart = Math.max(0, Math.min(currentStart, messages.length));
+  let nextStart = Math.max(0, boundedStart - DISPLAY_PAGE_SIZE);
+  while (nextStart > 0 && !isDisplayPageBoundary(messages[nextStart])) nextStart -= 1;
+  return nextStart;
 }
 
 export class AgentService {
@@ -118,7 +132,6 @@ export class AgentService {
 
   async fork(workspace: WorkspaceDefinition, sessionId: string, entryId: string): Promise<{ id: string }> {
     const handle = await this.getOrOpen(workspace, sessionId);
-    if (!handle.session.isIdle) throw Object.assign(new Error("Wait for the session to finish before forking"), { statusCode: 409 });
     const entry = handle.session.sessionManager.getEntry(entryId);
     if (entry?.type !== "message" || entry.message.role !== "assistant") throw Object.assign(new Error("Fork target must be an assistant output"), { statusCode: 400 });
     if (!handle.session.sessionManager.getBranch().some((item) => item.id === entryId)) throw Object.assign(new Error("Fork target is not on the active conversation"), { statusCode: 409 });
@@ -153,6 +166,7 @@ export class AgentService {
     } else manager.resetLeaf();
     manager.appendCustomEntry("pi-ark.rollback", { targetId: latestAssistantId, restoreEntryId, draft: userMessageText(latestUserEntry.message) } satisfies RollbackMarkerData);
     handle.session.refreshContext();
+    handle.displayMessages = undefined;
     const rollback = this.rollbackState(handle)!;
     this.sendSnapshot(handle);
     return rollback;
@@ -167,6 +181,7 @@ export class AgentService {
     if (result.cancelled) throw Object.assign(new Error("Restore was cancelled"), { statusCode: 409 });
     handle.session.sessionManager.appendCustomEntry("pi-ark.rollback-restored", { rollbackId: rollback.id });
     handle.session.refreshContext();
+    handle.displayMessages = undefined;
     this.sendSnapshot(handle);
   }
 
@@ -229,7 +244,7 @@ export class AgentService {
       if (!handle.session.isIdle) await handle.session.abort();
       handle.unsubscribe();
       handle.session.dispose();
-      for (const client of handle.clients) client.close(1000, "Session deleted");
+      for (const client of handle.clients.keys()) client.close(1000, "Session deleted");
       this.handles.delete(key);
     }
     await unlink(info.path);
@@ -244,11 +259,24 @@ export class AgentService {
     return { id: handle.session.sessionId };
   }
 
-  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket): Promise<() => void> {
+  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessageNumber?: number; start?: number } = {}): Promise<() => void> {
     const handle = await this.getOrOpen(workspace, sessionId);
-    handle.clients.add(socket);
-    this.sendSnapshot(handle, socket);
+    const messages = this.snapshotMessages(handle);
+    const defaultStart = previousDisplayPageStart(messages);
+    const targetStart = options.targetMessageNumber && options.targetMessageNumber <= messages.length ? previousDisplayPageStart(messages, options.targetMessageNumber) : defaultStart;
+    const requestedStart = Number.isInteger(options.start) ? Math.max(0, Math.min(options.start!, messages.length)) : undefined;
+    handle.clients.set(socket, { start: requestedStart ?? Math.min(defaultStart, targetStart) });
+    this.sendSnapshot(handle, socket, messages);
     return () => handle.clients.delete(socket);
+  }
+
+  loadEarlier(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket): void {
+    const handle = this.handles.get(this.key(workspace, sessionId));
+    const client = handle?.clients.get(socket);
+    if (!handle || !client) throw Object.assign(new Error("Agent connection is unavailable"), { statusCode: 409 });
+    const messages = this.snapshotMessages(handle);
+    client.start = previousDisplayPageStart(messages, client.start);
+    this.sendSnapshot(handle, socket, messages);
   }
 
   async prompt(workspace: WorkspaceDefinition, sessionId: string, text: string, attachments: IncomingAttachment[] = []): Promise<void> {
@@ -312,7 +340,7 @@ export class AgentService {
     const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, tools: workspaceSettings.agent.tools, resourceLoader, model: hasExistingSession ? undefined : modelConfiguration.model, scopedModels: modelConfiguration.scopedModels });
     const handle: AgentHandle = {
       session,
-      clients: new Set(),
+      clients: new Map(),
       unsubscribe: () => undefined,
       queue: [...session.getSteeringMessages().map((text) => ({ id: randomUUID(), mode: "steering" as const, text, images: [] })), ...session.getFollowUpMessages().map((text) => ({ id: randomUUID(), mode: "followUp" as const, text, images: [] }))],
       rebuildingQueue: false,
@@ -324,6 +352,7 @@ export class AgentService {
   }
 
   private onEvent(handle: AgentHandle, event: AgentSessionEvent): void {
+    handle.displayMessages = undefined;
     if (event.type === "queue_update") {
       if (handle.rebuildingQueue) return;
       this.syncQueue(handle, event.steering, event.followUp);
@@ -379,16 +408,22 @@ export class AgentService {
   }
 
   private snapshotMessages(handle: AgentHandle) {
-    return buildSessionDisplayMessages(handle.session.sessionManager, (provider, model) => this.settings.getModelContextWindow(provider, model));
+    handle.displayMessages ||= buildSessionDisplayMessages(handle.session.sessionManager, (provider, model) => this.settings.getModelContextWindow(provider, model));
+    return handle.displayMessages;
   }
 
-  private sendSnapshot(handle: AgentHandle, oneClient?: WebSocket): void {
-    const payload = {
+  private snapshotPayload(handle: AgentHandle, messages: ReturnType<typeof buildSessionDisplayMessages>, requestedStart: number) {
+    let start = Math.max(0, requestedStart);
+    if (start >= messages.length && messages.length > 0) start = previousDisplayPageStart(messages);
+    return {
       type: "snapshot",
       session: {
         id: handle.session.sessionId,
         name: handle.session.sessionName,
-        messages: this.snapshotMessages(handle),
+        messages: messages.slice(start),
+        messageNumberOffset: start,
+        totalDisplayMessages: messages.length,
+        hasEarlierMessages: start > 0,
         isStreaming: handle.session.isStreaming,
         isIdle: handle.session.isIdle,
         model: handle.session.model ? { provider: handle.session.model.provider, id: handle.session.model.id } : null,
@@ -400,12 +435,20 @@ export class AgentService {
         stats: handle.session.getSessionStats(),
       },
     };
-    if (oneClient) send(oneClient, payload);
-    else this.broadcast(handle, payload);
+  }
+
+  private sendSnapshot(handle: AgentHandle, oneClient?: WebSocket, projectedMessages?: ReturnType<typeof buildSessionDisplayMessages>): void {
+    const messages = projectedMessages || this.snapshotMessages(handle);
+    if (oneClient) {
+      const client = handle.clients.get(oneClient);
+      if (client) send(oneClient, this.snapshotPayload(handle, messages, client.start));
+      return;
+    }
+    for (const [client, state] of handle.clients) send(client, this.snapshotPayload(handle, messages, state.start));
   }
 
   private broadcast(handle: AgentHandle, payload: unknown): void {
-    for (const client of handle.clients) send(client, payload);
+    for (const client of handle.clients.keys()) send(client, payload);
   }
 
   async dispose(): Promise<void> {

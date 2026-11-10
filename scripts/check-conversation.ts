@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildConversationSegments, previousConversationPageStart } from "../apps/web/src/conversation.ts";
+import { buildConversationSegments } from "../apps/web/src/conversation.ts";
 import type { AgentMessage } from "../apps/web/src/types.ts";
 
 const messages: AgentMessage[] = [
@@ -64,9 +64,4 @@ assert.equal(pageStartingInsideResponse[0].type === "message" && pageStartingIns
 assert.equal(pageStartingInsideResponse[1].type === "message" && pageStartingInsideResponse[1].aiStart, undefined);
 assert.equal(pageStartingInsideResponse[2].type === "message" && pageStartingInsideResponse[2].aiStart, undefined);
 assert.equal(pageStartingInsideResponse[4].type === "message" && pageStartingInsideResponse[4].aiStart, true);
-const pagedMessages = Array.from({ length: 130 }, (_, index) => [{ role: "user", content: `Question ${index + 1}` }, { role: "assistant", content: [{ type: "text", text: `Answer ${index + 1}` }] }]).flat() as AgentMessage[];
-assert.equal(previousConversationPageStart(pagedMessages), 160);
-assert.equal(previousConversationPageStart(pagedMessages, 160), 60);
-const unevenPage = [...pagedMessages.slice(0, 159), { role: "compactionSummary", summary: "Boundary" }, ...pagedMessages.slice(159)] as AgentMessage[];
-assert.equal(previousConversationPageStart(unevenPage), 161);
 console.log("conversation checks passed");

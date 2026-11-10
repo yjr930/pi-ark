@@ -5,19 +5,6 @@ export type ConversationSegment =
   | { type: "collapsed"; messages: AgentMessage[]; finalMessage: AgentMessage; key: string; toolMessages: number; duration: string; active: boolean; aiStart?: boolean }
   | { type: "warning"; key: string; title: string };
 
-export const CONVERSATION_PAGE_SIZE = 100;
-
-function isConversationBoundary(message: AgentMessage): boolean {
-  return message.role === "user" || message.role === "compactionSummary" || message.role === "branchSummary";
-}
-
-export function previousConversationPageStart(messages: AgentMessage[], currentStart = messages.length, pageSize = CONVERSATION_PAGE_SIZE): number {
-  const boundedStart = Math.max(0, Math.min(currentStart, messages.length));
-  let nextStart = Math.max(0, boundedStart - pageSize);
-  while (nextStart > 0 && !isConversationBoundary(messages[nextStart])) nextStart -= 1;
-  return nextStart;
-}
-
 function blocks(content: AgentMessage["content"]): ContentBlock[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : content || [];
 }

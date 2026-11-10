@@ -58,6 +58,9 @@ export interface AgentSnapshot {
   id: string;
   name?: string;
   messages: AgentMessage[];
+  messageNumberOffset: number;
+  totalDisplayMessages: number;
+  hasEarlierMessages: boolean;
   isStreaming: boolean;
   isIdle: boolean;
   model: { provider: string; id: string } | null;
