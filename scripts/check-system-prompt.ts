@@ -1,66 +1,71 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const directory = await mkdtemp(join(tmpdir(), "pi-ark-system-prompt-"));
-const arkHome = join(directory, "pi-ark-home");
+const arkHome = join(directory, "home");
 const agentDir = join(arkHome, "pi-agent");
 const legacyAgentDir = join(directory, "development-agent");
 const workspace = { id: "prompt-check", name: "Prompt check", path: join(directory, "workspace") };
+const otherWorkspace = { id: "other", name: "Other", path: join(directory, "other") };
 process.env.PI_ARK_HOME = arkHome;
 process.env.PI_ARK_AGENT_DIR = agentDir;
 process.env.PI_CODING_AGENT_DIR = legacyAgentDir;
 
 try {
-  await Promise.all([mkdir(arkHome, { recursive: true }), mkdir(legacyAgentDir, { recursive: true }), mkdir(workspace.path, { recursive: true })]);
+  await Promise.all([mkdir(arkHome, { recursive: true }), mkdir(legacyAgentDir, { recursive: true }), mkdir(join(workspace.path, ".pi"), { recursive: true }), mkdir(otherWorkspace.path)]);
   await writeFile(join(legacyAgentDir, "auth.json"), JSON.stringify({ provider: "development-copy" }));
-  await writeFile(join(legacyAgentDir, "settings.json"), JSON.stringify({ defaultProvider: "check" }));
-  await writeFile(join(arkHome, "config.json"), JSON.stringify({ listen: { host: "127.0.0.1", port: 1 }, tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace], ui: { theme: "ark-dark" } }));
+  await writeFile(join(legacyAgentDir, "settings.json"), JSON.stringify({ defaultProvider: "check", steeringMode: "one-at-a-time" }));
+  await writeFile(join(arkHome, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace, otherWorkspace], ui: { theme: "ark-dark" } }));
+  await writeFile(join(workspace.path, ".pi", "settings.json"), JSON.stringify({ steeringMode: "all" }));
+  await writeFile(join(workspace.path, ".pi", "SYSTEM.md"), "Project replacement");
+  await writeFile(join(workspace.path, ".pi", "APPEND_SYSTEM.md"), "Project append");
 
   const config = await import("../apps/server/src/config.ts");
   const { AgentService } = await import("../apps/server/src/agents.ts");
+  const { createGlobalSettingsManager } = await import("../apps/server/src/settings.ts");
   const { WorkspaceService } = await import("../apps/server/src/workspaces.ts");
   const { PiCoreService } = await import("../apps/server/src/pi-core.ts");
   await config.ensurePiArkAgentState(legacyAgentDir);
   assert.deepEqual(JSON.parse(await readFile(join(agentDir, "auth.json"), "utf8")), { provider: "development-copy" });
-  assert.deepEqual(JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8")), { defaultProvider: "check" });
   const coreInfo = await new PiCoreService().info(false);
   assert.equal(coreInfo.agentDir, agentDir);
   assert.match(coreInfo.corePath, /@earendil-works\/pi-coding-agent$/);
-  assert.match(coreInfo.version, /^\d+\.\d+\.\d+/);
   assert.deepEqual(await config.loadUiSettings(), { theme: "ark-dark", hideReasoning: false });
-  await Promise.all([config.saveGlobalArkSettings({ theme: "graphite", hideReasoning: true }), config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }])]);
-  const queuedGlobal = await config.loadConfig();
-  assert.deepEqual(queuedGlobal.ui, { theme: "graphite", hideReasoning: true });
-  assert.equal(queuedGlobal.workspaces[0].name, "Queued workspace");
-
-  await writeFile(join(agentDir, "SYSTEM.md"), "Global replacement");
-  await writeFile(join(agentDir, "APPEND_SYSTEM.md"), "Global append");
-
-  const defaults = await config.loadWorkspaceSettings(workspace);
-  assert.equal(defaults.version, 5);
+  assert.equal(createGlobalSettingsManager(workspace.path).getSteeringMode(), "one-at-a-time");
+  assert.equal(createGlobalSettingsManager(otherWorkspace.path).getSteeringMode(), "one-at-a-time");
+  await config.ensureWorkspaceState(otherWorkspace);
+  assert.deepEqual(await readdir(join(otherWorkspace.path, ".pi-ark")), ["sessions"]);
+  const defaults = await config.loadGlobalPreferences();
   assert.deepEqual(defaults.agent.systemPrompt, { append: "" });
   assert.deepEqual(defaults.files, { showHiddenFiles: true, maxPreviewSizeMb: 10 });
-
   await Promise.all([
-    config.saveWorkspaceSystemPrompt(workspace, { append: "Workspace append" }),
-    config.saveWorkspacePreferences(workspace, { agent: { tools: ["read"] }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } }),
+    config.saveGlobalArkSettings({ theme: "graphite", hideReasoning: true }),
+    config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }, otherWorkspace]),
+    config.saveGlobalSystemPrompt({ append: "Shared instructions" }),
+    config.saveGlobalPreferences({ agent: { tools: ["read"] }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } }),
   ]);
-  const queuedWorkspace = await config.loadWorkspaceSettings(workspace);
-  assert.deepEqual(queuedWorkspace.agent.systemPrompt, { append: "Workspace append" });
-  assert.deepEqual(queuedWorkspace.agent.tools, ["read"]);
-  assert.deepEqual(queuedWorkspace.files, { showHiddenFiles: false, maxPreviewSizeMb: 20 });
-  await config.saveWorkspaceSystemPrompt(workspace, { append: "" });
-  assert.deepEqual((await config.loadWorkspaceSettings(workspace)).agent.systemPrompt, { append: "" });
-
-  const service = new AgentService({} as never, new WorkspaceService([workspace])) as unknown as { createResourceLoader(workspace: typeof workspace, append: string): Promise<{ getSystemPrompt(): string | undefined; getAppendSystemPrompt(): string[] }> };
-  const loader = await service.createResourceLoader(workspace, "Workspace append");
-  assert.equal(loader.getSystemPrompt(), "Global replacement");
-  assert.deepEqual(loader.getAppendSystemPrompt(), ["Global append", "Workspace append"]);
-  const emptyLoader = await service.createResourceLoader(workspace, "");
-  assert.deepEqual(emptyLoader.getAppendSystemPrompt(), ["Global append"]);
-  console.log("system prompt checks passed");
-} finally {
-  await rm(directory, { recursive: true, force: true });
-}
+  const saved = await config.loadConfig();
+  assert.deepEqual(saved.ui, { theme: "graphite", hideReasoning: true });
+  assert.equal(saved.workspaces[0].name, "Queued workspace");
+  assert.deepEqual(saved.preferences, { agent: { tools: ["read"], systemPrompt: { append: "Shared instructions" } }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } });
+  await assert.rejects(config.saveGlobalSystemPrompt({ append: "x".repeat(100001) }), /100000 characters/);
+  await assert.rejects(config.saveGlobalPreferences({ agent: { tools: [] }, files: defaults.files }), /agent tool/);
+  await writeFile(join(agentDir, "SYSTEM.md"), "Global replacement");
+  await writeFile(join(agentDir, "APPEND_SYSTEM.md"), "Global append");
+  const service = new AgentService({} as never, new WorkspaceService([workspace, otherWorkspace]));
+  const internal = service as unknown as { createResourceLoader(workspace: typeof workspace, append: string): Promise<{ getSystemPrompt(): string | undefined; getAppendSystemPrompt(): string[] }> };
+  for (const target of [workspace, otherWorkspace]) {
+    const loader = await internal.createResourceLoader(target, saved.preferences.agent.systemPrompt.append);
+    assert.equal(loader.getSystemPrompt(), "Global replacement");
+    assert.deepEqual(loader.getAppendSystemPrompt(), ["Global append", "Shared instructions"]);
+    const preview = await service.getGlobalSystemPrompt(target);
+    assert.match(preview.content, /Shared instructions/);
+    assert.equal(preview.content.includes("Project append"), false);
+    assert.equal(preview.content.includes("Project replacement"), false);
+  }
+  await config.saveGlobalSystemPrompt({ append: "" });
+  assert.deepEqual((await config.loadGlobalPreferences()).agent.systemPrompt, { append: "" });
+  console.log("global configuration and system prompt checks passed");
+} finally { await rm(directory, { recursive: true, force: true }); }

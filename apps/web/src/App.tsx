@@ -31,6 +31,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState("");
   const [targetMessageId, setTargetMessageId] = useState(initialPermalink.current.messageId);
   const [page, setPage] = useState<Page>(initialPermalink.current.page);
+  const [settingsVisited, setSettingsVisited] = useState(initialPermalink.current.page === "settings");
   const [sidebar, setSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("pi-ark-sidebar-collapsed") === "true");
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(460, Math.max(220, Number(localStorage.getItem("pi-ark-sidebar-width")) || 280)));
@@ -146,6 +147,7 @@ export default function App() {
   }
 
   function selectPage(nextPage: Page) {
+    if (nextPage === "settings") setSettingsVisited(true);
     setPage(nextPage); setSidebar(false); window.history.replaceState(null, "", appLocation(nextPage, workspaceId, sessionId));
   }
 
@@ -220,8 +222,8 @@ export default function App() {
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "files" && <Files workspace={workspace} />}
         {workspace && page === "terminal" && <Terminal workspace={workspace} />}
-        {page === "settings" && <Settings workspace={workspace} onUiSettingsChanged={(next) => { setUiSettings(next); applyTheme(next.theme); }} />}
       </Suspense>
+      {(settingsVisited || page === "settings") && <div className="settings-page-host" hidden={page !== "settings"}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading settings</div>}><Settings active={page === "settings"} uiSettings={uiSettings} onUiSettingsChanged={(next) => { setUiSettings(next); applyTheme(next.theme); }} /></Suspense></div>}
     </main>
     {addWorkspaceOpen && <AddWorkspaceDialog onClose={() => setAddWorkspaceOpen(false)} onAdded={workspaceAdded} />}
     {sessionLinkOpen && <NameDialog title="Open session link" description="Paste a Pi-Ark internal session or message link." label="Pi-Ark session link" submitLabel="Open session" icon={<Link2 size={18} />} onClose={() => setSessionLinkOpen(false)} onSubmit={openInternalSessionLink} />}

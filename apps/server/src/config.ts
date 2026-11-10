@@ -18,14 +18,13 @@ export interface ArkConfig {
   auth: { username: string; passwordHash: string };
   workspaces: WorkspaceDefinition[];
   ui: ArkUiSettings;
+  preferences: GlobalPreferences;
 }
 
-export const WORKSPACE_TOOLS = ["read", "bash", "edit", "write"] as const;
-export type WorkspaceTool = (typeof WORKSPACE_TOOLS)[number];
-export interface WorkspaceSettings {
-  version: 5;
-  workspaceId: string;
-  agent: { tools: WorkspaceTool[]; systemPrompt: { append: string } };
+export const AGENT_TOOLS = ["read", "bash", "edit", "write"] as const;
+export type AgentToolName = (typeof AGENT_TOOLS)[number];
+export interface GlobalPreferences {
+  agent: { tools: AgentToolName[]; systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
 }
 
@@ -74,11 +73,11 @@ export async function loadConfig(): Promise<ArkConfig> {
     tls: { keyPath: resolveFromHome(parsed.tls.keyPath), certPath: resolveFromHome(parsed.tls.certPath) },
     workspaces: parsed.workspaces.map((workspace) => ({ ...workspace, path: resolve(workspace.path) })),
     ui: { theme: ARK_THEMES.includes(parsed.ui?.theme) ? parsed.ui.theme : "ark-dark", hideReasoning: parsed.ui?.hideReasoning === true },
+    preferences: normalizeGlobalPreferences(parsed.preferences),
   };
 }
 
 let globalConfigWrite: Promise<void> = Promise.resolve();
-const workspaceConfigWrites = new Map<string, Promise<void>>();
 
 async function updateGlobalConfig(update: (current: ArkConfig) => ArkConfig): Promise<ArkConfig> {
   const task = globalConfigWrite.catch(() => undefined).then(async () => {
@@ -90,13 +89,6 @@ async function updateGlobalConfig(update: (current: ArkConfig) => ArkConfig): Pr
     return next;
   });
   globalConfigWrite = task.then(() => undefined, () => undefined);
-  return task;
-}
-
-function queueWorkspaceConfig<T>(workspace: WorkspaceDefinition, operation: () => Promise<T>): Promise<T> {
-  const target = join(workspace.path, ".pi-ark", "config.json");
-  const task = (workspaceConfigWrites.get(target) || Promise.resolve()).catch(() => undefined).then(operation);
-  workspaceConfigWrites.set(target, task.then(() => undefined, () => undefined));
   return task;
 }
 
@@ -115,76 +107,40 @@ export async function saveWorkspaceDefinitions(workspaces: WorkspaceDefinition[]
   await updateGlobalConfig((current) => ({ ...current, workspaces }));
 }
 
-function defaultWorkspaceSettings(workspace: WorkspaceDefinition): WorkspaceSettings {
-  return { version: 5, workspaceId: workspace.id, agent: { tools: [...WORKSPACE_TOOLS], systemPrompt: { append: "" } }, files: { showHiddenFiles: true, maxPreviewSizeMb: 10 } };
+function normalizeGlobalPreferences(input?: Partial<GlobalPreferences>): GlobalPreferences {
+  const tools = input?.agent?.tools?.filter((tool) => AGENT_TOOLS.includes(tool));
+  const size = input?.files?.maxPreviewSizeMb;
+  return { agent: { tools: tools?.length ? [...new Set(tools)] : [...AGENT_TOOLS], systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } }, files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 } };
 }
 
 export async function ensureWorkspaceState(workspace: WorkspaceDefinition): Promise<string> {
-  const stateDir = join(workspace.path, ".pi-ark");
-  const sessionsDir = join(stateDir, "sessions");
+  const sessionsDir = join(workspace.path, ".pi-ark", "sessions");
   await mkdir(sessionsDir, { recursive: true, mode: 0o700 });
-  const workspaceConfig = join(stateDir, "config.json");
-  try {
-    await access(workspaceConfig);
-  } catch {
-    await writeFile(workspaceConfig, JSON.stringify(defaultWorkspaceSettings(workspace), null, 2) + "\n", { mode: 0o600 });
-  }
   return sessionsDir;
 }
 
-export async function loadWorkspaceSettings(workspace: WorkspaceDefinition): Promise<WorkspaceSettings> {
-  await ensureWorkspaceState(workspace);
-  const defaults = defaultWorkspaceSettings(workspace);
-  const parsed = JSON.parse(await readFile(join(workspace.path, ".pi-ark", "config.json"), "utf8")) as Partial<WorkspaceSettings>;
-  const tools = parsed.agent?.tools?.filter((tool): tool is WorkspaceTool => WORKSPACE_TOOLS.includes(tool as WorkspaceTool));
-  const rawPrompt = parsed.agent?.systemPrompt as unknown;
-  const promptAppend = typeof rawPrompt === "object" && rawPrompt !== null && "append" in rawPrompt && typeof rawPrompt.append === "string" ? rawPrompt.append : "";
-  const parsedPreviewSize = Number(parsed.files?.maxPreviewSizeMb);
-  const maxPreviewSizeMb = Number.isInteger(parsedPreviewSize) && parsedPreviewSize >= 1 && parsedPreviewSize <= 100 ? parsedPreviewSize : defaults.files.maxPreviewSizeMb;
-  return {
-    ...defaults,
-    ...parsed,
-    version: 5,
-    workspaceId: workspace.id,
-    agent: { tools: tools?.length ? tools : defaults.agent.tools, systemPrompt: { append: promptAppend } },
-    files: { showHiddenFiles: parsed.files?.showHiddenFiles ?? defaults.files.showHiddenFiles, maxPreviewSizeMb },
-  };
+export async function loadGlobalPreferences(): Promise<GlobalPreferences> {
+  return (await loadConfig()).preferences;
 }
 
-function validatedWorkspaceSettings(workspace: WorkspaceDefinition, input: Pick<WorkspaceSettings, "agent" | "files">): WorkspaceSettings {
-  const tools = input.agent?.tools?.filter((tool): tool is WorkspaceTool => WORKSPACE_TOOLS.includes(tool as WorkspaceTool));
-  if (!tools?.length) throw Object.assign(new Error("Select at least one agent tool"), { statusCode: 400 });
-  const promptAppend = typeof input.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "";
-  if (promptAppend.length > 100000) throw Object.assign(new Error("System prompt append must be 100000 characters or fewer"), { statusCode: 400 });
-  const maxPreviewSizeMb = Number(input.files?.maxPreviewSizeMb);
-  if (!Number.isInteger(maxPreviewSizeMb) || maxPreviewSizeMb < 1 || maxPreviewSizeMb > 100) throw Object.assign(new Error("File preview size must be an integer from 1 to 100 MB"), { statusCode: 400 });
-  return { version: 5, workspaceId: workspace.id, agent: { tools: [...new Set(tools)], systemPrompt: { append: promptAppend } }, files: { showHiddenFiles: Boolean(input.files?.showHiddenFiles), maxPreviewSizeMb } };
-}
-
-async function writeWorkspaceSettings(workspace: WorkspaceDefinition, input: Pick<WorkspaceSettings, "agent" | "files">): Promise<WorkspaceSettings> {
-  const settings = validatedWorkspaceSettings(workspace, input);
-  const target = join(workspace.path, ".pi-ark", "config.json");
-  await ensureWorkspaceState(workspace);
-  const temporary = `${target}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
-  await rename(temporary, target);
-  return settings;
-}
-
-export function saveWorkspaceSystemPrompt(workspace: WorkspaceDefinition, systemPrompt: WorkspaceSettings["agent"]["systemPrompt"]): Promise<WorkspaceSettings> {
-  return queueWorkspaceConfig(workspace, async () => {
-    const current = await loadWorkspaceSettings(workspace);
-    return writeWorkspaceSettings(workspace, { ...current, agent: { ...current.agent, systemPrompt } });
+export async function saveGlobalPreferences(input: { agent: { tools: AgentToolName[] }; files: GlobalPreferences["files"] }): Promise<GlobalPreferences> {
+  const tools = input.agent?.tools;
+  if (!Array.isArray(tools) || !tools.length || tools.some((tool) => !AGENT_TOOLS.includes(tool))) throw Object.assign(new Error("Select at least one valid agent tool"), { statusCode: 400 });
+  const size = input.files?.maxPreviewSizeMb;
+  if (!Number.isInteger(size) || size < 1 || size > 100) throw Object.assign(new Error("File preview size must be an integer from 1 to 100 MB"), { statusCode: 400 });
+  if (typeof input.files?.showHiddenFiles !== "boolean") throw Object.assign(new Error("Invalid hidden file setting"), { statusCode: 400 });
+  const next = await updateGlobalConfig((current) => {
+    const preferences = normalizeGlobalPreferences(current.preferences);
+    return { ...current, preferences: { agent: { ...preferences.agent, tools: [...new Set(tools)] }, files: { ...input.files } } };
   });
+  return next.preferences;
 }
 
-export function saveWorkspacePreferences(workspace: WorkspaceDefinition, input: { agent: { tools: WorkspaceTool[] }; files: WorkspaceSettings["files"] }): Promise<WorkspaceSettings> {
-  return queueWorkspaceConfig(workspace, async () => {
-    const current = await loadWorkspaceSettings(workspace);
-    return writeWorkspaceSettings(workspace, { agent: { ...current.agent, tools: input.agent.tools }, files: input.files });
+export async function saveGlobalSystemPrompt(input: GlobalPreferences["agent"]["systemPrompt"]): Promise<GlobalPreferences> {
+  if (typeof input.append !== "string" || input.append.length > 100000) throw Object.assign(new Error("System prompt append must be 100000 characters or fewer"), { statusCode: 400 });
+  const next = await updateGlobalConfig((current) => {
+    const preferences = normalizeGlobalPreferences(current.preferences);
+    return { ...current, preferences: { ...preferences, agent: { ...preferences.agent, systemPrompt: { append: input.append } } } };
   });
-}
-
-export function saveWorkspaceSettings(workspace: WorkspaceDefinition, input: Pick<WorkspaceSettings, "agent" | "files">): Promise<WorkspaceSettings> {
-  return queueWorkspaceConfig(workspace, () => writeWorkspaceSettings(workspace, input));
+  return next.preferences;
 }

@@ -177,7 +177,7 @@ PI_ARK_NEW_PASSWORD='new-password' pi-ark-dev password --no-restart
 
 ### 切换 Workspace
 
-点击侧栏中的 Workspace。Agent、Files、Terminal 和 Workspace settings 会切换到该目录。
+点击侧栏中的 Workspace。Agent、Files 和 Terminal 会切换到该目录；Settings 使用统一的全局配置。
 
 ### 重命名 Workspace
 
@@ -185,7 +185,7 @@ PI_ARK_NEW_PASSWORD='new-password' pi-ark-dev password --no-restart
 
 ### 关闭与重新打开 Workspace
 
-选择 Close 并确认后，Workspace 从侧栏和 Global registry 中移除。服务器目录、项目文件、`.pi-ark` settings、附件和 Session 保持原状。
+选择 Close 并确认后，Workspace 从侧栏和 Global registry 中移除。服务器目录、项目文件、附件和 Session 保持原状。
 
 再次通过 Add workspace 添加相同目录后，原有 Session 和 settings 会重新出现。
 
@@ -264,13 +264,15 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。没有已保存状态时，Running 默认展开，其中正在执行和已经完成的 tool items 都默认关闭；用户可以手动展开 tool item。AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。切换 Session 后再返回时，页面恢复用户后来手动调整的 Running、Tool、Reasoning、Compact 和 Message Info 状态。
 
-每个 tool call 与 result 合并为一行工具项。工具 logo 位于折叠框内，后面显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。Running、Failed、Result 和 Saved 分别使用不同的 theme color，Completed 使用中性色。Running 与其他状态使用相同的单层 row 结构；Tool permalink 通过 row 内侧的 accent 标识 target。大 Run group 与内部 Tool row 使用不同的 theme surface：Run group 使用 theme tint，Tool row 和 Reasoning 使用更亮、更中性的颜色。Paper theme 中，Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；其他 themes 保持相同的外层与内层层级。连续工具项使用紧凑间距。展开内容与折叠框左边界对齐；第一行显示 Call 与 Result 的短 Message ID，并提供对应的 `pi-ark://` link copy 按钮。Arguments 按字段显示，每个 key 使用 heading 样式，下一行显示 value，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`；Result 显示文字或图片结果。
+每个 tool call 与 result 合并为一行工具项。工具 logo 位于折叠框内，后面显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。Running、Failed、Result 和 Saved 分别使用不同的 theme color，Completed 使用中性色。Running 与其他状态使用相同的单层 row 结构；Tool permalink 通过 row 内侧的 accent 标识 target。大 Run group 与内部 Tool row 使用不同的 theme surface：Run group 使用 theme tint，Tool row 和 Reasoning 使用更亮、更中性的颜色。Paper theme 中，Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；其他 themes 保持相同的外层与内层层级。连续工具项使用紧凑间距。展开内容与折叠框左边界对齐；第一行显示 Call 与 Result 的消息 link 按钮，点击整段文字或图标都可以复制对应的 `pi-ark://` link；tooltip 在页面浮层中显示。页面中的短 Message ID 统一使用斜体。Arguments 按字段显示，每个 key 使用 heading 样式，下一行显示 value，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`；Result 显示文字或图片结果。
 
 Text item 直接显示普通文字、图片和 reasoning。含普通 text 或 image 的已完成 assistant item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；对应的流式 item 显示 Info。只包含 reasoning 和 toolCall 的 message 不显示这些操作。点击 Info 后，信息栏显示 model、context、input/output token、source Message ID 与 `pi-ark://` link；流式输出期间的信息栏只显示当前可用的信息。User header 提供内部链接与 Rollback。
 
 Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过折叠框查看。
 
-Compact 使用与工具相同的单行折叠项。该行显示 compact 前的 token 数量和 Saved 状态；展开后显示 source Message ID、内部链接和 compact summary。compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
+连续且只包含 tool call 的 messages 默认显示最后 3 个调用，点击 `show more tool call` 可显示较早的调用，点击 `show less tool call` 可恢复折叠。一个 message 中的多个调用分别计数。正文、图片或 Reasoning 会中断分组；包含这些内容的 message 按原样显示。Compact 独立展示，它上方与下方的连续调用分别分组。
+
+Compact 的收起高度为普通工具行的 3 倍，并显示压缩耗时、压缩前后的 token 用量，以及 System prompt、Summary 和 Retained 的 token 用量。`≈` 表示 pi SDK 的估算值。展开后可以查看触发原因、生成摘要的 token 用量、source Message ID、内部链接和 compact summary。后续压缩会记录实际耗时；历史字段按已有记录展示。compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
 
 ### Queue
 
@@ -349,9 +351,11 @@ Terminal 使用 Pi-Ark 服务账号的系统权限。运行命令前应确认服
 
 ## Settings
 
-Settings 中的普通选择、开关和完成输入的数值会立即保存。页面底部没有统一 Save 按钮。API key 和 Workspace system prompt append 需要明确确认，因此 Save 与 Cancel 位于对应区域内。
+Settings 对所有 Workspace 使用统一的配置。桌面端从左侧选择类别，移动端从顶部横向导航选择类别。普通选择、开关和完成输入的数值会立即保存。API key 和 Global system prompt append 使用对应区域内的 Save 与 Cancel。
 
-### Global → Appearance
+首次进入 Settings 后，浏览器保留已经加载的设置、所选类别、提示词草稿和各类别的滚动位置。切换页面后返回可以继续操作。Refresh settings 会主动重新读取设置。Effective prompt preview 在展开时读取，Maintenance 的版本信息在进入该类别时读取。离开 Settings 后，页面会清空尚未提交的 API key。
+
+### Interface
 
 选择以下 theme，选择后会立即预览并保存：
 
@@ -365,7 +369,7 @@ Theme 选择会立即预览，保存后对该 Pi-Ark 服务的浏览器生效。
 
 Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示。开启后，conversation 不显示 Reasoning 折叠项和内容；Session history 与模型使用的上下文继续保留原始 reasoning。该开关会立即保存，刷新页面后继续生效。
 
-### Global → Provider and model
+### Models & providers
 
 1. 在 Manage Provider 中选择需要认证或断开的 Provider。模型行右侧的星标继续决定新 Session 的 default。
 2. 通过 API key 或 subscription account 完成认证。
@@ -379,7 +383,7 @@ Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示。开启�
 
 支持 subscription OAuth 的 Provider 会显示 Use subscription account。登录区可能显示授权链接、device code、文本输入、选择项或进度。Device code 可以使用旁边的 Copy 按钮复制。OpenAI 的 Sign in with ChatGPT 会自动使用当前 Pi-Ark 安装实例的 UUID，用户不需要输入该标识。同一个 Provider 重新开始登录时，Pi-Ark 会取消此前仍在等待的登录；页面刷新后可以直接重新开始。
 
-### Global → Installation and maintenance
+### Maintenance
 
 Pi-Ark release 区域显示以下信息：
 
@@ -393,9 +397,11 @@ Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-A
 
 Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开。
 
-### Global → System prompt
+### Agent behavior → System prompt
 
-页面显示可选的 replacement file 和 append file 路径，以及 pi 生成的 complete effective prompt。
+在 Global append content 中编辑共享的说明，并点击 Save system prompt。Cancel 恢复已保存的内容。保存空文本可以清除全局追加内容。该设置在新建或重新打开 Session 时生效。
+
+展开 Preview effective prompt，可以查看 pi 生成的 complete effective prompt，以及可选的 replacement file 和 append file 路径。
 
 默认文件位置：
 
@@ -406,7 +412,7 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 
 在服务器编辑文件后点击 Refresh。Preview 还包含 pi 内置说明、tools、context files、skills 和当前 Workspace path。
 
-### Global → Agent defaults
+### Agent behavior → Agent defaults
 
 - Steering messages：One at a time 或 All queued。
 - Follow-up messages：One at a time 或 All queued。
@@ -415,17 +421,17 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 
 以上选择和开关会立即保存。
 
-### Workspace → System prompt append
-
-该文本在 pi 加载 Global prompt 资源后追加。编辑完成后使用该区域内的 Save system prompt；Cancel 恢复已经保存的内容。保存空文本可以清除 Workspace append。
-
-### Workspace → Agent tools
+### Agent behavior → Agent tools
 
 可以选择 read、bash、edit 和 write。至少需要保留一个 tool。选择后立即保存，并在新建或重新打开 Session 时生效。
 
-### Workspace → File browser
+### Files
 
-Show hidden files 控制普通 dotfile 是否进入 Files 列表，切换后立即保存。Maximum preview size 控制文本、Markdown 和支持图片的预览上限，默认是 10 MB，可设置范围是 1–100 MB；输入完成并离开输入框后保存，超过该值的文件仍可下载。
+Show hidden files 控制所有 Workspace 的普通 dotfile 是否进入 Files 列表，切换后立即保存。Maximum preview size 控制文本、Markdown 和支持图片的预览上限，默认是 10 MB，可设置范围是 1–100 MB；输入完成并离开输入框后保存，超过该值的文件仍可下载。
+
+### Account
+
+点击 Sign out 结束当前浏览器的登录会话。
 
 ## 浏览器布局设置
 
@@ -506,4 +512,4 @@ Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/a
 
 ### System prompt preview 未更新
 
-确认编辑的是页面显示的 `PI_ARK_AGENT_DIR` 文件路径，然后点击 Refresh。已经打开的 agent runtime 需要重新打开，才能使用新的 Workspace append 和 tools。
+确认编辑的是页面显示的 `PI_ARK_AGENT_DIR` 文件路径，然后点击 Refresh。已经打开的 agent runtime 需要重新打开，才能使用新的 Global append 和 tools。

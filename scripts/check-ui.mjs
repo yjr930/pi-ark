@@ -153,7 +153,7 @@ try {
   const compactMessage = page.locator('.feed-source-message[data-message-role="compactionSummary"]');
   await compactMessage.waitFor();
   const compactDetails = compactMessage.locator(".feed-tool-details");
-  assert.match(await compactDetails.locator(":scope > summary").textContent(), /Compact.*120.*tokens before compact.*Saved/);
+  assert.match(await compactDetails.locator(":scope > summary").textContent(), /Compact.*Before 120000.*After.*System prompt.*Summary.*Retained.*Saved/);
   assert.match(await compactDetails.getAttribute("class"), /status-saved/);
   assert.equal(await compactDetails.locator(".feed-tool-status").evaluate((element) => { const probe = document.createElement("span"); probe.style.color = "var(--saved)"; document.body.append(probe); const expected = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(element).color === expected; }), true);
   assert.equal(await compactDetails.getAttribute("open"), null);
@@ -182,10 +182,9 @@ try {
   await compactedSessionRow.getByRole("status", { name: "Session has an error" }).waitFor({ timeout: 3000 });
   assert.equal(await compactedSessionRow.locator(".session-state.error").getAttribute("title"), "Fixture agent error");
 
-  let delayedSessionConnections = 0;
+  const delayedSessionIds = [sessionFixture.getSessionId(), compactedSessionFixture.getSessionId()];
   await page.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
-    const delayInitialSnapshot = delayedSessionConnections < 2;
-    delayedSessionConnections += 1;
+    const delayInitialSnapshot = delayedSessionIds.some((id) => new URL(webSocket.url()).pathname.endsWith(`/${id}`));
     let initialSnapshot = true;
     const server = webSocket.connectToServer();
     webSocket.onMessage((message) => server.send(message));
@@ -722,7 +721,7 @@ try {
   const linkedWorkspace = currentUrl.searchParams.get("workspace");
   const linkedSession = currentUrl.searchParams.get("session");
   await page.evaluate(async (workspaceId) => {
-    const settingsUrl = new URL(`api/workspaces/${encodeURIComponent(workspaceId)}/settings`, document.baseURI);
+    const settingsUrl = new URL("api/settings/preferences", document.baseURI);
     const current = await fetch(settingsUrl).then((response) => response.json());
     const response = await fetch(settingsUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent: current.agent, files: { ...current.files, maxPreviewSizeMb: 1 } }) });
     if (!response.ok) throw new Error(`Cannot configure browser file fixture: ${response.status}`);
@@ -983,7 +982,7 @@ try {
   assert.equal(await finalMessage.getByRole("button", { name: /Copy URL/ }).count(), 0);
   const internalLinkButton = finalMessage.getByRole("button", { name: /Copy internal link/ });
   assert.equal(await internalLinkButton.count(), 1);
-  assert.equal(await internalLinkButton.textContent(), "");
+  assert.equal(await internalLinkButton.textContent(), `AI ${browserFinalMessageId}`);
   await internalLinkButton.click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), `pi-ark://workspace/${encodeURIComponent(linkedWorkspace)}/session/${encodeURIComponent(linkedSession)}/message/${browserFinalMessageId}`);
   const copiedMessageUrl = new URL(page.url());
@@ -1101,9 +1100,11 @@ try {
   await page.getByText("No open workspace", { exact: true }).waitFor();
   await access(workspacePath);
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Account", exact: true }).click();
   await page.locator(".account-section").getByRole("button", { name: "Sign out" }).waitFor();
-  await page.locator(".system-prompt-view pre").waitFor();
-  assert.ok((await page.locator(".system-prompt-view pre").textContent())?.includes("You are a coding assistant running inside pi"));
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Agent behavior", exact: true }).click();
+  await page.getByText("Preview effective prompt", { exact: true }).click();
+  await page.waitForFunction(() => document.querySelector(".system-prompt-view pre")?.textContent.includes("You are a coding assistant running inside pi"));
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
   await page.getByText("No open workspace", { exact: true }).waitFor();
 
@@ -1116,7 +1117,9 @@ try {
   await page.getByText("Workspaces", { exact: true }).waitFor();
   await page.locator(".workspace-list-item").first().waitFor();
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
-  await page.locator(".account-section").getByRole("button", { name: "Sign out" }).waitFor();
+  await page.getByRole("navigation", { name: "Settings categories" }).waitFor();
+  assert.equal(await page.locator(".settings-tabs > button").count(), 6);
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
   const appearanceSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Appearance", exact: true }) });
   const hideReasoningSwitch = appearanceSection.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch");
   assert.equal(await hideReasoningSwitch.getAttribute("aria-checked"), "false");
@@ -1128,6 +1131,7 @@ try {
   const hideReasoningRestore = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
   await hideReasoningSwitch.click();
   assert.equal((await hideReasoningRestore).ok(), true);
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Models & providers", exact: true }).click();
   await page.getByLabel("Provider").click();
   await page.locator(".ark-select.open .ark-select-menu").getByText(/^OpenAI Codex/).click();
   await page.locator(".model-preferences").waitFor();
@@ -1136,6 +1140,7 @@ try {
   const visibleThinkingLevels = await page.locator('.ark-select.open [role="option"] .ark-select-copy strong').allTextContents();
   assert.deepEqual(visibleThinkingLevels, expectedThinkingLevels);
   await page.keyboard.press("Escape");
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Agent behavior", exact: true }).click();
   const agentDefaultsSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Agent defaults", exact: true }) });
   assert.equal(await agentDefaultsSection.getByText("Thinking level", { exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: "Save global settings", exact: true }).count(), 0);
@@ -1148,6 +1153,7 @@ try {
   const retryRestore = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/settings/agent-defaults"));
   await retrySwitch.click();
   assert.equal((await retryRestore).ok(), true);
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Maintenance", exact: true }).click();
   const releaseSection = page.locator(".pi-core-section");
   await releaseSection.getByRole("heading", { name: "Pi-Ark release", exact: true }).waitFor();
   assert.ok((await releaseSection.textContent()).includes("Bundled pi core"));
@@ -1159,29 +1165,29 @@ try {
   await releaseUpdateDialog.waitFor();
   await assertDialogChrome(releaseUpdateDialog);
   await releaseUpdateDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Agent behavior", exact: true }).click();
   const globalPromptSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "System prompt", exact: true }) });
+  if (await globalPromptSection.locator(".settings-prompt-preview").getAttribute("open") === null) await globalPromptSection.getByText("Preview effective prompt", { exact: true }).click();
   await globalPromptSection.locator(".system-prompt-view").waitFor();
-  assert.equal(await globalPromptSection.locator("textarea").count(), 0);
+  assert.equal(await globalPromptSection.locator("textarea").count(), 1);
   assert.equal(await globalPromptSection.getByRole("button", { name: "Edit", exact: true }).count(), 0);
   assert.ok((await globalPromptSection.locator(".prompt-file-guide").textContent()).includes("SYSTEM.md"));
   assert.ok((await globalPromptSection.locator(".prompt-file-guide").textContent()).includes("APPEND_SYSTEM.md"));
-  assert.ok((await globalPromptSection.locator(".prompt-file-guide").textContent()).includes("not the raw content"));
+  assert.ok((await globalPromptSection.locator(".prompt-file-guide").textContent()).includes("shared append content"));
   const globalPromptRefresh = page.waitForResponse((response) => response.url().includes("/api/settings/system-prompt"));
   await globalPromptSection.getByRole("button", { name: "Refresh", exact: true }).click();
   await globalPromptRefresh;
-  await page.locator(".settings-tabs > button").nth(1).click();
-  const workspacePromptSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "System prompt append", exact: true }) });
-  const workspaceAppend = workspacePromptSection.getByLabel("Workspace append content");
-  const initialWorkspaceAppend = await workspaceAppend.inputValue();
-  await workspaceAppend.fill("Cancelled browser addition");
-  await workspacePromptSection.getByRole("button", { name: "Cancel", exact: true }).click();
-  assert.equal(await workspaceAppend.inputValue(), initialWorkspaceAppend);
-  await workspaceAppend.fill("Workspace browser addition");
-  await workspacePromptSection.getByRole("button", { name: "Save system prompt", exact: true }).click();
-  await page.getByText("Workspace system prompt append saved.", { exact: false }).waitFor();
-  await workspaceAppend.fill("");
-  await workspacePromptSection.getByRole("button", { name: "Save system prompt", exact: true }).click();
-  assert.equal(await workspaceAppend.inputValue(), "");
+  const append = globalPromptSection.getByLabel("Global append content");
+  const initialAppend = await append.inputValue();
+  await append.fill("Cancelled browser addition");
+  await globalPromptSection.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await append.inputValue(), initialAppend);
+  await append.fill("Global browser addition");
+  await globalPromptSection.getByRole("button", { name: "Save system prompt", exact: true }).click();
+  await page.getByText("Global system prompt saved.", { exact: false }).waitFor();
+  await append.fill("");
+  await globalPromptSection.getByRole("button", { name: "Save system prompt", exact: true }).click();
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Files", exact: true }).click();
   const previewSizeInput = page.getByLabel("Maximum preview size");
   assert.equal(await previewSizeInput.inputValue(), "1");
   await previewSizeInput.fill("10");
@@ -1189,7 +1195,7 @@ try {
   await page.getByText("Preview size saved.", { exact: true }).waitFor();
   assert.equal(await previewSizeInput.inputValue(), "10");
   assert.equal(await page.getByRole("button", { name: "Save workspace settings", exact: true }).count(), 0);
-  await page.locator(".settings-tabs > button").first().click();
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Models & providers", exact: true }).click();
   const modelPreferences = page.locator(".model-preferences");
   await modelPreferences.waitFor();
   assert.equal(await modelPreferences.getByRole("checkbox").count(), 3);

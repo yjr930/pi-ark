@@ -5,14 +5,15 @@ import { join } from "node:path";
 import { createAgentSession, DefaultResourceLoader, SessionManager, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { WebSocket } from "ws";
 import type { WorkspaceDefinition } from "./config.js";
-import { ensureWorkspaceState, loadWorkspaceSettings, piArkAgentDir } from "./config.js";
+import { ensureWorkspaceState, loadGlobalPreferences, piArkAgentDir } from "./config.js";
 import { getSessionMetadata, listSessionGroups, removeSessionMetadata, setSessionMetadata } from "./session-metadata.js";
-import type { SettingsService } from "./settings.js";
+import { createGlobalSettingsManager, type SettingsService } from "./settings.js";
 import { saveAttachments, type IncomingAttachment, type SavedAttachment } from "./attachments.js";
 import { createReadPiArkLinkTool, READ_PI_ARK_LINK } from "./agent-tools/read-pi-ark-link.js";
 import { buildSessionDisplayMessages, MAX_SESSION_MESSAGES, resolveDisplayMessageIndex } from "./session-display.js";
 import { SessionReader } from "./session-reader.js";
 import type { WorkspaceService } from "./workspaces.js";
+import { COMPACTION_TIMING_TYPE, type CompactionTiming } from "./compaction-stats.js";
 export { buildSessionDisplayMessages, MAX_SESSION_MESSAGES, sessionMessageId } from "./session-display.js";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -38,6 +39,7 @@ interface AgentHandle {
   updateRevision: number;
   pendingError?: string;
   errorMessage?: string;
+  compactionStartedAt?: number;
 }
 
 function send(socket: WebSocket, payload: unknown): void {
@@ -355,34 +357,31 @@ export class AgentService {
   }
 
   async getGlobalSystemPrompt(workspace: WorkspaceDefinition): Promise<{ content: string; systemPromptPath: string; appendSystemPromptPath: string }> {
-    const workspaceSettings = await loadWorkspaceSettings(workspace);
-    const agentDir = piArkAgentDir;
-    const systemPromptPath = join(agentDir, "SYSTEM.md");
-    const appendSystemPromptPath = join(agentDir, "APPEND_SYSTEM.md");
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: workspace.path,
-      agentDir,
-      ...(existsSync(systemPromptPath) ? { systemPrompt: systemPromptPath } : { systemPromptOverride: () => undefined }),
-      appendSystemPrompt: existsSync(appendSystemPromptPath) ? [appendSystemPromptPath] : [],
-    });
-    await resourceLoader.reload();
-    const { session } = await createAgentSession({ cwd: workspace.path, sessionManager: SessionManager.inMemory(), tools: [...workspaceSettings.agent.tools, READ_PI_ARK_LINK], customTools: [createReadPiArkLinkTool(this.sessionReader)], resourceLoader });
+    const preferences = await loadGlobalPreferences();
+    const systemPromptPath = join(piArkAgentDir, "SYSTEM.md");
+    const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
+    const settingsManager = createGlobalSettingsManager(workspace.path);
+    const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
+    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...preferences.agent.tools, READ_PI_ARK_LINK], customTools: [createReadPiArkLinkTool(this.sessionReader)], resourceLoader });
     try { return { content: session.systemPrompt, systemPromptPath, appendSystemPromptPath }; }
     finally { session.dispose(); }
   }
 
-  private async createResourceLoader(workspace: WorkspaceDefinition, workspaceAppend: string): Promise<DefaultResourceLoader> {
-    const resourceLoader = new DefaultResourceLoader({ cwd: workspace.path, agentDir: piArkAgentDir, ...(workspaceAppend ? { appendSystemPromptOverride: (base: string[]) => [...base, workspaceAppend] } : {}) });
+  private async createResourceLoader(workspace: WorkspaceDefinition, globalAppend: string, settingsManager = createGlobalSettingsManager(workspace.path)): Promise<DefaultResourceLoader> {
+    const systemPromptPath = join(piArkAgentDir, "SYSTEM.md");
+    const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
+    const resourceLoader = new DefaultResourceLoader({ cwd: workspace.path, agentDir: piArkAgentDir, settingsManager, ...(existsSync(systemPromptPath) ? { systemPrompt: systemPromptPath } : { systemPromptOverride: () => undefined }), appendSystemPrompt: existsSync(appendSystemPromptPath) ? [appendSystemPromptPath] : [], appendSystemPromptOverride: (base) => globalAppend ? [...base, globalAppend] : base });
     await resourceLoader.reload();
     return resourceLoader;
   }
 
   private async instantiate(workspace: WorkspaceDefinition, manager: SessionManager): Promise<AgentHandle> {
-    const workspaceSettings = await loadWorkspaceSettings(workspace);
-    const resourceLoader = await this.createResourceLoader(workspace, workspaceSettings.agent.systemPrompt.append);
+    const preferences = await loadGlobalPreferences();
+    const settingsManager = createGlobalSettingsManager(workspace.path);
+    const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;
-    const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, tools: [...workspaceSettings.agent.tools, READ_PI_ARK_LINK], customTools: [createReadPiArkLinkTool(this.sessionReader)], resourceLoader, model: hasExistingSession ? undefined : modelConfiguration.model, scopedModels: modelConfiguration.scopedModels });
+    const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools: [...preferences.agent.tools, READ_PI_ARK_LINK], customTools: [createReadPiArkLinkTool(this.sessionReader)], resourceLoader, model: hasExistingSession ? undefined : modelConfiguration.model, scopedModels: modelConfiguration.scopedModels });
     const handle: AgentHandle = {
       session,
       clients: new Map(),
@@ -408,6 +407,15 @@ export class AgentService {
       this.publishQueueState(handle);
       return;
     }
+    if (event.type === "compaction_start") handle.compactionStartedAt = performance.now();
+    else if (event.type === "compaction_end") {
+      const startedAt = handle.compactionStartedAt;
+      handle.compactionStartedAt = undefined;
+      if (event.result && !event.aborted && startedAt !== undefined) {
+        const entry = [...handle.session.sessionManager.getBranch()].reverse().find((item) => item.type === "compaction");
+        if (entry?.type === "compaction" && entry.summary === event.result.summary) handle.session.sessionManager.appendCustomEntry(COMPACTION_TIMING_TYPE, { compactionEntryId: entry.id, durationMs: Math.max(0, Math.round(performance.now() - startedAt)), reason: event.reason } satisfies CompactionTiming);
+      }
+    }
     if (event.type === "agent_start") {
       handle.pendingError = undefined;
       this.setRuntimeStatus(handle, "running");
@@ -424,7 +432,7 @@ export class AgentService {
     }
     handle.displayMessages = undefined;
     this.broadcast(handle, { type: "agent-event", event });
-    if (event.type === "message_end" || event.type === "agent_settled") this.scheduleSnapshot(handle);
+    if (event.type === "message_end" || event.type === "agent_settled" || event.type === "compaction_end") this.scheduleSnapshot(handle);
   }
 
   private setRuntimeStatus(handle: AgentHandle, state: SessionRuntimeState, errorMessage?: string): void {

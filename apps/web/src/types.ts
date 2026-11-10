@@ -61,6 +61,16 @@ export interface AgentMessage {
   contextWindow?: number;
   summary?: string;
   tokensBefore?: number;
+  compaction?: {
+    tokensAfter: number;
+    systemPromptTokens?: number;
+    summaryTokens: number;
+    retainedTokens: number;
+    durationMs?: number;
+    reason?: "manual" | "threshold" | "overflow";
+    summarizerInputTokens?: number;
+    summarizerOutputTokens?: number;
+  };
   fromId?: string | null;
   customType?: string;
   display?: boolean;
@@ -202,7 +212,7 @@ export interface ReleaseInfo {
   commands: { update: string; rollback: string; status: string; logs: string; restart: string };
 }
 
-export interface GlobalSettings extends UiSettings {
+export interface GlobalSettings extends UiSettings, GlobalPreferences {
   provider: string;
   model: string;
   thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -213,9 +223,7 @@ export interface GlobalSettings extends UiSettings {
   providers: ProviderOption[];
 }
 
-export interface WorkspaceSettings {
-  version: 5;
-  workspaceId: string;
+export interface GlobalPreferences {
   agent: { tools: Array<"read" | "bash" | "edit" | "write">; systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
 }

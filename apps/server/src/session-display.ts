@@ -1,4 +1,5 @@
 import { sessionEntryToContextMessages, type SessionManager } from "@earendil-works/pi-coding-agent";
+import { compactionStats, compactionTimings } from "./compaction-stats.js";
 
 export const MAX_SESSION_MESSAGES = 10_000_000;
 const MESSAGE_ID_SPACE = 0x80000000;
@@ -28,11 +29,15 @@ export function buildSessionDisplayMessages(manager: SessionManager, getContextW
   const entries = manager.getEntries();
   if (entries.length > MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
   const entryIndexById = new Map(entries.map((entry, index) => [entry.id, index]));
-  return manager.getBranch().flatMap((entry) => sessionEntryToContextMessages(entry).filter((message) => message.role !== "system" && !(message.role === "custom" && !message.display)).map((message) => ({
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const branch = manager.getBranch();
+  const timings = compactionTimings(branch);
+  return branch.flatMap((entry) => sessionEntryToContextMessages(entry).filter((message) => message.role !== "system" && !(message.role === "custom" && !message.display)).map((message) => ({
     ...message,
     entryId: entry.id,
     messageId: sessionMessageId(manager.getSessionId(), entryIndexById.get(entry.id)!),
     ...(message.role === "assistant" ? { contextWindow: getContextWindow(message.provider, message.model) } : {}),
+    ...(entry.type === "compaction" && message.role === "compactionSummary" ? { compaction: compactionStats(entries, entry, byId, timings.get(entry.id)) } : {}),
   })));
 }
 

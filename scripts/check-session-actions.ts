@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { AgentService, buildSessionDisplayMessages, sessionMessageId } from "../apps/server/src/agents.ts";
-import { SettingsService } from "../apps/server/src/settings.ts";
-import { WorkspaceService } from "../apps/server/src/workspaces.ts";
-
 const directory = await mkdtemp(join(tmpdir(), "pi-ark-session-actions-"));
 const workspace = { id: "session-actions", name: "Session actions", path: directory };
+process.env.PI_ARK_HOME = join(directory, "home");
+process.env.PI_ARK_AGENT_DIR = join(directory, "home", "pi-agent");
+process.env.PI_CODING_AGENT_DIR = process.env.PI_ARK_AGENT_DIR;
+const { AgentService, buildSessionDisplayMessages, sessionMessageId } = await import("../apps/server/src/agents.ts");
+const { SettingsService } = await import("../apps/server/src/settings.ts");
+const { WorkspaceService } = await import("../apps/server/src/workspaces.ts");
 try {
+  await mkdir(process.env.PI_ARK_AGENT_DIR, { recursive: true });
+  await writeFile(join(process.env.PI_ARK_HOME, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace] }));
   const sessionDirectory = join(directory, ".pi-ark", "sessions");
   const compactedManager = SessionManager.create(directory, sessionDirectory);
   compactedManager.appendMessage({ role: "user", content: "Original history", timestamp: 100 });
@@ -197,6 +201,24 @@ try {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   const scheduledSnapshot = sent.map((payload) => JSON.parse(payload)).findLast((payload) => payload.type === "snapshot");
   assert.equal(scheduledSnapshot.session.messages.at(-1).content, "Visible in the scheduled snapshot");
+  const compactManager = snapshotHandle.session.sessionManager;
+  service.onEvent(snapshotHandle, { type: "compaction_start", reason: "manual" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const newCompactionId = compactManager.appendCompaction("Measured compaction", null, 120000);
+  service.onEvent(snapshotHandle, { type: "compaction_end", reason: "manual", result: { summary: "Measured compaction" }, aborted: false, willRetry: false });
+  const measuredCompaction = buildSessionDisplayMessages(compactManager).find((message) => message.entryId === newCompactionId);
+  assert.equal(measuredCompaction?.compaction?.reason, "manual");
+  assert.ok(measuredCompaction!.compaction!.durationMs! >= 1);
+  const timingEntry = compactManager.getLeafEntry();
+  assert.equal(timingEntry?.type === "custom" && timingEntry.customType, "pi-ark.compaction-timing");
+  const persistedCompaction = buildSessionDisplayMessages(SessionManager.open(compactManager.getSessionFile()!)).find((message) => message.entryId === newCompactionId);
+  assert.deepEqual(persistedCompaction?.compaction, measuredCompaction?.compaction);
+  const afterMeasuredCompaction = compactManager.getEntryCount();
+  service.onEvent(snapshotHandle, { type: "compaction_start", reason: "threshold" });
+  service.onEvent(snapshotHandle, { type: "compaction_end", reason: "threshold", aborted: true, willRetry: false });
+  assert.equal(compactManager.getEntryCount(), afterMeasuredCompaction);
+  service.onEvent(snapshotHandle, { type: "compaction_end", reason: "manual", result: { summary: "Measured compaction" }, aborted: false, willRetry: false });
+  assert.equal(compactManager.getEntryCount(), afterMeasuredCompaction);
   await agents.dispose();
   console.log("session action checks passed");
 } finally {

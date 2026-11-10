@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildConversationSegments } from "../apps/web/src/conversation.ts";
+import { buildConversationSegments, buildToolCallGroups } from "../apps/web/src/conversation.ts";
 import type { AgentMessage } from "../apps/web/src/types.ts";
 
 const messages: AgentMessage[] = [
@@ -64,4 +64,22 @@ assert.equal(pageStartingInsideResponse[0].type === "message" && pageStartingIns
 assert.equal(pageStartingInsideResponse[1].type === "message" && pageStartingInsideResponse[1].aiStart, undefined);
 assert.equal(pageStartingInsideResponse[2].type === "message" && pageStartingInsideResponse[2].aiStart, undefined);
 assert.equal(pageStartingInsideResponse[4].type === "message" && pageStartingInsideResponse[4].aiStart, true);
+const pureTools = (name: string, count = 1): AgentMessage => ({ role: "assistant", entryId: name, content: Array.from({ length: count }, (_, index) => ({ type: "toolCall", id: `${name}-${index}`, name: "read", arguments: { path: `${name}-${index}.md` } })) });
+const firstTools = pureTools("first", 2);
+const secondTools = pureTools("second", 4);
+const pairedResult: AgentMessage = { role: "toolResult", toolCallId: "first-0", content: "Result is tool output, not conversation text" };
+const withText: AgentMessage = { role: "assistant", content: [{ type: "text", text: "Inspecting the next file" }, { type: "toolCall", id: "text-call", name: "read" }] };
+const withReasoning: AgentMessage = { role: "assistant", content: [{ type: "thinking", thinking: "Choose the next action" }, { type: "toolCall", id: "thinking-call", name: "bash" }] };
+const groups = buildToolCallGroups([withText, firstTools, pairedResult, secondTools, withReasoning, pureTools("third"), { role: "assistant", content: "Conversation between calls" }, pureTools("fourth")], new Set([pairedResult]));
+assert.deepEqual(groups.map((group) => group.type), ["message", "tools", "message", "tools", "message", "tools"]);
+assert.equal(groups[0].type === "message" && groups[0].message, withText);
+assert.equal(groups[1].type === "tools" && groups[1].calls.length, 6);
+assert.deepEqual(groups[1].type === "tools" && groups[1].messages, [firstTools, secondTools]);
+assert.deepEqual(groups[1].type === "tools" && groups[1].calls.slice(-3).map((call) => call.id), ["second-1", "second-2", "second-3"]);
+assert.equal(groups[2].type === "message" && groups[2].message, withReasoning);
+const orphanResult: AgentMessage = { role: "toolResult", toolCallId: "orphan", content: "Unpaired result" };
+assert.deepEqual(buildToolCallGroups([firstTools, orphanResult, secondTools], new Set()).map((group) => group.type), ["tools", "message", "tools"]);
+assert.deepEqual(buildToolCallGroups([firstTools, { role: "compactionSummary", summary: "Context" }, secondTools], new Set()).map((group) => group.type), ["tools", "message", "tools"]);
+assert.deepEqual(buildToolCallGroups([firstTools, { role: "user", content: "New turn" }, secondTools], new Set()).map((group) => group.type), ["tools", "message", "tools"]);
+assert.deepEqual(buildToolCallGroups([], new Set()), []);
 console.log("conversation checks passed");

@@ -1,6 +1,6 @@
 # Pi-Ark
 
-Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它通过常驻 HTTPS 服务提供 Agent conversation、Session 管理、文件与 Markdown 阅读、浏览器 Terminal，以及 Global/Workspace Settings。
+Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它通过常驻 HTTPS 服务提供 Agent conversation、Session 管理、文件与 Markdown 阅读、浏览器 Terminal，以及 统一的 Global Settings。
 
 ## 核心能力
 
@@ -9,7 +9,7 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 - Agent 自带 `read_pi_ark_link`，可以读取内部链接所指向的会话和消息，并按需取得前后文。
 - 提供 Files 文本、Markdown 与图片预览、可配置的预览上限，以及所有文件的原始下载。
 - 通过 xterm.js 和 node-pty 提供以 Workspace 为 cwd 的浏览器 Terminal。
-- 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、Pi-Ark release update/rollback、system prompt preview 和 Workspace tools。
+- 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、Pi-Ark release update/rollback、全局 system prompt、Agent tools 和文件浏览设置。
 - 提供桌面可调整侧栏、移动端 drawer、五种 theme、全局 reasoning visibility、Session group、permalink 和内部链接。
 - 使用 HTTPS、scrypt password、Secure cookie 和服务端 Workspace path guard。
 
@@ -97,7 +97,6 @@ PI_ARK_HOME/
   pi-agent/
 
 <workspace>/.pi-ark/
-  config.json
   sessions-meta.json
   attachments/
   sessions/

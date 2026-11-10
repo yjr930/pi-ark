@@ -152,8 +152,10 @@ try {
 
   const { AgentService } = await import("../apps/server/src/agents.ts");
   const { SettingsService } = await import("../apps/server/src/settings.ts");
-  const { saveWorkspacePreferences } = await import("../apps/server/src/config.ts");
-  await saveWorkspacePreferences(workspace, { agent: { tools: ["read"] }, files: { showHiddenFiles: true, maxPreviewSizeMb: 10 } });
+  const { saveGlobalPreferences } = await import("../apps/server/src/config.ts");
+  await mkdir(process.env.PI_ARK_HOME!, { recursive: true });
+  await writeFile(join(process.env.PI_ARK_HOME!, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace, otherWorkspace] }));
+  await saveGlobalPreferences({ agent: { tools: ["read"] }, files: { showHiddenFiles: true, maxPreviewSizeMb: 10 } });
   const agents = new AgentService(await SettingsService.create(workspace.path), registry);
   try {
     const opened = await agents.create(workspace);

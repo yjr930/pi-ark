@@ -68,12 +68,13 @@ docs/               产品、架构、使用和集成文档
 | 模块 | 文件 | 职责 |
 |---|---|---|
 | Server composition | `apps/server/src/index.ts` | 启动、认证 hook、HTTP/WebSocket routes、静态资源和 shutdown |
-| Global/Workspace config | `apps/server/src/config.ts` | 配置解析、data directory、Workspace schema 和原子写入 |
+| Global config | `apps/server/src/config.ts` | 配置解析、data directory、共享 preferences 和串行原子写入 |
 | Authentication | `apps/server/src/auth.ts` | scrypt password、内存 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
 | Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments、自带工具注册和广播 |
 | Internal links | `apps/server/src/internal-links.ts` | Web 与 Server 共用的 Workspace、Session 和 Message 内部链接解析与生成 |
-| Session display | `apps/server/src/session-display.ts` | 完整活动分支的 display projection、短 Message ID 和旧数字目标的定位 |
+| Session display | `apps/server/src/session-display.ts` | 完整活动分支的 display projection、短 Message ID、Compact 统计和旧数字目标的定位 |
+| Compact statistics | `apps/server/src/compaction-stats.ts` | 按压缩时的 projection 估算上下文组成，并关联压缩耗时 |
 | Session reader | `apps/server/src/session-reader.ts` | Workspace 摘要、Session 分页、Message 定位、前后文和长内容续读 |
 | Pi-Ark link tool | `apps/server/src/agent-tools/read-pi-ark-link.ts` | `read_pi_ark_link` 的参数、输出 schema、说明和执行入口 |
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
@@ -97,7 +98,7 @@ docs/               产品、架构、使用和集成文档
 | Files | `apps/web/src/components/Files.tsx` | 全宽目录导航、可调整的文件列表、path copy、文本阅读和 Markdown image path |
 | Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示 |
 | Terminal | `apps/web/src/components/Terminal.tsx` | xterm.js、FitAddon 和 Terminal WebSocket |
-| Settings | `apps/web/src/components/Settings.tsx` | 分类展示 Global/Workspace settings、prompt preview、OAuth、release update/rollback 和 service commands |
+| Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示 Global settings，保留页面状态，并按需加载 prompt preview 与 release 信息 |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
 | Permalinks | `apps/web/src/permalinks.ts` | Browser URL 与 `pi-ark://` link 的生成和解析 |
 | Theme | `apps/web/src/theme.ts` | Theme metadata、应用和本地初始化 |
@@ -158,9 +159,9 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 创建 AgentSession 时，AgentService 加载以下输入：
 
 - Workspace cwd。
-- Workspace 启用的 tools，以及 Pi-Ark 自带的 `read_pi_ark_link`。
+- Global 启用的 tools，以及 Pi-Ark 自带的 `read_pi_ark_link`。
 - Pi-Ark agent directory 中的 Global resources。
-- Workspace system prompt append。
+- Global system prompt append。
 - 已有 SessionManager。
 - `enabledModels` 解析出的 scoped models。
 
@@ -168,7 +169,7 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 
 ### Pi-Ark link 读取工具
 
-`AgentService` 接收当前 `WorkspaceService` registry，并在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `read_pi_ark_link`。显式 `tools` 列表包含该名称，使工具始终与 Workspace 所选的文件工具一起可用。Global effective system prompt preview 使用同一份工具定义。工具提供 `description`、`promptSnippet` 和 `promptGuidelines`，引导 Agent 使用工具读取用户提供的内部链接。
+`AgentService` 接收当前 `WorkspaceService` registry，并在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `read_pi_ark_link`。显式 `tools` 列表包含该名称，使工具始终与 Global 所选的文件工具一起可用。Global effective system prompt preview 使用同一份工具定义。工具提供 `description`、`promptSnippet` 和 `promptGuidelines`，引导 Agent 使用工具读取用户提供的内部链接。
 
 `internal-links.ts` 是独立于浏览器环境的链接模块，Web 的 `permalinks.ts` 直接复用该模块。工具支持 `pi-ark://workspace/<workspace-id>`、其后的 `/session/<session-id>`，以及 `/message/<message-id>`。Web 的 Session link 对话框继续接受 Session 和 Message link。短 Message ID 与旧数字目标共用 `session-display.ts` 的定位函数；数字目标按完整活动分支的 display position 解析，返回值中的链接使用短 Message ID。
 
@@ -271,7 +272,7 @@ Server shutdown 会依次清空所有 queue、中止 active Agent、释放 runti
 
 ## Conversation projection
 
-Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 entry path，并通过 `sessionEntryToContextMessages()` 转换可显示 entry。该 display projection 保留 compact 前的原始 user、assistant 和 tool messages，并将每个 compaction entry 转换为一条 `compactionSummary` message。System message 与 `display: false` 的 custom message 不进入 Web snapshot。AgentHandle 缓存该 display projection，Session message/tree 变化时清除 cache。pi JSONL 和 Agent runtime 的 compaction-aware context 保持原样。
+Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 entry path，并通过 `sessionEntryToContextMessages()` 转换可显示 entry。该 display projection 保留 compact 前的原始 user、assistant 和 tool messages，并将每个 compaction entry 转换为一条 `compactionSummary` message。Compaction display message 还包含 `compaction`，其中包含 `tokensAfter`、`systemPromptTokens`、`summaryTokens`、`retainedTokens`、`durationMs`、`reason`、`summarizerInputTokens` 和 `summarizerOutputTokens`。Server 使用 `buildSessionProjection(entries, compactionEntryId, byId)` 重建该次压缩当时的上下文，再通过 SDK 的 `getCurrentSystemMessage()` 与 `estimateTokens()` 计算各组成；原生 entry 的 `tokensBefore` 与 `usage` 提供压缩前及摘要生成时的用量。Server 以 `performance.now()` 测量 `compaction_start` 到成功 `compaction_end` 的耗时，并通过 `appendCustomEntry()` 追加 `pi-ark.compaction-timing`，其 data 包含 `compactionEntryId`、`durationMs` 和 `reason`。压缩结束后调度权威 snapshot。System message 与 `display: false` 的 custom message 不进入 Web snapshot。AgentHandle 缓存该 display projection，Session message/tree 变化时清除 cache。pi JSONL 和 Agent runtime 的 compaction-aware context 保持原样。
 
 Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。Snapshot 使用 `messageNumberOffset` 保存当前 slice 之前的 message 数量，并使用 `totalDisplayMessages` 保存完整 projection 数量；这些 numeric fields 只服务于分页。每条持久化 projection message 还包含七字符短 `messageId`，格式为 `m` 加六位小写 base36。Server 使用 Session ID 生成 31-bit 奇数 multiplier 与 offset，再对 source entry 在 append-only Session entries 中的固定位置执行一一映射，因此同一 Session 中的 ID 不重复，并且新增 entry 不会改变已有 ID。Session source entry 上限是 10000000，达到上限后新的 prompt 返回错误。点击 Show earlier messages 后，Web 发送 `load-earlier`；Server 将该 client 的 window 起点向前移动一页，并发送扩展后的权威 snapshot。Permalink、sticky User、tool source link 和 target highlighting 使用 `messageId`；Fork 与 Rollback 继续使用 pi source entry ID。
 
@@ -282,7 +283,7 @@ Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分�
 - 已完成 tool turn 将最后一条非工具 assistant output 之前的过程放入 run collapse；`RunCollapse` 观察 active→completed 转换并自动折叠并更新缓存状态。已完成的 permalink target 在没有已有用户状态时自动展开对应 details。
 - Idle 且缺少最后一条非工具 assistant output 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。每个 theme 分别提供 Run palette 与 Tool palette：Run group 使用该 theme 的 tint surface，Tool row 和 Reasoning 使用更中性的 surface，并具有独立的 open surface 与 border color。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；dark themes 和 Snow 使用对应 accent 倾向的外层 Run surface 与更亮的中性 Tool surface。Compact 与 branch summary 也使用 tool feed item。展开 tool item 后先显示 call/result source Message ID 与 `pi-ark://` link copy 按钮，再显示 arguments、result 或 summary。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。每个 theme 分别提供 Run palette 与 Tool palette：Run group 使用该 theme 的 tint surface，Tool row 和 Reasoning 使用更中性的 surface，并具有独立的 open surface 与 border color。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；dark themes 和 Snow 使用对应 accent 倾向的外层 Run surface 与更亮的中性 Tool surface。Compact 与 branch summary 也使用 tool feed item。Compact 的收起高度为普通 tool row 的 3 倍，并展示压缩前后的用量、估算的上下文组成和压缩耗时。展开 tool item 后先显示 Call/Result 的消息 link 按钮，整段按钮包含 source Message ID 与复制图标；tooltip 使用 portal 到 document body 的 fixed 浮层。短 Message ID 在 User header、sticky User 与 source link 中统一使用斜体。其后显示 arguments、result 或 summary。`buildToolCallGroups()` 在已配对结果的基础上，按连续的 tool-only assistant messages 分组。正文、图片、Reasoning、Compact、branch summary 与独立结果会中断分组；包含正文的 message 中的 tool calls 保持原有显示。`ToolCallSequence` 按单个 call 计数，默认隐藏较早调用并保留最后 3 个，使用 `show more tool call` / `show less tool call` 切换。分组使用首个 source message 与 call 的稳定标识保存 disclosure；早期 message 或 result 的 permalink target 在首次访问时展开分组。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
 
 每条持久化 source message 继续保留短 Message ID、entry ID 和 permalink anchor。配对的 tool result 不重复渲染，但 tool item 内保留 result anchor。浏览器 permalink 打开外层 run 并高亮对应 source message 或 tool item；`pi-ark://` 是 feed 中提供的 message link copy 格式。Warning segment 是前端显示状态，不写入 pi JSONL，也不分配 Message ID，不参与 Fork 或 Rollback。
 
@@ -307,7 +308,7 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
-- Theme、reasoning visibility 和 Workspace registry：`PI_ARK_HOME/config.json`。
+- Theme、reasoning visibility、Workspace registry 和共享 `preferences`（Agent tools、Global prompt append 和 Files preferences）：`PI_ARK_HOME/config.json`。
 - Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
@@ -322,7 +323,7 @@ API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。�
 
 Provider 的 `auth.oauth.isSubscription` 决定 UI 是否显示 subscription login。AuthFlowService 将 pi OAuth interaction 转换为可轮询状态，支持 info、auth URL、device code、progress、text/secret/manual code prompt、select prompt 和 cancel。
 
-SettingsService 调用 `ModelRuntime.login(provider, "oauth", interaction, { getDeviceId })`。`getDeviceId` 使用 `SettingsManager.getOrCreateDeviceId()`，首次需要时生成 UUID，并将稳定的安装实例标识保存到 `PI_ARK_AGENT_DIR/settings.json`。OpenAI 的 ChatGPT subscription 登录使用该值作为 agent host ID；Workspace settings 不会覆盖它。
+SettingsService 调用 `ModelRuntime.login(provider, "oauth", interaction, { getDeviceId })`。`getDeviceId` 使用 `SettingsManager.getOrCreateDeviceId()`，首次需要时生成 UUID，并将稳定的安装实例标识保存到 `PI_ARK_AGENT_DIR/settings.json`。OpenAI 的 ChatGPT subscription 登录使用该全局值作为 agent host ID。
 
 Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同时保留一个 pending flow；启动同一个 Provider 的新登录时，AuthFlowService 会取消此前的 pending flow，使 OAuth callback listener 和 ModelRuntime credential 操作可以释放。不同 Provider 的登录 flow 可以同时进行。Flow event 最多保留最近 50 条。
 
@@ -335,25 +336,27 @@ PI_ARK_AGENT_DIR/SYSTEM.md
 PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 ```
 
-Global preview 使用 DefaultResourceLoader 和临时 AgentSession 生成 complete effective prompt。Workspace append 通过 `appendSystemPromptOverride` 加到 Global append resources 后面。
+Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。Loader 显式选择 Global replacement/append 文件，并通过 `appendSystemPromptOverride` 追加 `preferences.agent.systemPrompt.append`。Workspace 的 AGENTS.md 仍作为项目上下文提供。SettingsService、ResourceLoader 与 AgentSession 都使用 `SettingsManager.create(cwd, agentDir, { projectTrusted: false })`，将 pi 的设置来源统一到 Global。
 
-Workspace config schema version 是 5，system prompt 与 Files 字段为：
+`PI_ARK_HOME/config.json` 的共享 preferences 使用以下结构：
 
 ```json
 {
-  "agent": {
-    "systemPrompt": {
-      "append": "Workspace-specific instructions"
-    }
-  },
-  "files": {
-    "showHiddenFiles": true,
-    "maxPreviewSizeMb": 10
+  "preferences": {
+    "agent": {
+      "tools": ["read", "bash", "edit", "write"],
+      "systemPrompt": { "append": "" }
+    },
+    "files": { "showHiddenFiles": true, "maxPreviewSizeMb": 10 }
   }
 }
 ```
 
-读取 version 4 配置时，缺少的 `maxPreviewSizeMb` 使用 10 MB；下次保存会写入 version 5。普通 Workspace settings PUT 只更新 tools 与 files，并保留服务端当前 prompt；prompt 使用独立 endpoint 保存，避免自动保存覆盖尚未确认或刚确认的 prompt。
+缺少 preferences 的既有 Global config 使用以上默认值。所有 Workspace 使用同一份配置；历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得工具、提示词和文件偏好。`ensureWorkspaceState()` 创建 Session directory。Preferences PUT 更新 tools 与 files，system prompt PUT 更新 append；二者共享 Global config 的串行原子写入，并保留其他字段。
+
+### Settings 的页面缓存
+
+Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、提示词草稿、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，release 信息在首次进入 Maintenance 时加载。Refresh settings 主动取得最新数据。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
 
 ### Pi-Ark release 管理
 
@@ -379,7 +382,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 | 路径 | 内容 |
 |---|---|
-| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、theme 和 reasoning visibility |
+| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、theme、reasoning visibility 和共享 preferences |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
@@ -391,12 +394,11 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 | 路径 | 内容 |
 |---|---|
-| `<workspace>/.pi-ark/config.json` | Tools、Workspace prompt append 和 Files preference |
 | `<workspace>/.pi-ark/sessions/*.jsonl` | pi session tree |
 | `<workspace>/.pi-ark/sessions-meta.json` | Pin、Archive、groups 和 group definitions |
 | `<workspace>/.pi-ark/attachments/<session>/` | Session attachments |
 
-Global config、Workspace config 和 Session metadata 使用 temporary file 加 rename 的方式写入。Global config 使用服务进程级 write queue；Workspace config 和 Session metadata 按 Workspace 使用 write queue，避免自动保存与并发请求相互覆盖。
+Global config 和 Session metadata 使用 temporary file 加 rename 的方式写入。Global config 使用服务进程级 write queue，Session metadata 按 Workspace 使用 write queue，以保留自动保存与并发请求中的其他字段。
 
 ### Browser-local preferences
 
@@ -426,11 +428,9 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 | GET/POST | `/api/workspaces` | 列出或添加 Workspace |
 | PATCH/DELETE | `/api/workspaces/:workspaceId` | 重命名或关闭 Workspace |
 | GET | `/api/directories` | 目录建议 |
-| GET/PUT | `/api/workspaces/:workspaceId/settings` | Workspace settings |
-| PUT | `/api/workspaces/:workspaceId/system-prompt` | Workspace prompt append |
 | GET | `/api/workspaces/:workspaceId/files` | 目录列表 |
-| GET | `/api/workspaces/:workspaceId/file` | 文本或图片 preview metadata；执行 Workspace preview limit |
-| GET | `/api/workspaces/:workspaceId/image` | Files/Markdown image stream；执行 Workspace preview limit |
+| GET | `/api/workspaces/:workspaceId/file` | 文本或图片 preview metadata；执行 Global preview limit |
+| GET | `/api/workspaces/:workspaceId/image` | Files/Markdown image stream；执行 Global preview limit |
 | GET | `/api/workspaces/:workspaceId/download` | 原始文件 stream download；不执行 preview limit |
 
 ### Settings
@@ -444,7 +444,8 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 | POST | `/api/settings/providers/:providerId/api-key` | 保存指定 Provider 的 API key |
 | DELETE | `/api/settings/providers/:providerId/credential` | 删除指定 Provider 的保存 credential |
 | GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |
-| GET | `/api/settings/system-prompt` | Effective prompt preview |
+| GET/PUT | `/api/settings/system-prompt` | 读取 effective prompt preview，或保存 Global append |
+| GET/PUT | `/api/settings/preferences` | 共享 Agent tools 与 Files preferences |
 | GET | `/api/settings/release` | Pi-Ark、bundled pi core、安装状态、路径、命令和 latest release |
 | POST | `/api/settings/release/update` | 安装并切换到 latest Pi-Ark release |
 | POST | `/api/settings/release/rollback` | 切换到 previous Pi-Ark release |

@@ -16,7 +16,7 @@
 文档按以下顺序确认当前行为：
 
 1. `apps/server/src/` 和 `apps/web/src/` 中的当前实现。
-2. `scripts/check-*.ts` 与 `scripts/check-ui.mjs` 中的行为检查。
+2. `scripts/check-*.ts` 与 `scripts/check-*.mjs` 中的行为检查。
 3. `package.json`、`scripts/setup.mjs` 和 `scripts/pi-ark.mjs` 中的命令入口。
 4. README 和 `docs/` 中的说明。
 

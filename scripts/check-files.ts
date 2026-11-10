@@ -11,6 +11,7 @@ process.env.PI_ARK_HOME = arkHome;
 try {
   await mkdir(join(workspace.path, ".pi-ark"), { recursive: true });
   await mkdir(arkHome, { recursive: true });
+  await writeFile(join(arkHome, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace] }));
   await writeFile(join(workspace.path, ".pi-ark", "config.json"), JSON.stringify({ version: 4, workspaceId: workspace.id, agent: { tools: ["read"], systemPrompt: { append: "" } }, files: { showHiddenFiles: false } }));
   await writeFile(join(workspace.path, "note.md"), "# Preview\n");
   await writeFile(join(workspace.path, "pixel.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
@@ -19,14 +20,12 @@ try {
 
   const config = await import("../apps/server/src/config.ts");
   const { WorkspaceService } = await import("../apps/server/src/workspaces.ts");
-  const defaults = await config.loadWorkspaceSettings(workspace);
-  assert.equal(defaults.version, 5);
-  assert.deepEqual(defaults.files, { showHiddenFiles: false, maxPreviewSizeMb: 10 });
-  const saved = await config.saveWorkspaceSettings(workspace, { agent: defaults.agent, files: { showHiddenFiles: true, maxPreviewSizeMb: 24 } });
-  assert.equal(saved.version, 5);
+  const defaults = await config.loadGlobalPreferences();
+  assert.deepEqual(defaults.files, { showHiddenFiles: true, maxPreviewSizeMb: 10 });
+  const saved = await config.saveGlobalPreferences({ agent: defaults.agent, files: { showHiddenFiles: true, maxPreviewSizeMb: 24 } });
   assert.equal(saved.files.maxPreviewSizeMb, 24);
-  assert.equal(JSON.parse(await readFile(join(workspace.path, ".pi-ark", "config.json"), "utf8")).version, 5);
-  await assert.rejects(() => config.saveWorkspaceSettings(workspace, { agent: defaults.agent, files: { showHiddenFiles: true, maxPreviewSizeMb: 0 } }), /1 to 100 MB/);
+  assert.equal(JSON.parse(await readFile(join(workspace.path, ".pi-ark", "config.json"), "utf8")).version, 4);
+  await assert.rejects(() => config.saveGlobalPreferences({ agent: defaults.agent, files: { showHiddenFiles: true, maxPreviewSizeMb: 0 } }), /1 to 100 MB/);
 
   const service = new WorkspaceService([workspace]);
   const text = await service.readFilePreview(workspace, "note.md", 1024);

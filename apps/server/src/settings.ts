@@ -27,12 +27,16 @@ export interface ModelPreferencesInput {
   thinkingLevel: ModelThinkingLevel;
 }
 
+export function createGlobalSettingsManager(cwd: string): SettingsManager {
+  return SettingsManager.create(cwd, piArkAgentDir, { projectTrusted: false });
+}
+
 export class SettingsService {
   private constructor(private readonly manager: SettingsManager, private readonly models: ModelRuntime) {}
 
   static async create(cwd: string): Promise<SettingsService> {
     const agentDir = piArkAgentDir;
-    const manager = SettingsManager.create(cwd, agentDir);
+    const manager = createGlobalSettingsManager(cwd);
     const models = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"), refreshOnCreate: true });
     return new SettingsService(manager, models);
   }
@@ -64,6 +68,7 @@ export class SettingsService {
     return {
       theme: arkConfig.ui.theme,
       hideReasoning: arkConfig.ui.hideReasoning,
+      ...arkConfig.preferences,
       provider,
       model: modelId,
       thinkingLevel: model ? clampThinkingLevel(model, configuredThinking) : "off",

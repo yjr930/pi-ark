@@ -7,7 +7,7 @@ import Fastify from "fastify";
 import { AgentService } from "./agents.js";
 import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadWorkspaceSettings, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveWorkspacePreferences, saveWorkspaceSystemPrompt, type ArkUiSettings, type WorkspaceSettings, type WorkspaceTool } from "./config.js";
+import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, type ArkUiSettings, type GlobalPreferences, type AgentToolName } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { PiCoreService } from "./pi-core.js";
 import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput, type ModelPreferencesInput } from "./settings.js";
@@ -105,29 +105,26 @@ app.post<{ Params: { flowId: string }; Body: { promptId: string; value: string }
 app.delete<{ Params: { flowId: string } }>("/api/settings/subscription-logins/:flowId", async (request, reply) => { authFlows.cancel(request.params.flowId); return reply.code(204).send(); });
 app.put<{ Body: GlobalSettingsInput }>("/api/settings/global", async (request) => settings.saveGlobal(request.body));
 app.put<{ Body: GlobalAgentDefaultsInput }>("/api/settings/agent-defaults", async (request) => settings.saveAgentDefaults(request.body));
-app.get<{ Querystring: { workspaceId?: string } }>("/api/settings/system-prompt", async (request) => {
-  const workspace = request.query.workspaceId ? workspaces.get(request.query.workspaceId) : workspaces.list()[0] || { id: "global-preview", name: "Global preview", path: process.cwd() };
-  return agents.getGlobalSystemPrompt(workspace);
-});
-app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/settings", async (request) => loadWorkspaceSettings(workspaces.get(request.params.workspaceId)));
-app.put<{ Params: { workspaceId: string }; Body: { agent: { tools: WorkspaceTool[] }; files: WorkspaceSettings["files"] } }>("/api/workspaces/:workspaceId/settings", async (request) => saveWorkspacePreferences(workspaces.get(request.params.workspaceId), request.body));
-app.put<{ Params: { workspaceId: string }; Body: WorkspaceSettings["agent"]["systemPrompt"] }>("/api/workspaces/:workspaceId/system-prompt", async (request) => saveWorkspaceSystemPrompt(workspaces.get(request.params.workspaceId), request.body));
+app.get("/api/settings/system-prompt", async () => agents.getGlobalSystemPrompt(workspaces.list()[0] || { id: "global-preview", name: "Global preview", path: process.cwd() }));
+app.put<{ Body: GlobalPreferences["agent"]["systemPrompt"] }>("/api/settings/system-prompt", async (request) => saveGlobalSystemPrompt(request.body));
+app.get("/api/settings/preferences", async () => loadGlobalPreferences());
+app.put<{ Body: { agent: { tools: AgentToolName[] }; files: GlobalPreferences["files"] } }>("/api/settings/preferences", async (request) => saveGlobalPreferences(request.body));
 app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/api/workspaces/:workspaceId/files", async (request) => {
   const workspace = workspaces.get(request.params.workspaceId);
-  const workspaceSettings = await loadWorkspaceSettings(workspace);
-  return { entries: await workspaces.listDirectory(workspace, request.query.path || "", workspaceSettings.files.showHiddenFiles) };
+  const preferences = await loadGlobalPreferences();
+  return { entries: await workspaces.listDirectory(workspace, request.query.path || "", preferences.files.showHiddenFiles) };
 });
 app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/api/workspaces/:workspaceId/file", async (request) => {
   if (!request.query.path) throw Object.assign(new Error("A file path is required"), { statusCode: 400 });
   const workspace = workspaces.get(request.params.workspaceId);
-  const workspaceSettings = await loadWorkspaceSettings(workspace);
-  return workspaces.readFilePreview(workspace, request.query.path, workspaceSettings.files.maxPreviewSizeMb * 1024 * 1024);
+  const preferences = await loadGlobalPreferences();
+  return workspaces.readFilePreview(workspace, request.query.path, preferences.files.maxPreviewSizeMb * 1024 * 1024);
 });
 app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/api/workspaces/:workspaceId/image", async (request, reply) => {
   if (!request.query.path) throw Object.assign(new Error("An image path is required"), { statusCode: 400 });
   const workspace = workspaces.get(request.params.workspaceId);
-  const workspaceSettings = await loadWorkspaceSettings(workspace);
-  const image = await workspaces.readImage(workspace, request.query.path, workspaceSettings.files.maxPreviewSizeMb * 1024 * 1024);
+  const preferences = await loadGlobalPreferences();
+  const image = await workspaces.readImage(workspace, request.query.path, preferences.files.maxPreviewSizeMb * 1024 * 1024);
   reply.header("X-Content-Type-Options", "nosniff").header("Cache-Control", "private, max-age=300").header("Content-Length", image.size).type(image.mimeType);
   return reply.send(image.content);
 });

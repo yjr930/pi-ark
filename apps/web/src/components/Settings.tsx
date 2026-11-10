@@ -1,14 +1,22 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Search, Settings2, SlidersHorizontal, Star, Unplug, Wrench } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Star, Unplug, Wrench } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { applyTheme, themes } from "../theme";
-import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, UiSettings, Workspace, WorkspaceSettings } from "../types";
+import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, UiSettings, GlobalPreferences } from "../types";
 import { Select } from "./Select";
 import { SubscriptionLogin } from "./SubscriptionLogin";
 
-type SettingsTab = "global" | "workspace";
-type WorkspaceTool = WorkspaceSettings["agent"]["tools"][number];
-const toolOptions: Array<{ id: WorkspaceTool; name: string; description: string }> = [
+const categories = [
+  { id: "interface", label: "Interface", description: "Appearance and conversation visibility.", icon: Palette },
+  { id: "models", label: "Models & providers", description: "Credentials, available models, and defaults for new Sessions.", icon: Cpu },
+  { id: "agent", label: "Agent behavior", description: "Shared instructions, tools, and conversation defaults.", icon: SlidersHorizontal },
+  { id: "files", label: "Files", description: "File browsing and preview preferences.", icon: Eye },
+  { id: "maintenance", label: "Maintenance", description: "Version, installation, and service management.", icon: PackageOpen },
+  { id: "account", label: "Account", description: "Your current browser session.", icon: LogOut },
+] as const;
+type SettingsCategory = (typeof categories)[number]["id"];
+type AgentTool = GlobalPreferences["agent"]["tools"][number];
+const toolOptions: Array<{ id: AgentTool; name: string; description: string }> = [
   { id: "read", name: "Read", description: "Read files from the workspace" },
   { id: "bash", name: "Bash", description: "Run shell commands in the workspace" },
   { id: "edit", name: "Edit", description: "Apply precise changes to existing files" },
@@ -27,10 +35,10 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (checked: b
   return <button type="button" role="switch" aria-checked={checked} className={`settings-toggle ${checked ? "enabled" : ""}`} onClick={() => onChange(!checked)}><span /></button>;
 }
 
-export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Workspace; onUiSettingsChanged: (settings: UiSettings) => void }) {
-  const [tab, setTab] = useState<SettingsTab>("global");
+export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: boolean; uiSettings: UiSettings; onUiSettingsChanged: (settings: UiSettings) => void }) {
+  const [category, setCategory] = useState<SettingsCategory>("interface");
   const [global, setGlobal] = useState<GlobalSettings | null>(null);
-  const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceSettings | null>(null);
+  const currentCategory = categories.find((item) => item.id === category)!;
   const [providerId, setProviderId] = useState("");
   const [modelPreferences, setModelPreferences] = useState<ModelPreferences | null>(null);
   const [modelSearch, setModelSearch] = useState("");
@@ -43,7 +51,7 @@ export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Works
   const [globalSystemPrompt, setGlobalSystemPrompt] = useState({ content: "", systemPromptPath: "", appendSystemPromptPath: "" });
   const [promptRefreshing, setPromptRefreshing] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const [workspacePromptDraft, setWorkspacePromptDraft] = useState("");
+  const [promptDraft, setPromptDraft] = useState("");
   const [subscriptionMode, setSubscriptionMode] = useState(false);
   const [subscriptionFlow, setSubscriptionFlow] = useState<SubscriptionAuthFlow | null>(null);
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
@@ -53,26 +61,48 @@ export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Works
   const globalSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const uiSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const modelSaveQueue = useRef<Promise<void>>(Promise.resolve());
-  const workspaceSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const preferencesSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const releaseRequested = useRef(false);
   const globalSaveRevision = useRef(0);
   const uiSaveRevision = useRef(0);
   const modelSaveRevision = useRef(0);
-  const workspaceSaveRevision = useRef(0);
-  const workspaceIdRef = useRef(workspace?.id);
-  workspaceIdRef.current = workspace?.id;
+  const preferencesSaveRevision = useRef(0);
+  const contentRef = useRef<HTMLElement>(null);
+  const scrollPositions = useRef<Partial<Record<SettingsCategory, number>>>({});
+
+  useLayoutEffect(() => { if (active && contentRef.current) contentRef.current.scrollTop = scrollPositions.current[category] || 0; }, [active, category, loading]);
 
   useEffect(() => {
-    let active = true;
-    ++workspaceSaveRevision.current;
-    setLoading(true); setSaving(false); setNotice(null);
-    if (!workspace && tab === "workspace") setTab("global");
-    Promise.all([api.globalSettings(), api.modelPreferences(), workspace ? api.workspaceSettings(workspace.id) : Promise.resolve(null), api.globalSystemPrompt(workspace?.id), api.releaseInfo()]).then(([globalResult, preferences, workspaceResult, promptPreview, releaseInfo]) => {
-      if (!active) return;
-      setGlobal(globalResult); setProviderId(globalResult.provider); setModelPreferences(preferences); setWorkspaceSettings(workspaceResult); setWorkspacePromptDraft(workspaceResult?.agent.systemPrompt.append || ""); setGlobalSystemPrompt(promptPreview); setRelease(releaseInfo); applyTheme(globalResult.theme);
-      setSubscriptionMode(Boolean(globalResult.providers.find((provider) => provider.id === globalResult.provider)?.usingSubscription));
-    }).catch((reason) => { if (active) setNotice({ kind: "error", text: reason.message }); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [workspace?.id]);
+    let current = true;
+    void api.globalSettings().then((result) => {
+      if (!current) return;
+      setGlobal(result); setProviderId(result.provider); setPromptDraft(result.agent.systemPrompt.append);
+      setSubscriptionMode(Boolean(result.providers.find((provider) => provider.id === result.provider)?.usingSubscription));
+    }).catch((reason) => { if (current) setNotice({ kind: "error", text: reason.message }); }).finally(() => { if (current) setLoading(false); });
+    void api.modelPreferences().then((result) => { if (current) setModelPreferences(result); }).catch((reason) => { if (current) setNotice({ kind: "error", text: reason.message }); });
+    return () => { current = false; };
+  }, []);
+
+  useEffect(() => { setGlobal((current) => current ? { ...current, ...uiSettings } : current); }, [uiSettings.theme, uiSettings.hideReasoning]);
+
+  useEffect(() => {
+    if (!active) { setApiKey(""); setDisconnectOpen(false); setReleaseUpdateOpen(false); setReleaseRollbackOpen(false); }
+    if (active && category === "maintenance" && !releaseRequested.current) {
+      releaseRequested.current = true;
+      setReleaseChecking(true);
+      void api.releaseInfo().then(setRelease).catch((reason) => setNotice({ kind: "error", text: reason.message })).finally(() => setReleaseChecking(false));
+    }
+  }, [active, category]);
+
+  async function refreshSettings() {
+    setSaving(true); setNotice(null);
+    try {
+      const [result, models] = await Promise.all([api.globalSettings(), api.modelPreferences()]);
+      setGlobal(result); setModelPreferences(models); setPromptDraft(result.agent.systemPrompt.append); onUiSettingsChanged({ theme: result.theme, hideReasoning: result.hideReasoning });
+      if (category === "maintenance") setRelease(await api.releaseInfo());
+    } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot refresh settings" }); }
+    finally { setSaving(false); }
+  }
 
   const selectedProvider = useMemo(() => global?.providers.find((provider) => provider.id === providerId), [global, providerId]);
   const selectedDefaultModel = useMemo(() => modelPreferences?.models.find((model) => model.provider === modelPreferences.defaultProvider && model.id === modelPreferences.defaultModel), [modelPreferences]);
@@ -85,12 +115,12 @@ export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Works
   }, [modelPreferences, modelSearch]);
 
   useEffect(() => {
-    if (!subscriptionFlow || subscriptionFlow.status !== "pending") return;
+    if (!active || !subscriptionFlow || subscriptionFlow.status !== "pending") return;
     const timer = window.setTimeout(() => {
       void api.subscriptionLogin(subscriptionFlow.id).then((next) => { setSubscriptionFlow(next); if (next.status === "success") void subscriptionCompleted(); }).catch((reason) => setNotice({ kind: "error", text: reason.message }));
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [subscriptionFlow]);
+  }, [active, subscriptionFlow]);
 
   function persistAgentDefaults(next: GlobalSettings, success: string): Promise<void> {
     const revision = ++globalSaveRevision.current;
@@ -135,7 +165,7 @@ export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Works
 
   async function refreshProviderAndModels(success: string) {
     const [refreshed, preferences] = await Promise.all([api.globalSettings(), api.modelPreferences()]);
-    setGlobal(refreshed); setModelPreferences(preferences); setSubscriptionMode(Boolean(refreshed.providers.find((provider) => provider.id === providerId)?.usingSubscription)); setSubscriptionBusy(false); setNotice({ kind: "success", text: success });
+    setGlobal(refreshed); setModelPreferences(preferences); setSubscriptionBusy(false); setNotice({ kind: "success", text: success });
   }
 
   async function subscriptionCompleted() {
@@ -264,46 +294,40 @@ export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Works
 
   async function refreshGlobalPrompt() {
     setPromptRefreshing(true); setNotice(null);
-    try { setGlobalSystemPrompt(await api.globalSystemPrompt(workspace?.id)); }
+    try { setGlobalSystemPrompt(await api.globalSystemPrompt()); }
     catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot refresh global system prompt" }); }
     finally { setPromptRefreshing(false); }
   }
 
-  async function saveWorkspacePrompt() {
-    if (!workspace || !workspaceSettings) return;
-    const workspaceId = workspace.id;
+  async function savePrompt() {
+    if (!global) return;
+    const append = promptDraft;
     setSaving(true); setNotice(null);
-    const task = workspaceSaveQueue.current.catch(() => undefined).then(() => api.saveWorkspaceSystemPrompt(workspaceId, { append: workspacePromptDraft }));
-    workspaceSaveQueue.current = task.then(() => undefined, () => undefined);
+    const task = preferencesSaveQueue.current.catch(() => undefined).then(() => api.saveGlobalSystemPrompt({ append }));
+    preferencesSaveQueue.current = task.then(() => undefined, () => undefined);
     try {
       const saved = await task;
-      if (workspaceIdRef.current !== workspaceId) return;
-      setWorkspaceSettings((current) => current ? { ...current, agent: { ...current.agent, systemPrompt: saved.agent.systemPrompt } } : saved);
-      setWorkspacePromptDraft(saved.agent.systemPrompt.append); setNotice({ kind: "success", text: "Workspace system prompt append saved. Newly opened sessions will use this content." });
-    } catch (reason) { if (workspaceIdRef.current === workspaceId) setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save workspace system prompt" }); }
-    finally { if (workspaceIdRef.current === workspaceId) setSaving(false); }
+      setGlobal((current) => current ? { ...current, agent: { ...current.agent, systemPrompt: saved.agent.systemPrompt } } : current);
+      setGlobalSystemPrompt((current) => ({ ...current, content: "" }));
+      setNotice({ kind: "success", text: "Global system prompt saved. Newly opened sessions will use this content." });
+    } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save system prompt" }); }
+    finally { setSaving(false); }
   }
 
-  function cancelWorkspacePrompt() {
-    setWorkspacePromptDraft(workspaceSettings?.agent.systemPrompt.append || ""); setNotice(null);
-  }
-
-  function persistWorkspace(next: WorkspaceSettings, success: string): Promise<void> {
-    if (!workspace) return Promise.resolve();
-    const workspaceId = workspace.id;
-    const revision = ++workspaceSaveRevision.current;
-    setWorkspaceSettings(next); setSaving(true); setNotice(null);
-    const task = workspaceSaveQueue.current.catch(() => undefined).then(async () => {
-      const saved = await api.saveWorkspaceSettings(workspaceId, { agent: { tools: next.agent.tools }, files: next.files });
-      if (workspaceIdRef.current === workspaceId && revision === workspaceSaveRevision.current) { setWorkspaceSettings(saved); setNotice({ kind: "success", text: success }); }
+  function persistPreferences(next: GlobalSettings, success: string): Promise<void> {
+    const revision = ++preferencesSaveRevision.current;
+    setGlobal(next); setSaving(true); setNotice(null);
+    const task = preferencesSaveQueue.current.catch(() => undefined).then(async () => {
+      const saved = await api.saveGlobalPreferences({ agent: { tools: next.agent.tools }, files: next.files });
+      if (revision === preferencesSaveRevision.current) { setGlobal((current) => current ? { ...current, agent: { ...current.agent, tools: saved.agent.tools }, files: saved.files } : current); setNotice({ kind: "success", text: success }); }
     }).catch(async (reason) => {
-      if (workspaceIdRef.current === workspaceId && revision === workspaceSaveRevision.current) {
-        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save workspace setting" });
-        const restored = await api.workspaceSettings(workspaceId).catch(() => null);
-        if (restored && workspaceIdRef.current === workspaceId) setWorkspaceSettings(restored);
+      if (revision === preferencesSaveRevision.current) {
+        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save setting" });
+        const restored = await api.globalPreferences().catch(() => null);
+        if (restored) setGlobal((current) => current ? { ...current, agent: { ...current.agent, tools: restored.agent.tools }, files: restored.files } : current);
       }
-    }).finally(() => { if (workspaceIdRef.current === workspaceId && revision === workspaceSaveRevision.current) setSaving(false); });
-    workspaceSaveQueue.current = task;
+    }).finally(() => { if (revision === preferencesSaveRevision.current) setSaving(false); });
+    preferencesSaveQueue.current = task;
     return task;
   }
 
@@ -312,40 +336,38 @@ export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Works
     void persistUiSettings({ ...global, theme }, "Theme saved.");
   }
 
-  function toggleTool(tool: WorkspaceTool) {
-    if (!workspaceSettings) return;
-    const selected = workspaceSettings.agent.tools.includes(tool);
-    const tools = selected ? workspaceSettings.agent.tools.filter((item) => item !== tool) : [...workspaceSettings.agent.tools, tool];
+  function toggleTool(tool: AgentTool) {
+    if (!global) return;
+    const tools = global.agent.tools.includes(tool) ? global.agent.tools.filter((item) => item !== tool) : [...global.agent.tools, tool];
     if (tools.length === 0) { setNotice({ kind: "error", text: "Select at least one agent tool" }); return; }
-    const next = { ...workspaceSettings, agent: { ...workspaceSettings.agent, tools } };
-    void persistWorkspace(next, "Agent tools saved. Newly opened sessions will use this selection.");
+    void persistPreferences({ ...global, agent: { ...global.agent, tools } }, "Agent tools saved. Newly opened sessions will use this selection.");
   }
 
-  function updateFileSettings(files: WorkspaceSettings["files"], success: string) {
-    if (!workspaceSettings) return;
-    void persistWorkspace({ ...workspaceSettings, files }, success);
+  function updateFileSettings(files: GlobalPreferences["files"], success: string) {
+    if (global) void persistPreferences({ ...global, files }, success);
   }
 
   if (loading) return <section className="settings-page"><div className="page-loading"><LoaderCircle size={20} />Loading settings</div></section>;
 
   return <section className="settings-page">
-    <header className="page-header"><div><h2>Settings</h2><p>{workspace ? `Global defaults and ${workspace.name} preferences` : "Global defaults and account"}</p></div></header>
+    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces</p></div><button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={saving} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button></header>
     <div className="settings-layout">
-      <div className="settings-tabs" role="tablist">
-        <button className={tab === "global" ? "active" : ""} onClick={() => { setTab("global"); setNotice(null); }}><Settings2 size={16} /><span>Global</span><small>All workspaces</small></button>
-        <button className={tab === "workspace" ? "active" : ""} disabled={!workspace} onClick={() => { setTab("workspace"); setNotice(null); }}><SlidersHorizontal size={16} /><span>Workspace</span><small>{workspace?.name || "No workspace"}</small></button>
-      </div>
-      <main className="settings-content">
-        <div className="settings-scope"><span>{tab === "global" ? "Global configuration" : "Workspace configuration"}</span><code>{tab === "global" ? `${release?.agentDir || "PI_ARK_HOME/pi-agent"}/settings.json + PI_ARK_HOME/config.json` : `${workspace?.path || "No workspace"}/.pi-ark/config.json`}</code></div>
-        {notice && <div className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={16} /> : <CircleAlert size={16} />}{notice.text}</div>}
-        {tab === "global" && global && <>
-          <div className="settings-category-title"><span>Interface</span><p>Visual preferences shared by this Pi-Ark service.</p></div>
+      <nav className="settings-tabs" aria-label="Settings categories">
+        <span className="settings-nav-label">Preferences</span>
+        {categories.map((item) => <button type="button" key={item.id} className={category === item.id ? "active" : ""} aria-current={category === item.id ? "page" : undefined} onClick={() => { setCategory(item.id); setNotice(null); }}><item.icon size={16} /><span>{item.label}</span></button>)}
+      </nav>
+      <main className="settings-content" ref={contentRef} onScroll={(event) => { if (active) scrollPositions.current[category] = event.currentTarget.scrollTop; }}>
+        <div className="settings-content-heading"><span>Global settings</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
+        {notice && <div role="status" className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={15} /> : <CircleAlert size={15} />}{notice.text}</div>}
+        {global && <>
+          <div className="settings-category" hidden={category !== "interface"}>
           <section className="settings-section">
             <div className="settings-section-title"><Palette size={17} /><div><h3>Appearance</h3><p>Theme and conversation visibility shared by every workspace and device using this service.</p></div></div>
-            {(["dark", "light"] as const).map((group) => <div className="theme-group" key={group}><h4>{group === "dark" ? "Dark" : "Light"}</h4><div className="theme-options">{themes.filter((theme) => theme.group === group).map((theme) => <button type="button" className={global.theme === theme.id ? "selected" : ""} onClick={() => selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><span><strong>{theme.name}</strong><small>{theme.description}</small></span>{global.theme === theme.id && <Check size={14} />}</button>)}</div></div>)}
+            <div className="theme-options" aria-label="Theme">{themes.map((theme) => <button type="button" aria-pressed={global.theme === theme.id} title={theme.description} className={global.theme === theme.id ? "selected" : ""} onClick={() => selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><strong>{theme.name}</strong><Check size={13} className={global.theme === theme.id ? "" : "theme-check-hidden"} /></button>)}</div>
             <div className="settings-rows"><div className="settings-row"><div><strong>Hide reasoning</strong><span>Hide reasoning content in every conversation while preserving it in Session history.</span></div><Toggle checked={global.hideReasoning} onChange={(checked) => void persistUiSettings({ ...global, hideReasoning: checked }, "Reasoning visibility saved.")} /></div></div>
           </section>
-          <div className="settings-category-title"><span>AI runtime</span><p>Provider credentials and defaults for new sessions.</p></div>
+          </div>
+          <div className="settings-category" hidden={category !== "models"}>
           <section className="settings-section">
             <div className="settings-section-title"><Cpu size={17} /><div><h3>Provider and model</h3><p>Manage Provider credentials, choose the models shown in model menus, and set the default for new sessions.</p></div></div>
             <div className="settings-grid">
@@ -361,18 +383,25 @@ export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Works
               <div className="model-preferences-list">{groupedModels.map(([providerName, providerModels]) => <div className="model-provider-group" key={providerName}><div className="model-provider-heading"><strong>{providerName}</strong><span>{providerModels.filter((model) => model.enabled).length} selected</span></div>{providerModels.map((model) => { const isDefault = model.provider === modelPreferences?.defaultProvider && model.id === modelPreferences.defaultModel; return <div className={`model-preference-row ${model.enabled ? "enabled" : ""}`} key={`${model.provider}/${model.id}`}><button type="button" className="model-visibility" role="checkbox" aria-checked={model.enabled} aria-label={`${model.enabled ? "Hide" : "Show"} ${model.name || model.id} in model menus`} disabled={saving} onClick={() => toggleModel(model.provider, model.id)}><span>{model.enabled && <Check size={12} />}</span></button><div><strong>{model.name || model.id}</strong><small>{model.provider}/{model.id} · {model.contextWindow.toLocaleString()} context{model.reasoning ? " · reasoning" : ""}</small></div><button type="button" className={`model-default ${isDefault ? "selected" : ""}`} aria-label={isDefault ? `${model.name || model.id} is the default model` : `Use ${model.name || model.id} as default`} aria-pressed={isDefault} disabled={saving} onClick={() => selectDefaultModel(model.provider, model.id)}><Star size={14} fill={isDefault ? "currentColor" : "none"} /></button></div>; })}</div>)}{groupedModels.length === 0 && <div className="model-preferences-empty">{modelPreferences?.models.length ? "No models match this search." : "Connect a Provider to choose models."}</div>}</div>
             </div>
           </section>
-          <div className="settings-category-title"><span>Installation and maintenance</span><p>Release status, paths, updates, rollback, logs, and service commands.</p></div>
+          </div>
+          <div className="settings-category" hidden={category !== "maintenance"}>
+          {!release && <div className="settings-inline-loading">{releaseChecking ? <><LoaderCircle size={16} />Loading release information</> : <button type="button" className="secondary-button" onClick={() => void checkReleaseUpdate()}>Load release information</button>}</div>}
           {release && <section className="settings-section pi-core-section">
             <div className="settings-section-title"><PackageOpen size={17} /><div><h3>Pi-Ark release</h3><p>Pi-Ark and its bundled, compatible pi core are updated together.</p></div></div>
             <div className="pi-core-details"><div><span>Pi-Ark version</span><strong>{release.version}</strong></div><div><span>Bundled pi core</span><strong>{release.coreVersion}</strong></div><div><span>Install mode</span><strong>{release.installedRelease ? `Release · ${release.channel}` : "Development checkout"}</strong></div>{release.latestVersion && <div><span>Latest release</span><strong>{release.latestVersion}</strong></div>}{release.previousVersion && <div><span>Previous release</span><strong>{release.previousVersion}</strong></div>}<div className="path"><span>Install path</span><code>{release.installPath}</code></div><div className="path"><span>Data path</span><code>{release.dataDir}</code></div><div className="path"><span>Pi-Ark agent data</span><code>{release.agentDir}</code></div><div className="path"><span>Pi core package</span><code>{release.corePath}</code></div></div>
             <div className="maintenance-commands"><span>Service management commands</span>{Object.entries(release.commands).map(([name, command]) => <div key={name}><strong>{name}</strong><code>{command}</code></div>)}</div>
             <div className="pi-core-actions"><button type="button" className="secondary-button" disabled={releaseChecking || releaseUpdating} onClick={() => void checkReleaseUpdate()}>{releaseChecking ? <LoaderCircle size={14} /> : <RefreshCw size={14} />}Check for updates</button>{release.rollbackAvailable && <button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseRollbackOpen(true)}><RotateCcw size={14} />Roll back</button>}{release.channel === "stable" && release.latestVersion && release.updateAvailable && <button type="button" className="primary-button" disabled={releaseUpdating || !release.installedRelease} onClick={() => setReleaseUpdateOpen(true)}><Download size={14} />Update to {release.latestVersion}</button>}{release.channel === "stable" && release.latestVersion && !release.updateAvailable && <span className="pi-core-current"><Check size={13} />Up to date</span>}{release.channel === "development" && <span className="pi-core-current">Development build</span>}</div>
           </section>}
-          <div className="settings-category-title"><span>Agent instructions and behavior</span><p>Effective system prompt and shared conversation defaults.</p></div>
+          </div>
+          <div className="settings-category" hidden={category !== "agent"}>
           <section className="settings-section">
-            <div className="settings-section-title"><MessageSquareText size={17} /><div><h3>System prompt</h3><p>View the effective prompt generated by Pi-Ark's pi core. Edit the optional files on the server, then refresh this preview.</p></div></div>
-            <div className="prompt-file-guide"><div><FileText size={15} /><span><strong>Optional replacement file</strong><code>{globalSystemPrompt.systemPromptPath}</code></span></div><div><FileText size={15} /><span><strong>Optional append file</strong><code>{globalSystemPrompt.appendSystemPromptPath}</code></span></div><p>The preview below is the complete effective prompt generated by pi. It includes built-in instructions, tools, context files, skills, and the current workspace path; it is not the raw content of these optional files.</p></div>
-            <div className="system-prompt-view"><div className="system-prompt-toolbar"><span className="system-prompt-mode">Effective system prompt · {workspace?.name || "service workspace"}</span><button type="button" className="secondary-button system-prompt-edit" disabled={promptRefreshing} onClick={() => void refreshGlobalPrompt()}>{promptRefreshing ? <LoaderCircle size={13} /> : <RefreshCw size={13} />}Refresh</button></div><pre>{globalSystemPrompt.content}</pre></div>
+            <div className="settings-section-title"><MessageSquareText size={17} /><div><h3>System prompt</h3><p>Additional instructions shared by every workspace. Changes apply to newly opened sessions.</p></div></div>
+            <label className="settings-field"><span>Global append content</span><textarea className="settings-textarea" rows={6} value={promptDraft} onChange={(event) => setPromptDraft(event.target.value)} placeholder="Add shared instructions for your Agent" /></label>
+            <div className="system-prompt-editor-actions"><button type="button" className="secondary-button" disabled={saving || promptDraft === global.agent.systemPrompt.append} onClick={() => { setPromptDraft(global.agent.systemPrompt.append); setNotice(null); }}>Cancel</button><button type="button" className="primary-button" disabled={saving || promptDraft === global.agent.systemPrompt.append} onClick={() => void savePrompt()}>{saving ? <LoaderCircle size={14} /> : <Save size={14} />}Save system prompt</button></div>
+            <details className="settings-prompt-preview" onToggle={(event) => { if (event.currentTarget.open && !globalSystemPrompt.content && !promptRefreshing) void refreshGlobalPrompt(); }}><summary><FileText size={14} />Preview effective prompt</summary>
+              <div className="prompt-file-guide"><div><FileText size={15} /><span><strong>Optional replacement file</strong><code>{globalSystemPrompt.systemPromptPath || "PI_ARK_AGENT_DIR/SYSTEM.md"}</code></span></div><div><FileText size={15} /><span><strong>Optional append file</strong><code>{globalSystemPrompt.appendSystemPromptPath || "PI_ARK_AGENT_DIR/APPEND_SYSTEM.md"}</code></span></div><p>The preview includes pi instructions, tools, context files, and shared append content.</p></div>
+              <div className="system-prompt-view"><div className="system-prompt-toolbar"><span className="system-prompt-mode">Effective system prompt</span><button type="button" className="secondary-button system-prompt-edit" disabled={promptRefreshing} onClick={() => void refreshGlobalPrompt()}>{promptRefreshing ? <LoaderCircle size={13} /> : <RefreshCw size={13} />}Refresh</button></div><pre>{promptRefreshing ? "Loading effective prompt…" : globalSystemPrompt.content || "Refresh to load the effective prompt."}</pre></div>
+            </details>
           </section>
           <section className="settings-section">
             <div className="settings-section-title"><SlidersHorizontal size={17} /><div><h3>Agent defaults</h3><p>Conversation behavior shared by all workspaces.</p></div></div>
@@ -385,27 +414,24 @@ export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Works
               <div className="settings-row"><div><strong>Automatic retry</strong><span>Retry transient provider failures with pi defaults.</span></div><Toggle checked={global.retryEnabled} onChange={(checked) => void persistAgentDefaults({ ...global, retryEnabled: checked }, "Automatic retry setting saved.")} /></div>
             </div>
           </section>
-          <div className="settings-category-title"><span>Account and security</span><p>Current browser authentication session.</p></div>
+          <section className="settings-section">
+            <div className="settings-section-title"><Wrench size={17} /><div><h3>Agent tools</h3><p>File tools enabled in every workspace. Read Pi-Ark link is always available.</p></div></div>
+            <div className="tool-options">{toolOptions.map((tool) => <button type="button" aria-pressed={global.agent.tools.includes(tool.id)} className={global.agent.tools.includes(tool.id) ? "selected" : ""} onClick={() => toggleTool(tool.id)} key={tool.id}><span className="tool-check">{global.agent.tools.includes(tool.id) && <Check size={13} />}</span><div><strong>{tool.name}</strong><small>{tool.description}</small></div></button>)}</div>
+          </section>
+          </div>
+          <div className="settings-category" hidden={category !== "account"}>
           <section className="settings-section account-section">
             <div className="settings-section-title"><LogOut size={17} /><div><h3>Account</h3><p>End the current Pi-Ark browser session.</p></div></div>
             <button className="secondary-button account-signout" onClick={async () => { await api.logout(); window.location.reload(); }}><LogOut size={15} />Sign out</button>
           </section>
-        </>}
-        {tab === "workspace" && workspace && workspaceSettings && <>
+          </div>
+          <div className="settings-category" hidden={category !== "files"}>
           <section className="settings-section">
-            <div className="settings-section-title"><MessageSquareText size={17} /><div><h3>System prompt append</h3><p>Append Workspace content after pi loads its system prompt files. Save an empty value to clear the Workspace append.</p></div></div>
-            <label className="settings-field"><span>Workspace append content</span><textarea className="settings-textarea" rows={10} value={workspacePromptDraft} onChange={(event) => setWorkspacePromptDraft(event.target.value)} placeholder="Optional content appended for this workspace" /></label>
-            <div className="system-prompt-editor-actions"><button type="button" className="secondary-button" disabled={saving || workspacePromptDraft === workspaceSettings.agent.systemPrompt.append} onClick={cancelWorkspacePrompt}>Cancel</button><button type="button" className="primary-button" disabled={saving || workspacePromptDraft === workspaceSettings.agent.systemPrompt.append} onClick={() => void saveWorkspacePrompt()}>{saving ? <LoaderCircle size={14} /> : <Save size={14} />}Save system prompt</button></div>
+            <div className="settings-section-title"><Eye size={17} /><div><h3>File browser</h3><p>Shared browsing preferences for all workspaces.</p></div></div>
+            <div className="settings-rows"><div className="settings-row"><div><strong>Show hidden files</strong><span>Include dotfiles such as .gitignore. Pi-Ark internal state remains private.</span></div><Toggle checked={global.files.showHiddenFiles} onChange={(checked) => updateFileSettings({ ...global.files, showHiddenFiles: checked }, "Hidden file preference saved.")} /></div></div>
+            <label className="settings-field settings-preview-size"><span>Maximum preview size</span><input type="number" min={1} max={100} step={1} value={global.files.maxPreviewSizeMb} onChange={(event) => setGlobal({ ...global, files: { ...global.files, maxPreviewSizeMb: Number(event.target.value) } })} onBlur={() => updateFileSettings(global.files, "Preview size saved.")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><small>Files up to this size can open in Files. Larger files remain available for download. Range: 1–100 MB.</small></label>
           </section>
-          <section className="settings-section">
-            <div className="settings-section-title"><Wrench size={17} /><div><h3>Agent tools</h3><p>Tools enabled when Pi-Ark opens a session in {workspace.name}.</p></div></div>
-            <div className="tool-options">{toolOptions.map((tool) => <button type="button" className={workspaceSettings.agent.tools.includes(tool.id) ? "selected" : ""} onClick={() => toggleTool(tool.id)} key={tool.id}><span className="tool-check">{workspaceSettings.agent.tools.includes(tool.id) && <Check size={13} />}</span><div><strong>{tool.name}</strong><small>{tool.description}</small></div></button>)}</div>
-          </section>
-          <section className="settings-section">
-            <div className="settings-section-title"><Eye size={17} /><div><h3>File browser</h3><p>Display preferences for the current workspace.</p></div></div>
-            <div className="settings-rows"><div className="settings-row"><div><strong>Show hidden files</strong><span>Include dotfiles such as .gitignore. Pi-Ark internal state remains private.</span></div><Toggle checked={workspaceSettings.files.showHiddenFiles} onChange={(checked) => updateFileSettings({ ...workspaceSettings.files, showHiddenFiles: checked }, "Hidden file preference saved.")} /></div></div>
-            <label className="settings-field settings-preview-size"><span>Maximum preview size</span><input type="number" min={1} max={100} step={1} value={workspaceSettings.files.maxPreviewSizeMb} onChange={(event) => setWorkspaceSettings({ ...workspaceSettings, files: { ...workspaceSettings.files, maxPreviewSizeMb: Number(event.target.value) } })} onBlur={() => updateFileSettings(workspaceSettings.files, "Preview size saved.")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><small>Files up to this size can open in Files. Larger files remain available for download. Range: 1–100 MB.</small></label>
-          </section>
+          </div>
         </>}
       </main>
     </div>

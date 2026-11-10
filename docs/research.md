@@ -34,7 +34,7 @@ Pi-Ark 使用以下公开 API：
 
 Pi-Ark 使用以下能力：
 
-- `SettingsManager.create(cwd, agentDir)`：读取和写入 enabled models、default provider/model/thinking、queue modes、compaction 和 retry。
+- `SettingsManager.create(cwd, agentDir, { projectTrusted: false })`：从 Global 读取和写入 enabled models、default provider/model/thinking、queue modes、compaction 和 retry。SettingsService、ResourceLoader 与 AgentSession 共用该创建方式。
 - `SettingsManager.getEnabledModels()/setEnabledModels()`：读取和保存模型可见清单。
 - `ModelRuntime.create(...)`：读取 provider catalog、credentials 和 custom model config。
 - `ModelRuntime.login(provider, "api_key", interaction)`：保存 API key。
@@ -55,9 +55,15 @@ Pi-Ark 使用 `DefaultResourceLoader` 组合以下内容：
 - `PI_ARK_AGENT_DIR/APPEND_SYSTEM.md`。
 - Workspace context files。
 - Skills 和其他 pi resources。
-- Workspace system prompt append。
+- Global preferences 中的 system prompt append。
 
-Global preview 通过临时 AgentSession 的 `systemPrompt` 读取 complete effective prompt。Workspace append 使用 `appendSystemPromptOverride` 放在 Global append resources 后面。
+Global preview 与实际 runtime 共用 ResourceLoader 创建流程，通过临时 AgentSession 的 `systemPrompt` 读取 complete effective prompt。Loader 显式选择 Global `SYSTEM.md` 与 `APPEND_SYSTEM.md`，并使用 `appendSystemPromptOverride` 在 Global append resources 后面追加共享内容。Workspace 的 AGENTS.md 保持为项目上下文。
+
+## Compact 的统计信息
+
+Pi-Ark 使用 SDK 的 `buildSessionProjection(entries, compactionEntryId, byId)` 重建每次压缩当时的上下文，并通过 `getCurrentSystemMessage()` 与 `estimateTokens()` 计算压缩后的组成。`tokensBefore` 来自原生 compaction entry；After、System prompt、Summary 和 Retained 使用 SDK 的估算方法。`CompactionEntry.usage` 提供生成摘要的 input/output token 用量。
+
+AgentService 从 `compaction_start` 与 `compaction_end` 测量耗时，并通过 `appendCustomEntry()` 追加 `pi-ark.compaction-timing`，将耗时和触发原因关联到原生 compaction entry。该 custom entry 是展示数据。读取历史统计时保持 Session 的活动 leaf，并以压缩当时的记录为依据。
 
 ## Pi-Ark 自带的链接读取工具
 
