@@ -73,6 +73,16 @@ Web 和工具共用内部链接解析、完整活动分支的 display projection
 
 工具提供 Workspace 摘要、Session 分页、Message 前后文和长正文续读。单次 JSON text 最多为 48 KiB，`nextContentOffset` 与分页位置支持后续读取。该能力通过进程内的 native custom tool 提供，SessionReader 作为独立模块供后续集成复用。
 
+## Subagent 的 SDK 集成
+
+Pi-Ark 通过 `defineTool()` 注册 `subagent`，并复用进程内的 `createAgentSession()` 为委派任务创建持久化的子 Session。任务使用独立的 SessionManager 与消息上下文，模型、thinking level、工具列表与 Global system prompt append 取自父 Session 的当次配置。进行中的创建与恢复共享同一个 Promise，WebSocket 打开子 Session 时复用已有 runtime。
+
+工具等待各任务的 `AgentSession.prompt()` 结束，通过工具的 `onUpdate` 回调发送进度，并在返回正文中提供结果摘录与来源链接。Server 同时发送独立的 `subagent-state` 消息，snapshot 保留完整的委派关系与状态，便于浏览器重连。AbortSignal 与 `AgentSession.abort()` 配合完成停止操作。
+
+`SessionManager.getBranch(fromId)` 支持读取指定历史分支，`getEntry(id)` 用于确认 entry 存在，读取保持当前活动 leaf。Pi-Ark 将来源与结果的分支 entry 存入委派记录，并通过 `leafEntryId` 工具参数与内部链接 query 传递。Message 引用中的原始图片由 Server 另外传入子 Session 的 `prompt({ images })`；链接工具的文本结果继续保留 MIME type 说明。
+
+委派关系采用独立的 JSON 记录，子 Session 保持原生 JSONL。首版由父 Session 组织后续委派与顺序任务，并通过服务实例与父 Session 的并发限制管理同时执行的任务。
+
 ## Session 存储选择
 
 Pi-Ark 显式传入 `<workspace>/.pi-ark/sessions`，使 Session 与 Workspace data 一起管理。Session 文件继续采用 pi 原生 JSONL tree，保留以下信息：

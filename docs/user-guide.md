@@ -328,6 +328,29 @@ Message link 默认读取指定消息。需要前后文时，可以要求 Agent 
 
 该工具随新建或重新打开的 Session 启用，Workspace 的 Agent tools 设置继续控制文件工具。
 
+### 使用 subagent
+
+在父 Session 中向 Agent 说明可以独立执行的任务，以及每个任务的预期结果。需要参考之前的会话内容时，同时提供内部消息链接与阅读目的。例如：
+
+```text
+请使用 subagent 并行分析服务端的任务调度与 Web 的任务状态展示。
+服务端的任务预期结果是列出调度流程与对应文件。
+Web 的任务预期结果是列出用户可见状态与对应组件。
+请在父 Session 中汇总结果。
+```
+
+Agent 委派后，父 Session 的 Subagent tasks 面板显示各任务的进度。运行状态包括 `queued`（等待执行）与 `running`（正在执行）；结束状态包括 `completed`（已完成）、`failed`（执行出错）、`cancelled`（已停止）与 `interrupted`（服务中断）。每次委派支持 1–8 个任务，每个父 Session 最多同时执行 4 个任务，服务实例最多同时执行 8 个任务。
+
+- 点击 Open session，查看子 Session 的完整过程。
+- 点击 Open result，定位任务完成时的结果消息。
+- 在子 Session 中点击 Open parent request，返回委派时的父消息。
+- 点击 Stop task，停止对应任务；在父 Session 中点击 Stop，停止该 Session 当前等待的子任务。
+- 任务结束或停止后，可以在子 Session 中继续对话。
+
+任务使用独立的会话上下文，并共享 Workspace 文件。并行修改任务应明确各任务负责的文件，父 Session 负责组织共同文件的修改与后续交付。任务面板分别显示子任务用量与汇总，父 Session 的 Session information 保留自身的用量。
+
+任务结果与来源链接会保留当时的分支参数 `leafEntryId`。打开后，页面显示 Historical conversation branch，点击 Open current conversation 可以切换到当前对话。父 Session 或子 Session 后续发生 Rollback 时，这些历史链接继续指向原来的消息。
+
 ### 查看 Session information
 
 会话状态栏左侧依次显示标题、编辑标题按钮和状态。标题组不占用剩余空间；标题根据实际文字长度占用空间，达到当前上限后截断；编辑按钮紧跟标题。右侧只显示 context 百分比数字和信息按钮。Disconnected、Connection error 和其他错误状态使用完整红灯、红色系底色和边框。移动端的过长状态文字会省略，红灯保持完整显示。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。

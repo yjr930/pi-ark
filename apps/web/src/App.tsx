@@ -31,6 +31,7 @@ export default function App() {
   const sessionStatuses = statusesByWorkspace[workspaceId] || {};
   const [sessionId, setSessionId] = useState("");
   const [targetMessageId, setTargetMessageId] = useState(initialPermalink.current.messageId);
+  const [leafEntryId, setLeafEntryId] = useState(initialPermalink.current.leafEntryId);
   const [page, setPage] = useState<Page>(initialPermalink.current.page);
   const [settingsVisited, setSettingsVisited] = useState(initialPermalink.current.page === "settings");
   const [sidebar, setSidebar] = useState(false);
@@ -63,10 +64,10 @@ export default function App() {
       const selectedId = result.sessions.find((session) => session.id === linkedSessionId)?.id || result.sessions.find((session) => !session.archived)?.id || "";
       setSessions(result.sessions); setSessionId(selectedId);
       if (pendingTarget && selectedId === pendingTarget.sessionId) {
-        setTargetMessageId(pendingTarget.messageId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageId));
+        setTargetMessageId(pendingTarget.messageId); setLeafEntryId(pendingTarget.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageId, pendingTarget.leafEntryId));
       } else {
-        if (!linkedSessionId || selectedId !== linkedSessionId) setTargetMessageId(undefined);
-        if (!initialTarget.messageId || selectedId !== linkedSessionId) window.history.replaceState(null, "", appLocation(initialTarget.page, workspaceId, selectedId));
+        if (!linkedSessionId || selectedId !== linkedSessionId) { setTargetMessageId(undefined); setLeafEntryId(undefined); }
+        if ((!initialTarget.messageId && !initialTarget.leafEntryId) || selectedId !== linkedSessionId) window.history.replaceState(null, "", appLocation(initialTarget.page, workspaceId, selectedId));
       }
       pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" };
     }).catch((reason) => setError(reason.message));
@@ -134,28 +135,28 @@ export default function App() {
     try {
       const created = await api.createSession(workspace.id);
       setSessions(await api.sessions(workspace.id).then((result) => result.sessions));
-      setSessionId(created.id); setTargetMessageId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, created.id));
+      setSessionId(created.id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, created.id));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Cannot create session"); }
   }
 
   async function openCreatedSession(createdSessionId: string) {
     if (!workspaceId) return;
     setSessions(await api.sessions(workspaceId).then((result) => result.sessions));
-    setSessionId(createdSessionId); setTargetMessageId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, createdSessionId));
+    setSessionId(createdSessionId); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, createdSessionId));
   }
 
   function selectWorkspace(id: string) {
-    setWorkspaceId(id); setTargetMessageId(undefined); setCreateGroupOpen(false); setPage("agent"); window.history.replaceState(null, "", workspaceLocation(id));
+    setWorkspaceId(id); setTargetMessageId(undefined); setLeafEntryId(undefined); setCreateGroupOpen(false); setPage("agent"); window.history.replaceState(null, "", workspaceLocation(id));
   }
 
   function selectPage(nextPage: Page) {
     if (nextPage === "settings") setSettingsVisited(true);
-    setPage(nextPage); setSidebar(false); window.history.replaceState(null, "", appLocation(nextPage, workspaceId, sessionId));
+    setPage(nextPage); setSidebar(false); window.history.replaceState(null, "", nextPage === "agent" && workspaceId && sessionId ? sessionPermalink(workspaceId, sessionId, targetMessageId, leafEntryId) : appLocation(nextPage, workspaceId, sessionId));
   }
 
   function selectSession(id: string) {
     setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, id) }));
-    setSessionId(id); setTargetMessageId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, id));
+    setSessionId(id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, id));
   }
 
   function openNotebook() {
@@ -170,7 +171,7 @@ export default function App() {
     if (!result.sessions.some((item) => item.id === target.sessionId)) throw new Error("The linked session does not exist");
     setSessionLinkOpen(false); setShowArchivedSessions(false); setSidebar(false);
     if (target.workspaceId === workspaceId) {
-      setSessions(result.sessions); setSessionId(target.sessionId); setTargetMessageId(target.messageId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(target.workspaceId, target.sessionId, target.messageId));
+      setSessions(result.sessions); setSessionId(target.sessionId); setTargetMessageId(target.messageId); setLeafEntryId(target.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(target.workspaceId, target.sessionId, target.messageId, target.leafEntryId));
     } else {
       pendingInternalTarget.current = target; setWorkspaceId(target.workspaceId);
     }
@@ -178,7 +179,7 @@ export default function App() {
 
   function workspaceAdded(added: Workspace) {
     setWorkspaces((current) => [...current, added]);
-    setWorkspaceId(added.id); setTargetMessageId(undefined); setPage("agent"); setAddWorkspaceOpen(false); setSidebar(false); window.history.replaceState(null, "", workspaceLocation(added.id));
+    setWorkspaceId(added.id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setAddWorkspaceOpen(false); setSidebar(false); window.history.replaceState(null, "", workspaceLocation(added.id));
   }
 
   function workspaceRenamed(updated: Workspace) {
@@ -200,7 +201,13 @@ export default function App() {
   if (auth === "loading") return <div className="app-loading"><Box size={28} /><span>Pi-Ark</span></div>;
   if (auth === "out") return <Login onLogin={() => { setAuth("in"); void loadWorkspaces(); }} />;
 
-  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} onClickCapture={(event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !(event.target instanceof Element)) return;
+    const link = event.target.closest<HTMLAnchorElement>("a[data-pi-ark-link]");
+    if (!link?.dataset.piArkLink) return;
+    event.preventDefault();
+    void openInternalSessionLink(link.dataset.piArkLink).catch((reason) => setError(reason.message));
+  }} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
     {sidebar && <button className="sidebar-scrim" aria-label="Close sidebar" onClick={() => setSidebar(false)} />}
     <aside className={`sidebar ${sidebar ? "sidebar-open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`}>
       <div className="sidebar-brand"><div><Box size={18} /><strong>Pi-Ark</strong></div></div>
@@ -224,7 +231,7 @@ export default function App() {
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
       {!workspace && page !== "settings" && <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>}
-      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}`} workspace={workspace} session={selectedSession} targetMessageId={targetMessageId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
+      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}`} workspace={workspace} session={selectedSession} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} />}
         {workspace && page === "files" && <Files workspace={workspace} />}

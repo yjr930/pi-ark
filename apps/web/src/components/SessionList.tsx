@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, GitFork, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { internalSessionLink } from "../permalinks";
@@ -69,7 +69,7 @@ function SessionRow({ workspaceId, session, status, groups, active, onSelect, on
   const title = session.name || session.firstMessage || "New session";
   return <>
     <div className={`session-list-item ${active ? "active" : ""}`}>
-      <button className="session-open" title={lastUpdatedTooltip(session.modified)} onClick={onSelect}>{session.pinned && <Pin className="session-pin" size={10} />}<strong>{title}</strong><SessionState status={status} /></button>
+      <button className="session-open" title={lastUpdatedTooltip(session.modified)} onClick={onSelect}>{session.pinned && <Pin className="session-pin" size={10} />}{session.subagentOrigin && <GitFork className="session-subagent-icon" size={12} aria-label={`Subagent · ${session.subagentOrigin.state}`} />}<strong>{title}</strong><SessionState status={status} /></button>
       <div className="session-menu-root" ref={menuRef}><button className="row-menu-trigger" title={`Actions for ${title}`} aria-label={`Actions for ${title}`} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><MoreHorizontal size={15} /></button>
         {menuOpen && <div className="row-actions-menu session-actions-menu">
           <button onClick={() => { setMenuOpen(false); setRenameOpen(true); }}><Pencil size={14} />Rename</button>

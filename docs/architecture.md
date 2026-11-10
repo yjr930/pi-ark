@@ -77,6 +77,9 @@ docs/               产品、架构、使用和集成文档
 | Compact statistics | `apps/server/src/compaction-stats.ts` | 按压缩时的 projection 估算上下文组成，并关联压缩耗时 |
 | Session reader | `apps/server/src/session-reader.ts` | Workspace 摘要、Session 分页、Message 定位、前后文和长内容续读 |
 | Pi-Ark link tool | `apps/server/src/agent-tools/read-pi-ark-link.ts` | `read_pi_ark_link` 的参数、输出 schema、说明和执行入口 |
+| Subagent tool | `apps/server/src/agent-tools/subagent.ts` | 任务委派的参数与进度回调 |
+| Subagent runtime | `apps/server/src/subagents.ts`、`subagent-types.ts` | 子 Session 的创建、调度、停止与结果汇总 |
+| Subagent store | `apps/server/src/subagent-store.ts` | 委派记录的保存、关系查询与中断恢复 |
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
 | Session metadata | `apps/server/src/session-metadata.ts` | Pin、Archive、group 和串行原子写入 |
 | Workspace Notebook | `apps/server/src/workspace-notebook.ts` | Workspace 临时笔记的读取与串行原子写入 |
@@ -91,6 +94,7 @@ docs/               产品、架构、使用和集成文档
 |---|---|---|
 | Application shell | `apps/web/src/App.tsx` | Auth 状态、Workspace/Session 选择、页面导航、URL 和响应式侧栏 |
 | Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、message renderer、composer、queue、fork 和 rollback |
+| Subagent panel | `apps/web/src/components/SubagentRun.tsx` | 任务状态、停止操作、父子消息导航与用量汇总 |
 | Session memory cache | `apps/web/src/session-cache.ts` | 最近五个 Session 的 snapshot 与 UI state 浏览器内存 LRU cache |
 | Session status projection | `apps/web/src/session-status.ts` | 合并 runtime revision、计算 unread output 和记录当前浏览器的查看状态 |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
@@ -161,13 +165,27 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 创建 AgentSession 时，AgentService 加载以下输入：
 
 - Workspace cwd。
-- Global 启用的 tools，以及 Pi-Ark 自带的 `read_pi_ark_link`。
+- Global 启用的 tools，以及 Pi-Ark 自带的 `read_pi_ark_link` 和 `subagent`。
 - Pi-Ark agent directory 中的 Global resources。
 - Global system prompt append。
 - 已有 SessionManager。
 - `enabledModels` 解析出的 scoped models。
 
 新 Session 使用已勾选模型中的 Global default；Global default 不在当前 scope 中时，使用 scope 中的第一个模型。恢复已有 Session 时，pi SDK 优先恢复 Session JSONL 记录的当前模型，scoped models 用于后续模型选择。
+
+### Subagent
+
+普通 Session 通过 `subagent` 工具委派任务。输入为 `tasks` 数组，每个任务包含 `title`、`task`、`expectedResult`，以及可选的 `references`（`link`、`purpose` 和可选的 `leafEntryId`）。一次委派支持 1–8 个任务，每个父 Session 最多同时执行 4 个任务，服务实例最多同时执行 8 个任务。
+
+`SubagentService` 使用进程内 SDK 为每个任务创建独立的持久化 Session，并复用 `AgentService` 的 runtime registry。创建与恢复使用相同的进行中 Promise，网页打开子 Session 时复用同一个 runtime。子 Session 继承父 Session 当次委派的模型、thinking level、工具列表与 Global system prompt append，并追加任务角色说明。子 Session 使用独立的消息上下文，Workspace 文件目录由父子 Session 共享。子 Session 的工具列表保留 `read_pi_ark_link`；后续委派由父 Session 组织。
+
+委派记录保存到 `<workspace>/.pi-ark/subagent-runs/<run-id>.json`，包括父子关系、配置快照、工具调用标识、状态、引用、结果 entry、结果摘录与用量。记录按目标文件串行写入，使用临时文件与 rename 完成替换。相同父 Session 的相同 tool call 复用已有记录。子 Session 的消息继续使用原生 JSONL，并追加 `pi-ark.subagent-origin` custom entry。
+
+状态包括 `queued`、`running`、`completed`、`failed`、`cancelled` 和 `interrupted`。浏览器断开后任务继续执行；父 Session 的 Stop 会停止本次仍在等待的子任务；子任务的 Stop 操作针对该任务。服务加载已有记录时，将遗留的 `queued` 与 `running` 改为 `interrupted`，用户可以再次委派任务。删除操作保留委派记录，并标记父或子 Session 已删除。
+
+Server 自动附加父 Session 最近的 user message 作为来源，并保存引用的分支 entry。显式 Message 引用中的图片通过原始 image content 传入子 Session，相同来源 entry 的图片传递一次，每个任务最多传递 8 张图片与 20 MB 的图片内容。工具等待任务结束，并返回状态、结果摘录（最多 4096 bytes 或 200 行）、子 Session link、带历史分支参数的结果 Message link、用量与错误信息。完整正文继续通过 `read_pi_ark_link` 读取。
+
+`subagent-state` 向父子 Session 的浏览器连接发送关系与状态；snapshot 携带 `subagents`，其中包括 `runs`、可选的 `origin` 与 `managed`。运行中的受管子 Session 由父任务负责，Server 对交互式 prompt、模型修改与会话回退返回 409；任务结束或停止后，用户可以继续该 Session。
 
 ### Pi-Ark link 读取工具
 
@@ -186,10 +204,13 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 | `start` | Workspace 的 Session 列表位置，或 Session 的 display message 位置，从 1 开始 |
 | `limit` | Workspace 或 Session 的分页数量，默认为 20，范围为 1–100；Session 省略 `start` 时返回末尾一页 |
 | `offset` | Message 正文的 UTF-16 字符位置，默认为 0；使用返回的 `nextContentOffset` 继续读取 |
+| `leafEntryId` | 可选的历史分支 entry，也可以通过内部链接的同名 query 提供；使用 `getBranch(leafEntryId)` 构建 display projection |
 
 成功结果以 JSON text 和符合 `outputSchema` 的 `structuredContent` 返回。结果包含 Workspace、Session、target、messages 或 Session 摘要、pagination 和 `truncated`。每条消息包含短 Message ID、source entry ID、当前 display position、内部链接、role、timestamp 和可用的 model 或 tool 信息。正文按顺序保留文本、reasoning、tool call arguments、tool result 和 summary；图片表示为 MIME type 占位说明。消息的 `contentOffset`、`totalContentCharacters` 和 `nextContentOffset` 支持完整续读。
 
 单次序列化的结果最多为 48 KiB。Message 加前后文时优先为目标分配正文空间，结果仍按 display position 排列。部分消息提供 `nextContentOffset`；`pagination.nextStart` 指向后续条目，调用方使用 Session 或 Workspace link 继续分页。`INVALID_LINK`、`UNKNOWN_WORKSPACE`、`UNKNOWN_SESSION`、`MESSAGE_NOT_FOUND`、`INVALID_ARGUMENT`、`PAGE_OUT_OF_RANGE` 和 `CONTENT_OUT_OF_RANGE` 区分链接与读取错误。工具支持 AbortSignal，并声明读取性质的 annotations。
+
+链接参数与工具参数中的 `leafEntryId` 需要一致。返回的 Session 信息包含所选的 `leafEntryId`，指定分支时返回的链接也携带该参数。`BRANCH_NOT_FOUND` 表示指定 entry 已不存在。历史读取保持当前活动 leaf。
 
 ### Snapshot
 
@@ -201,6 +222,7 @@ Snapshot 包含以下状态：
 - 当前 client display window 的 messages。
 - `messageNumberOffset`、`totalDisplayMessages`、`targetMessageId` 和 `hasEarlierMessages`。
 - Streaming 和 idle 状态。
+- `subagents` 的任务关系与状态，以及可选的历史分支 `leafEntryId`。
 - 当前 model 和 thinking level。
 - 可用 thinking levels。
 - Queue。
@@ -399,6 +421,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | 路径 | 内容 |
 |---|---|
 | `<workspace>/.pi-ark/sessions/*.jsonl` | pi session tree |
+| `<workspace>/.pi-ark/subagent-runs/*.json` | 委派关系、配置快照、状态、结果引用与用量 |
 | `<workspace>/.pi-ark/notebook.md` | Workspace Notebook 的 UTF-8 Markdown 文本 |
 | `<workspace>/.pi-ark/sessions-meta.json` | Pin、Archive、groups 和 group definitions |
 | `<workspace>/.pi-ark/attachments/<session>/` | Session attachments |
@@ -466,6 +489,8 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 | GET | `/api/workspaces/:workspaceId/session-statuses` | 已打开的 Session runtime 状态与 status/update revisions |
 | PATCH/DELETE | `/api/workspaces/:workspaceId/sessions/:sessionId` | Metadata/name update 或 delete |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/fork` | Fork |
+| GET | `/api/workspaces/:workspaceId/sessions/:sessionId/subagents` | 父子关系与任务状态 |
+| POST | `/api/workspaces/:workspaceId/sessions/:sessionId/abort` | 停止 Session 及其当前等待的子任务 |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback` | Rollback |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback/restore` | Restore rollback |
 | PATCH | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/:itemId` | Queue reorder/mode，并返回权威 Queue state |
@@ -484,6 +509,7 @@ Path：`/ws/agent/:workspaceId/:sessionId`
 
 - `message`：打开包含指定短 Message ID 的 display window；纯数字值按旧 display position 兼容解析。
 - `start`：从指定的全局 message offset 恢复已经加载的 display window。
+- `leafEntryId`：展示历史分支，并保持当前活动 leaf；该连接使用历史 snapshot，支持 `load-earlier`。
 
 Browser commands：
 
@@ -497,6 +523,7 @@ Browser commands：
 Server messages：
 
 - `snapshot`，其中 messages 包含 `messageId`，Session state 包含 `messageNumberOffset`、`totalDisplayMessages`、`targetMessageId`、`hasEarlierMessages` 和 `queueRevision`
+- `subagent-state`，其中 `subagents` 包含委派记录、来源与受管状态
 - `queue-state`，其中包含 Queue items、`queueRevision` 和可选的 `confirmedOperationId`
 - `agent-event`
 - `notice`
@@ -559,8 +586,12 @@ Server 从 `apps/web/dist` 读取 Web assets。带 hash 的文件使用一年 im
 npm run build
 npm run check
 npm run check:behavior
+npm run check:subagents
+npm run check:subagents-ui
 npm run check:ui
 npm run release:build
 ```
+
+`check:subagents` 使用真实 SDK Session 与受控模型响应，覆盖并发限制、图片引用、结果截取、历史分支、停止、删除、恢复与工具注册。`check:subagents-ui` 构建项目，并自动创建临时 HTTPS 实例，使用临时数据目录与独立端口执行任务面板和双向导航的 Chromium 检查。设置 `PI_ARK_CHECK_FULL_UI=1` 后，该临时实例还会执行现有的 `check:ui` 脚本。
 
 Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、Session 切换后的 draft/attachment/disclosure 恢复、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

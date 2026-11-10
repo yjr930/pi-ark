@@ -1,3 +1,6 @@
+import type { SubagentOrigin, SubagentSessionState } from "../../server/src/subagent-types";
+export type { SubagentSessionState, SubagentRun, SubagentOrigin } from "../../server/src/subagent-types";
+
 export interface Workspace {
   id: string;
   name: string;
@@ -15,6 +18,7 @@ export interface SessionInfo {
   pinned: boolean;
   archived: boolean;
   groups: string[];
+  subagentOrigin?: SubagentOrigin;
 }
 
 export interface SessionGroup {
@@ -99,6 +103,8 @@ export interface AgentSnapshot {
   hasEarlierMessages: boolean;
   isStreaming: boolean;
   isIdle: boolean;
+  leafEntryId?: string;
+  subagents?: SubagentSessionState;
   model: { provider: string; id: string } | null;
   thinkingLevel: string;
   availableThinkingLevels: string[];

@@ -125,6 +125,16 @@ Workspace link 返回 Session 摘要。Session link 默认返回末尾 20 条消
 
 正文包含文本、reasoning、tool arguments、tool result 和 summary；图片以 MIME type 说明表示。单次结果最多为 48 KiB，较长的正文通过 `nextContentOffset` 和 `offset` 继续读取，更多条目通过分页位置继续读取。读取保持目标 Session 的运行状态与活动分支。
 
+### Subagent 任务
+
+Agent 可以通过 `subagent` 委派独立任务，子 Session 继承本次委派的模型与 thinking level，并在同一个 Workspace 中工作。每次委派支持 1–8 个任务，每个父 Session 同时执行的任务上限为 4，服务实例同时执行的任务上限为 8。父 Session 的任务面板显示任务标题、状态、当前工具、结果摘录、用量与错误信息。
+
+状态使用 `queued`、`running`、`completed`、`failed`、`cancelled` 和 `interrupted`。运行中的任务面板自动展开；任务结束后，用户可以展开结果。Open session 进入子 Session，Open result 进入任务完成时的结果消息，Stop task 停止对应任务。父 Session 的 Stop 会停止其当前等待的子任务。浏览器重连后，snapshot 恢复任务面板；服务中断后，遗留任务显示 `interrupted`。
+
+子 Session 的来源栏显示 Open parent request，用于定位委派时的父消息。侧栏通过分支图标标识子 Session。运行中的子任务显示 Parent-managed task，并提供 Stop；任务结束后，页面显示 Composer，用户可以继续对话。父子 Session 的关系独立于 Session group。
+
+引用与结果链接可以携带 `leafEntryId`，用于保留当时的历史分支。历史页面显示 Historical conversation branch 与 Open current conversation，用户可以切换到当前对话。页面中的内部 Session 或 Message 链接在应用内跳转；带修饰键的点击可以使用浏览器的新标签页操作。历史页面复制的消息链接保留分支参数。
+
 ### Composer
 
 Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只改变 conversation message 区域的宽度。Composer 作为 Agent 页面 Grid 的底部行参与布局，queue 增高时 conversation 使用剩余高度。
@@ -200,7 +210,7 @@ Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本�
 
 ### 配置的生效方式
 
-Global system prompt append 在 pi 加载 Global prompt 资源后追加。Agent tools 可以选择 read、bash、edit 和 write，并至少保留一个文件工具；Pi-Ark 自带的 `read_pi_ark_link` 随 Session 启用。提示词与工具选择在新建或重新打开 Session 时进入 runtime。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。
+Global system prompt append 在 pi 加载 Global prompt 资源后追加。Agent tools 可以选择 read、bash、edit 和 write，并至少保留一个文件工具；Pi-Ark 自带的 `read_pi_ark_link` 与 `subagent` 随普通 Session 启用。提示词与工具选择在新建或重新打开 Session 时进入 runtime。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。
 
 ## 桌面与移动布局
 

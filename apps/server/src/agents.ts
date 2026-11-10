@@ -14,6 +14,10 @@ import { buildSessionDisplayMessages, MAX_SESSION_MESSAGES, resolveDisplayMessag
 import { SessionReader } from "./session-reader.js";
 import type { WorkspaceService } from "./workspaces.js";
 import { COMPACTION_TIMING_TYPE, type CompactionTiming } from "./compaction-stats.js";
+import { createSubagentTool, SUBAGENT } from "./agent-tools/subagent.js";
+import { SubagentService, SUBAGENT_ROLE_PROMPT, type SubagentConfiguration } from "./subagents.js";
+import { type SubagentTaskInput } from "./subagent-types.js";
+import { validLeafEntryId } from "./internal-links.js";
 export { buildSessionDisplayMessages, MAX_SESSION_MESSAGES, sessionMessageId } from "./session-display.js";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -22,9 +26,11 @@ type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 type QueueItemMode = "steering" | "followUp";
 interface QueueItem { id: string; mode: QueueItemMode; text: string; images: Array<NonNullable<SavedAttachment["image"]>> }
 interface RollbackMarkerData { targetId: string; restoreEntryId: string; draft: string }
-interface AgentClientState { start: number; targetMessageId?: string }
+interface AgentClientState { start: number; targetMessageId?: string; leafEntryId?: string }
 type SessionRuntimeState = "ready" | "running" | "error";
 interface AgentHandle {
+  workspace: WorkspaceDefinition;
+  systemPromptAppend: string;
   session: AgentSession;
   clients: Map<WebSocket, AgentClientState>;
   unsubscribe: () => void;
@@ -88,12 +94,20 @@ function previousDisplayPageStart(messages: ReturnType<typeof buildSessionDispla
 
 export class AgentService {
   private readonly handles = new Map<string, AgentHandle>();
+  private readonly opening = new Map<string, Promise<AgentHandle>>();
+  readonly subagents: SubagentService;
   private readonly scheduledSnapshots = new WeakSet<AgentHandle>();
 
   private readonly sessionReader: SessionReader;
 
   constructor(private readonly settings: SettingsService, workspaces: Pick<WorkspaceService, "get">) {
     this.sessionReader = new SessionReader(workspaces, (workspace, sessionId) => this.handles.get(this.key(workspace, sessionId))?.session.sessionManager);
+    this.subagents = new SubagentService(this.sessionReader, async (workspace, manager, configuration) => (await this.instantiate(workspace, manager, configuration)).session, (workspace, run) => {
+      for (const sessionId of [run.parentSessionId, ...run.tasks.map((task) => task.sessionId)]) {
+        const handle = this.handles.get(this.key(workspace, sessionId));
+        if (handle) this.broadcast(handle, { type: "subagent-state", subagents: this.subagents.store.state(workspace, sessionId) });
+      }
+    });
   }
 
   private key(workspace: WorkspaceDefinition, sessionId: string): string {
@@ -102,8 +116,13 @@ export class AgentService {
 
   async list(workspace: WorkspaceDefinition) {
     const sessionDir = await ensureWorkspaceState(workspace);
-    const [sessions, metadata] = await Promise.all([SessionManager.list(workspace.path, sessionDir), getSessionMetadata(workspace)]);
-    return sessions.map(({ path: _path, ...info }) => ({ ...info, pinned: metadata[info.id]?.pinned || false, archived: metadata[info.id]?.archived || false, groups: metadata[info.id]?.groups || [] })).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.modified.getTime() - a.modified.getTime());
+    const [sessions, metadata] = await Promise.all([SessionManager.list(workspace.path, sessionDir), getSessionMetadata(workspace), this.subagents.store.load(workspace)]);
+    for (const handle of this.handles.values()) {
+      const source = this.subagents.store.findTask(workspace, handle.session.sessionId);
+      if (handle.workspace.id !== workspace.id || !source || sessions.some((session) => session.id === handle.session.sessionId)) continue;
+      sessions.push({ id: handle.session.sessionId, path: handle.session.sessionFile || "", cwd: workspace.path, name: handle.session.sessionName, created: new Date(source.run.createdAt), modified: new Date(source.task.finishedAt || source.task.startedAt || source.run.createdAt), messageCount: this.snapshotMessages(handle).length, firstMessage: source.task.task, allMessagesText: source.task.task });
+    }
+    return sessions.map(({ path: _path, ...info }) => ({ ...info, subagentOrigin: this.subagents.store.state(workspace, info.id).origin, pinned: metadata[info.id]?.pinned || false, archived: metadata[info.id]?.archived || false, groups: metadata[info.id]?.groups || [] })).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.modified.getTime() - a.modified.getTime());
   }
 
   statuses(workspace: WorkspaceDefinition) {
@@ -143,6 +162,7 @@ export class AgentService {
 
   async setModel(workspace: WorkspaceDefinition, sessionId: string, provider: string, modelId: string): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
     await handle.session.setModel(await this.settings.resolveModel(provider, modelId));
     this.sendSnapshot(handle);
   }
@@ -150,6 +170,7 @@ export class AgentService {
   async setThinkingLevel(workspace: WorkspaceDefinition, sessionId: string, level: string): Promise<void> {
     if (!THINKING_LEVELS.includes(level as ThinkingLevel)) throw Object.assign(new Error("Invalid thinking level"), { statusCode: 400 });
     const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
     handle.session.setThinkingLevel(level as ThinkingLevel);
     this.sendSnapshot(handle);
   }
@@ -172,6 +193,7 @@ export class AgentService {
 
   async rollbackLatest(workspace: WorkspaceDefinition, sessionId: string, requestedEntryId?: string): Promise<RollbackMarkerData & { id: string }> {
     const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
     if (!handle.session.isIdle || handle.session.pendingMessageCount > 0) throw Object.assign(new Error("Wait for the session and queue to finish before rolling back"), { statusCode: 409 });
     const manager = handle.session.sessionManager;
     if (this.rollbackState(handle)) throw Object.assign(new Error("Restore the rolled back message or send a new message before another rollback"), { statusCode: 409 });
@@ -198,6 +220,7 @@ export class AgentService {
 
   async restoreRollback(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
     if (!handle.session.isIdle || handle.session.pendingMessageCount > 0) throw Object.assign(new Error("Wait for the session and queue to finish before restoring"), { statusCode: 409 });
     const rollback = this.rollbackState(handle);
     if (!rollback) throw Object.assign(new Error("Rolled back message is no longer available to restore"), { statusCode: 409 });
@@ -262,11 +285,16 @@ export class AgentService {
   }
 
   async delete(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
+    await this.subagents.store.load(workspace);
+    const running = this.handles.get(this.key(workspace, sessionId));
+    running?.session.clearQueue();
+    await Promise.all([this.subagents.stop(workspace, sessionId), running && !running.session.isIdle ? running.session.abort() : Promise.resolve()]);
+    await this.opening.get(this.key(workspace, sessionId));
     const sessionDir = await ensureWorkspaceState(workspace);
     const info = (await SessionManager.list(workspace.path, sessionDir)).find((session) => session.id === sessionId);
-    if (!info) throw Object.assign(new Error("Unknown agent session"), { statusCode: 404 });
     const key = this.key(workspace, sessionId);
     const handle = this.handles.get(key);
+    if (!info && !handle && !this.subagents.store.findTask(workspace, sessionId)) throw Object.assign(new Error("Unknown agent session"), { statusCode: 404 });
     if (handle) {
       this.broadcast(handle, { type: "session-deleted" });
       handle.session.clearQueue();
@@ -276,9 +304,10 @@ export class AgentService {
       for (const client of handle.clients.keys()) client.close(1000, "Session deleted");
       this.handles.delete(key);
     }
-    await unlink(info.path);
+    if (info) await unlink(info.path);
     await rm(join(workspace.path, ".pi-ark", "attachments", sessionId), { recursive: true, force: true });
     await removeSessionMetadata(workspace, sessionId);
+    await this.subagents.deleted(workspace, sessionId);
   }
 
   async create(workspace: WorkspaceDefinition): Promise<{ id: string }> {
@@ -288,14 +317,15 @@ export class AgentService {
     return { id: handle.session.sessionId };
   }
 
-  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessage?: string; start?: number } = {}): Promise<() => void> {
+  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessage?: string; start?: number; leafEntryId?: string } = {}): Promise<() => void> {
     const handle = await this.getOrOpen(workspace, sessionId);
-    const messages = this.snapshotMessages(handle);
+    if (options.leafEntryId !== undefined && !validLeafEntryId(options.leafEntryId)) throw Object.assign(new Error("Invalid historical branch entry"), { statusCode: 400 });
+    const messages = options.leafEntryId ? buildSessionDisplayMessages(handle.session.sessionManager, undefined, options.leafEntryId) : this.snapshotMessages(handle);
     const defaultStart = previousDisplayPageStart(messages);
     const targetIndex = resolveDisplayMessageIndex(messages, options.targetMessage);
     const targetStart = targetIndex >= 0 ? previousDisplayPageStart(messages, targetIndex + 1) : defaultStart;
     const requestedStart = Number.isInteger(options.start) ? Math.max(0, Math.min(options.start!, messages.length)) : undefined;
-    handle.clients.set(socket, { start: requestedStart ?? Math.min(defaultStart, targetStart), ...(targetIndex >= 0 ? { targetMessageId: messages[targetIndex].messageId } : {}) });
+    handle.clients.set(socket, { leafEntryId: options.leafEntryId, start: requestedStart ?? Math.min(defaultStart, targetStart), ...(targetIndex >= 0 ? { targetMessageId: messages[targetIndex].messageId } : {}) });
     this.sendSnapshot(handle, socket, messages);
     return () => handle.clients.delete(socket);
   }
@@ -304,13 +334,14 @@ export class AgentService {
     const handle = this.handles.get(this.key(workspace, sessionId));
     const client = handle?.clients.get(socket);
     if (!handle || !client) throw Object.assign(new Error("Agent connection is unavailable"), { statusCode: 409 });
-    const messages = this.snapshotMessages(handle);
+    const messages = client.leafEntryId ? buildSessionDisplayMessages(handle.session.sessionManager, undefined, client.leafEntryId) : this.snapshotMessages(handle);
     client.start = previousDisplayPageStart(messages, client.start);
     this.sendSnapshot(handle, socket, messages);
   }
 
   async prompt(workspace: WorkspaceDefinition, sessionId: string, text: string, attachments: IncomingAttachment[] = []): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
     if (handle.session.sessionManager.getEntries().length >= MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
     const saved = attachments.length ? await saveAttachments(workspace, sessionId, attachments) : [];
     const attachmentNote = saved.length ? `\n\nAttached files:\n${saved.map((attachment) => `- ${attachment.name}: ${attachment.path}`).join("\n")}` : "";
@@ -341,19 +372,49 @@ export class AgentService {
   }
 
   async abort(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
-    const handle = await this.getOrOpen(workspace, sessionId);
-    handle.session.clearQueue();
-    if (!handle.session.isIdle) await handle.session.abort();
+    await this.subagents.store.load(workspace);
+    const stopping = this.subagents.stop(workspace, sessionId);
+    if (this.subagents.store.findTask(workspace, sessionId) && !this.handles.has(this.key(workspace, sessionId))) { await stopping; return; }
+    try {
+      const handle = await this.getOrOpen(workspace, sessionId);
+      handle.session.clearQueue();
+      await Promise.all([stopping, handle.session.isIdle ? Promise.resolve() : handle.session.abort()]);
+    } finally { await stopping; }
   }
 
-  private async getOrOpen(workspace: WorkspaceDefinition, sessionId: string): Promise<AgentHandle> {
-    const cached = this.handles.get(this.key(workspace, sessionId));
-    if (cached) return cached;
-    const sessionDir = await ensureWorkspaceState(workspace);
-    const sessions = await SessionManager.list(workspace.path, sessionDir);
-    const info = sessions.find((session) => session.id === sessionId);
-    if (!info) throw Object.assign(new Error("Unknown agent session"), { statusCode: 404 });
-    return this.instantiate(workspace, SessionManager.open(info.path, sessionDir));
+  private assertInteractive(workspace: WorkspaceDefinition, sessionId: string): void {
+    if (this.subagents.store.state(workspace, sessionId).managed) throw Object.assign(new Error("This subagent is managed by its parent. Stop it or wait for completion before continuing the Session."), { statusCode: 409 });
+  }
+
+  private openOnce(workspace: WorkspaceDefinition, sessionId: string, open: () => Promise<AgentHandle>): Promise<AgentHandle> {
+    const key = this.key(workspace, sessionId);
+    const cached = this.handles.get(key);
+    if (cached) return Promise.resolve(cached);
+    const pending = this.opening.get(key);
+    if (pending) return pending;
+    const operation = open();
+    this.opening.set(key, operation);
+    void operation.finally(() => { if (this.opening.get(key) === operation) this.opening.delete(key); }).catch(() => undefined);
+    return operation;
+  }
+
+  private getOrOpen(workspace: WorkspaceDefinition, sessionId: string): Promise<AgentHandle> {
+    return this.openOnce(workspace, sessionId, async () => {
+      const sessionDir = await ensureWorkspaceState(workspace);
+      const info = (await SessionManager.list(workspace.path, sessionDir)).find((session) => session.id === sessionId);
+      if (!info) throw Object.assign(new Error("Unknown agent session"), { statusCode: 404 });
+      return this.instantiateSession(workspace, SessionManager.open(info.path, sessionDir));
+    });
+  }
+
+  private subagentTool(workspace: WorkspaceDefinition, sessionId: string) {
+    return createSubagentTool(async (toolCallId, tasks: SubagentTaskInput[], signal, onUpdate) => {
+      const handle = this.handles.get(this.key(workspace, sessionId));
+      if (!handle?.session.model) throw new Error("A parent Session model is required for delegation");
+      if (this.subagents.store.state(workspace, sessionId).origin) throw new Error("Delegate tasks from the parent Session");
+      const configuration: SubagentConfiguration = { model: handle.session.model, thinkingLevel: handle.session.thinkingLevel, tools: handle.session.getActiveToolNames().filter((name) => name !== SUBAGENT), systemPromptAppend: handle.systemPromptAppend };
+      return this.subagents.run(workspace, handle.session, configuration, toolCallId, tasks, signal, onUpdate);
+    });
   }
 
   async getGlobalSystemPrompt(workspace: WorkspaceDefinition): Promise<{ content: string; systemPromptPath: string; appendSystemPromptPath: string }> {
@@ -362,7 +423,7 @@ export class AgentService {
     const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
     const settingsManager = createGlobalSettingsManager(workspace.path);
     const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
-    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...preferences.agent.tools, READ_PI_ARK_LINK], customTools: [createReadPiArkLinkTool(this.sessionReader)], resourceLoader });
+    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...preferences.agent.tools, READ_PI_ARK_LINK, SUBAGENT], customTools: [createReadPiArkLinkTool(this.sessionReader), this.subagentTool(workspace, "preview")], resourceLoader });
     try { return { content: session.systemPrompt, systemPromptPath, appendSystemPromptPath }; }
     finally { session.dispose(); }
   }
@@ -375,14 +436,25 @@ export class AgentService {
     return resourceLoader;
   }
 
-  private async instantiate(workspace: WorkspaceDefinition, manager: SessionManager): Promise<AgentHandle> {
+  private instantiate(workspace: WorkspaceDefinition, manager: SessionManager, configuration?: SubagentConfiguration): Promise<AgentHandle> {
+    return this.openOnce(workspace, manager.getSessionId(), () => this.instantiateSession(workspace, manager, configuration));
+  }
+
+  private async instantiateSession(workspace: WorkspaceDefinition, manager: SessionManager, configuration?: SubagentConfiguration): Promise<AgentHandle> {
+    await this.subagents.store.load(workspace);
+    const origin = this.subagents.store.findTask(workspace, manager.getSessionId());
     const preferences = await loadGlobalPreferences();
     const settingsManager = createGlobalSettingsManager(workspace.path);
-    const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
+    const systemPromptAppend = configuration?.systemPromptAppend ?? origin?.run.systemPromptAppend ?? preferences.agent.systemPrompt.append;
+    const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;
-    const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools: [...preferences.agent.tools, READ_PI_ARK_LINK], customTools: [createReadPiArkLinkTool(this.sessionReader)], resourceLoader, model: hasExistingSession ? undefined : modelConfiguration.model, scopedModels: modelConfiguration.scopedModels });
+    const tools = configuration?.tools ?? origin?.run.tools ?? [...preferences.agent.tools, READ_PI_ARK_LINK, SUBAGENT];
+    const customTools = [createReadPiArkLinkTool(this.sessionReader), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : [])];
+    const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader, model: configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model), thinkingLevel: configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels });
     const handle: AgentHandle = {
+      workspace,
+      systemPromptAppend,
       session,
       clients: new Map(),
       unsubscribe: () => undefined,
@@ -431,7 +503,7 @@ export class AgentService {
       handle.pendingError = undefined;
     }
     handle.displayMessages = undefined;
-    this.broadcast(handle, { type: "agent-event", event });
+    for (const [client, state] of handle.clients) if (!state.leafEntryId) send(client, { type: "agent-event", event });
     if (event.type === "message_end" || event.type === "agent_settled" || event.type === "compaction_end") this.scheduleSnapshot(handle);
   }
 
@@ -536,15 +608,17 @@ export class AgentService {
         totalDisplayMessages: messages.length,
         targetMessageId: client.targetMessageId,
         hasEarlierMessages: start > 0,
-        isStreaming: handle.session.isStreaming,
-        isIdle: handle.session.isIdle,
+        isStreaming: client.leafEntryId ? false : handle.session.isStreaming,
+        isIdle: client.leafEntryId ? true : handle.session.isIdle,
+        leafEntryId: client.leafEntryId,
+        subagents: this.subagents.store.state(handle.workspace, handle.session.sessionId),
         model: handle.session.model ? { provider: handle.session.model.provider, id: handle.session.model.id } : null,
         thinkingLevel: handle.session.thinkingLevel,
         availableThinkingLevels: handle.session.getAvailableThinkingLevels(),
         queue: handle.queue.map(({ id, mode, text }) => ({ id, mode, text })),
         queueRevision: handle.queueRevision,
-        rollbackEntryId: this.rollbackEntryId(handle),
-        rollback: this.rollbackState(handle),
+        rollbackEntryId: client.leafEntryId || this.subagents.store.state(handle.workspace, handle.session.sessionId).managed ? undefined : this.rollbackEntryId(handle),
+        rollback: client.leafEntryId ? undefined : this.rollbackState(handle),
         stats: handle.session.getSessionStats(),
       },
     };
@@ -552,12 +626,13 @@ export class AgentService {
 
   private sendSnapshot(handle: AgentHandle, oneClient?: WebSocket, projectedMessages?: ReturnType<typeof buildSessionDisplayMessages>): void {
     const messages = projectedMessages || this.snapshotMessages(handle);
+    const clientMessages = (state: AgentClientState) => state.leafEntryId ? buildSessionDisplayMessages(handle.session.sessionManager, undefined, state.leafEntryId) : messages;
     if (oneClient) {
       const client = handle.clients.get(oneClient);
-      if (client) send(oneClient, this.snapshotPayload(handle, messages, client));
+      if (client) send(oneClient, this.snapshotPayload(handle, clientMessages(client), client));
       return;
     }
-    for (const [client, state] of handle.clients) send(client, this.snapshotPayload(handle, messages, state));
+    for (const [client, state] of handle.clients) send(client, this.snapshotPayload(handle, clientMessages(state), state));
   }
 
   private broadcast(handle: AgentHandle, payload: unknown): void {
@@ -565,6 +640,8 @@ export class AgentService {
   }
 
   async dispose(): Promise<void> {
+    await this.subagents.dispose();
+    await Promise.allSettled([...this.opening.values()]);
     await Promise.all([...this.handles.values()].map(async (handle) => {
       handle.unsubscribe();
       if (!handle.session.isIdle) await handle.session.abort();

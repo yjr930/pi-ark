@@ -1,4 +1,4 @@
-import { validMessageTarget } from "../../server/src/internal-links";
+import { validMessageTarget, validLeafEntryId } from "../../server/src/internal-links";
 export { internalMessageLink, internalSessionLink, parseInternalSessionLink, type InternalSessionTarget } from "../../server/src/internal-links";
 
 export type AppPage = "agent" | "notebook" | "files" | "terminal" | "settings";
@@ -7,6 +7,7 @@ export interface PermalinkTarget {
   workspaceId?: string;
   sessionId?: string;
   messageId?: string;
+  leafEntryId?: string;
   page: AppPage;
 }
 
@@ -19,11 +20,12 @@ export function readPermalink(): PermalinkTarget {
     workspaceId: params.get("workspace") || undefined,
     sessionId: params.get("session") || undefined,
     messageId,
+    leafEntryId: validLeafEntryId(params.get("leafEntryId")),
     page,
   };
 }
 
-export function sessionPermalink(workspaceId: string, sessionId: string, messageId?: string): string {
+export function sessionPermalink(workspaceId: string, sessionId: string, messageId?: string, leafEntryId?: string): string {
   const url = new URL(window.location.href);
   url.search = "";
   url.hash = "";
@@ -31,6 +33,7 @@ export function sessionPermalink(workspaceId: string, sessionId: string, message
   url.searchParams.set("workspace", workspaceId);
   url.searchParams.set("session", sessionId);
   if (messageId) url.searchParams.set("message", messageId);
+  if (leafEntryId) url.searchParams.set("leafEntryId", leafEntryId);
   return url.toString();
 }
 

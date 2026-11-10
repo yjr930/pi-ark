@@ -25,12 +25,13 @@ export function sessionMessageId(sessionId: string, entryIndex: number): string 
   return `m${value.toString(36).padStart(MESSAGE_ID_WIDTH, "0")}`;
 }
 
-export function buildSessionDisplayMessages(manager: SessionManager, getContextWindow: (provider: string, model: string) => number | undefined = () => undefined) {
+export function buildSessionDisplayMessages(manager: SessionManager, getContextWindow: (provider: string, model: string) => number | undefined = () => undefined, leafEntryId?: string) {
   const entries = manager.getEntries();
   if (entries.length > MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
   const entryIndexById = new Map(entries.map((entry, index) => [entry.id, index]));
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  const branch = manager.getBranch();
+  if (leafEntryId && !manager.getEntry(leafEntryId)) throw Object.assign(new Error("Unknown Session branch entry"), { statusCode: 404 });
+  const branch = manager.getBranch(leafEntryId);
   const timings = compactionTimings(branch);
   return branch.flatMap((entry) => sessionEntryToContextMessages(entry).filter((message) => message.role !== "system" && !(message.role === "custom" && !message.display)).map((message) => ({
     ...message,

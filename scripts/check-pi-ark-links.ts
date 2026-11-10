@@ -109,6 +109,16 @@ try {
   const activeLeaf = manager.getLeafId();
   assert.equal((await activeReader.read({ link: sessionLink })).messages!.length, 1);
   await assert.rejects(activeReader.read({ link: shortLink }), /MESSAGE_NOT_FOUND/);
+  const pinned = `${shortLink}?leafEntryId=${originalLeaf}`;
+  assert.deepEqual(parseWebSessionLink(pinned), parseInternalSessionLink(pinned));
+  const historical = await activeReader.read({ link: pinned });
+  assert.equal(historical.target!.entryId, messages[2].entryId);
+  assert.equal(historical.session!.leafEntryId, originalLeaf);
+  assert.equal(historical.target!.link, pinned);
+  assert.equal((await activeReader.read({ link: shortLink, leafEntryId: originalLeaf! })).target!.entryId, messages[2].entryId);
+  await assert.rejects(activeReader.read({ link: pinned, leafEntryId: activeLeaf! }), /INVALID_ARGUMENT/);
+  await assert.rejects(activeReader.read({ link: shortLink, leafEntryId: "unknown-entry" }), /BRANCH_NOT_FOUND/);
+  assert.equal((await activeReader.images({ link: internalMessageLink(workspace.id, manager.getSessionId(), messages.at(-1)!.messageId), leafEntryId: originalLeaf! }))[0].data, "SECRET_BASE64");
   assert.equal(manager.getLeafId(), activeLeaf);
   assert.equal(await readFile(manager.getSessionFile()!, "utf8"), before);
   manager.branch(originalLeaf!);
@@ -161,7 +171,7 @@ try {
     const opened = await agents.create(workspace);
     const internals = agents as unknown as { handles: Map<string, { session: import("@earendil-works/pi-coding-agent").AgentSession }>; onEvent(handle: unknown, event: unknown): void };
     const handle = internals.handles.get(`${workspace.id}:${opened.id}`)!;
-    assert.deepEqual(handle.session.getActiveToolNames().sort(), ["read", READ_PI_ARK_LINK].sort());
+    assert.deepEqual(handle.session.getActiveToolNames().sort(), ["read", READ_PI_ARK_LINK, "subagent"].sort());
     assert.match(handle.session.systemPrompt, /read_pi_ark_link/);
     assert.match(handle.session.systemPrompt, /Use read_pi_ark_link to read pi-ark:\/\/workspace/);
     const registered = handle.session.agent.state.tools.find((item) => item.name === READ_PI_ARK_LINK)!;

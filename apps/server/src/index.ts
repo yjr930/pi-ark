@@ -173,14 +173,25 @@ app.delete<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspa
   return reply.code(204).send();
 });
 
-app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
+app.get<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/subagents", async (request) => {
+  const workspace = workspaces.get(request.params.workspaceId);
+  await agents.subagents.store.load(workspace);
+  return agents.subagents.store.state(workspace, request.params.sessionId);
+});
+app.post<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/abort", async (request, reply) => {
+  await agents.abort(workspaces.get(request.params.workspaceId), request.params.sessionId);
+  return reply.code(204).send();
+});
+
+app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string; leafEntryId?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
   const workspace = workspaces.get(request.params.workspaceId);
   const targetMessage = request.query.message?.trim() || undefined;
   const requestedStart = Number(request.query.start);
-  const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessage, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
+  const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessage, leafEntryId: request.query.leafEntryId, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
   const onMessage = async (raw: Buffer) => {
     try {
       const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; attachments?: Array<{ name: string; mimeType: string; data: string }> };
+      if (request.query.leafEntryId && message.type !== "load-earlier") throw Object.assign(new Error("Open the current conversation to send commands"), { statusCode: 409 });
       if (message.type === "prompt" && (message.text?.trim() || message.attachments?.length)) await agents.prompt(workspace, request.params.sessionId, message.text || "", message.attachments || []);
       else if (message.type === "load-earlier") agents.loadEarlier(workspace, request.params.sessionId, socket);
       else if (message.type === "abort") await agents.abort(workspace, request.params.sessionId);

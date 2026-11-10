@@ -2,6 +2,7 @@ export interface PiArkLinkTarget {
   workspaceId: string;
   sessionId?: string;
   messageId?: string;
+  leafEntryId?: string;
 }
 
 export interface InternalSessionTarget extends PiArkLinkTarget { sessionId: string }
@@ -23,8 +24,22 @@ export function internalMessageLink(workspaceId: string, sessionId: string, mess
   return `${internalSessionLink(workspaceId, sessionId)}/message/${encodeURIComponent(messageId)}`;
 }
 
+export function validLeafEntryId(value: string | null): string | undefined {
+  return value && /^[a-zA-Z0-9_-]{1,128}$/.test(value) ? value : undefined;
+}
+
+export function pinnedPiArkLink(link: string, leafEntryId?: string): string {
+  return leafEntryId ? `${link.split("?", 1)[0]}?leafEntryId=${encodeURIComponent(leafEntryId)}` : link;
+}
+
 export function parsePiArkLink(value: string): PiArkLinkTarget | undefined {
-  const match = /^pi-ark:\/\/workspace\/([^/?#]+)(?:\/session\/([^/?#]+)(?:\/message\/([^/?#]+))?)?$/.exec(value.trim());
+  const [path, query, extra] = value.trim().split("?");
+  if (extra !== undefined) return undefined;
+  const params = new URLSearchParams(query);
+  if ([...params.keys()].some((key) => key !== "leafEntryId") || params.getAll("leafEntryId").length > 1) return undefined;
+  const leafEntryId = validLeafEntryId(params.get("leafEntryId"));
+  if (query !== undefined && !leafEntryId) return undefined;
+  const match = /^pi-ark:\/\/workspace\/([^/?#]+)(?:\/session\/([^/?#]+)(?:\/message\/([^/?#]+))?)?$/.exec(path);
   if (!match) return undefined;
   try {
     const segments = match.slice(1).map((segment) => segment === undefined ? undefined : decodeURIComponent(segment));
@@ -32,7 +47,8 @@ export function parsePiArkLink(value: string): PiArkLinkTarget | undefined {
     const [workspaceId, sessionId, rawMessageId] = segments;
     const messageId = validMessageTarget(rawMessageId ?? null);
     if (rawMessageId !== undefined && !messageId) return undefined;
-    return { workspaceId: workspaceId!, ...(sessionId ? { sessionId, messageId } : {}) };
+    if (leafEntryId && !sessionId) return undefined;
+    return { workspaceId: workspaceId!, ...(sessionId ? { sessionId, messageId, ...(leafEntryId ? { leafEntryId } : {}) } : {}) };
   } catch { return undefined; }
 }
 

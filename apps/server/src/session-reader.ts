@@ -2,12 +2,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseSessionEntries, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { WorkspaceDefinition } from "./config.js";
-import { internalMessageLink, internalSessionLink, internalWorkspaceLink, parsePiArkLink } from "./internal-links.js";
+import { internalMessageLink, internalSessionLink, internalWorkspaceLink, parsePiArkLink, pinnedPiArkLink, validLeafEntryId } from "./internal-links.js";
 import { buildSessionDisplayMessages, resolveDisplayMessageIndex } from "./session-display.js";
 import type { WorkspaceService } from "./workspaces.js";
 
 export const MAX_LINK_RESULT_BYTES = 48 * 1024;
-export interface ReadPiArkLinkInput { link: string; context?: number; start?: number; limit?: number; offset?: number }
+export interface ReadPiArkLinkInput { link: string; context?: number; start?: number; limit?: number; offset?: number; leafEntryId?: string }
 type DisplayMessage = ReturnType<typeof buildSessionDisplayMessages>[number];
 interface ReadMessage {
   messageId: string;
@@ -72,13 +72,13 @@ function contentText(message: DisplayMessage): string {
   return "";
 }
 
-function readMessage(message: DisplayMessage, workspaceId: string, sessionId: string, index: number, content: string, offset: number, length: number): ReadMessage {
+function readMessage(message: DisplayMessage, workspaceId: string, sessionId: string, index: number, content: string, offset: number, length: number, leafEntryId?: string): ReadMessage {
   const nextOffset = offset + length;
   return {
     messageId: message.messageId,
     entryId: message.entryId,
     position: index + 1,
-    link: internalMessageLink(workspaceId, sessionId, message.messageId),
+    link: pinnedPiArkLink(internalMessageLink(workspaceId, sessionId, message.messageId), leafEntryId),
     role: message.role,
     timestamp: message.timestamp,
     ...(message.role === "assistant" ? { provider: message.provider, model: message.model, stopReason: message.stopReason, errorMessage: message.errorMessage } : {}),
@@ -101,6 +101,10 @@ export class SessionReader {
     integerOption("start", input.start, 1);
     integerOption("limit", input.limit, 1, 100);
     integerOption("offset", input.offset, 0);
+    if (input.leafEntryId !== undefined && !validLeafEntryId(input.leafEntryId)) throw failure("INVALID_ARGUMENT", "Invalid leafEntryId");
+    if (input.leafEntryId && target.leafEntryId && input.leafEntryId !== target.leafEntryId) throw failure("INVALID_ARGUMENT", "The link and parameter specify different branch entries");
+    const leafEntryId = input.leafEntryId || target.leafEntryId;
+    if (leafEntryId && !target.sessionId) throw failure("INVALID_ARGUMENT", "leafEntryId requires a Session or Message link");
     if (target.messageId && (input.start !== undefined || input.limit !== undefined)) throw failure("INVALID_ARGUMENT", "Use context and offset with a Message link; use start and limit with a Session link");
     if (!target.messageId && (input.context !== undefined || input.offset !== undefined)) throw failure("INVALID_ARGUMENT", "context and offset require a Message link");
     let workspace: WorkspaceDefinition;
@@ -110,7 +114,8 @@ export class SessionReader {
     if (!target.sessionId) return this.readWorkspace(workspace, workspaceInfo, input, signal);
     const manager = await this.resolveSession(workspace, target.sessionId, signal);
     signal?.throwIfAborted();
-    const messages = buildSessionDisplayMessages(manager);
+    if (leafEntryId && !manager.getEntry(leafEntryId)) throw failure("BRANCH_NOT_FOUND", "The branch entry does not exist in the linked Session");
+    const messages = buildSessionDisplayMessages(manager, undefined, leafEntryId);
     const targetIndex = target.messageId ? resolveDisplayMessageIndex(messages, target.messageId) : -1;
     if (target.messageId && targetIndex < 0) throw failure("MESSAGE_NOT_FOUND", "The Message target is outside the current active branch display projection");
     const context = input.context ?? 0;
@@ -118,8 +123,8 @@ export class SessionReader {
     const start = targetIndex >= 0 ? Math.max(0, targetIndex - context) : (input.start ?? Math.max(1, messages.length - limit + 1)) - 1;
     if (start > 0 && start >= messages.length) throw failure("PAGE_OUT_OF_RANGE", `start exceeds the ${messages.length} display messages`);
     const end = Math.min(messages.length, targetIndex >= 0 ? targetIndex + context + 1 : start + limit);
-    const session = { id: manager.getSessionId(), name: manager.getSessionName(), link: internalSessionLink(workspace.id, manager.getSessionId()), leafEntryId: manager.getLeafId(), totalDisplayMessages: messages.length };
-    const resolvedTarget = targetIndex >= 0 ? { messageId: messages[targetIndex].messageId, entryId: messages[targetIndex].entryId, position: targetIndex + 1, link: internalMessageLink(workspace.id, session.id, messages[targetIndex].messageId) } : undefined;
+    const session = { id: manager.getSessionId(), name: manager.getSessionName(), link: pinnedPiArkLink(internalSessionLink(workspace.id, manager.getSessionId()), leafEntryId), leafEntryId: leafEntryId || manager.getLeafId(), totalDisplayMessages: messages.length };
+    const resolvedTarget = targetIndex >= 0 ? { messageId: messages[targetIndex].messageId, entryId: messages[targetIndex].entryId, position: targetIndex + 1, link: pinnedPiArkLink(internalMessageLink(workspace.id, session.id, messages[targetIndex].messageId), leafEntryId) } : undefined;
     const selected: ReadMessage[] = [];
     const compose = (items: ReadMessage[]): ReadPiArkLinkResult => {
       const ordered = [...items].sort((a, b) => a.position - b.position);
@@ -138,7 +143,7 @@ export class SessionReader {
       const content = contentText(messages[index]);
       const offset = index === targetIndex ? input.offset ?? 0 : 0;
       if (offset > content.length) throw failure("CONTENT_OUT_OF_RANGE", `offset exceeds the ${content.length} content characters`);
-      const candidate = (length: number) => readMessage(messages[index], workspace.id, session.id, index, content, offset, length);
+      const candidate = (length: number) => readMessage(messages[index], workspace.id, session.id, index, content, offset, length, leafEntryId);
       const fits = (length: number) => Buffer.byteLength(serializeLinkResult(compose([...selected, candidate(length)])), "utf8") <= MAX_LINK_RESULT_BYTES;
       let length = content.length - offset;
       if (!fits(length)) {
@@ -156,6 +161,16 @@ export class SessionReader {
       if (offset + length < content.length) break;
     }
     return compose(selected);
+  }
+
+  async images(input: Pick<ReadPiArkLinkInput, "link" | "leafEntryId">, signal?: AbortSignal) {
+    const result = await this.read(input, signal);
+    if (!result.target || !result.session) return [];
+    const workspace = this.workspaces.get(result.workspace.id);
+    const manager = await this.resolveSession(workspace, result.session.id, signal);
+    const entry = manager.getEntry(result.target.entryId);
+    if (entry?.type !== "message" || !("content" in entry.message) || !Array.isArray(entry.message.content)) return [];
+    return entry.message.content.filter((block) => block.type === "image");
   }
 
   private async resolveSession(workspace: WorkspaceDefinition, sessionId: string, signal?: AbortSignal): Promise<SessionManager> {

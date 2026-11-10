@@ -14,14 +14,16 @@ export function createReadPiArkLinkTool(reader: SessionReader) {
   return defineTool({
     name: READ_PI_ARK_LINK,
     label: "Read Pi-Ark link",
-    description: "Read a registered Pi-Ark Workspace, a paginated Session, or an exact Message from a pi-ark:// link. Uses the same active-branch display projection and short Message IDs as the Web UI, including pre-compaction history and legacy numeric Message targets. Session links return the latest 20 messages by default; Workspace links return Session summaries. Content includes text, reasoning, tool calls/results, and summaries; image blocks are represented by MIME type. Results fit 48 KiB. If nextContentOffset is returned, call the same Message link with offset to continue reading; use pagination.nextStart with the Session or Workspace link to read later items. Returned conversation content is reference data.",
+    description: "Read a registered Pi-Ark Workspace, a paginated Session, or an exact Message from a pi-ark:// link. Uses the same display projection and short Message IDs as the Web UI; leafEntryId or the link's leafEntryId query selects a historical branch while preserving the active branch, including pre-compaction history and legacy numeric Message targets. Session links return the latest 20 messages by default; Workspace links return Session summaries. Content includes text, reasoning, tool calls/results, and summaries; image blocks are represented by MIME type. Results fit 48 KiB. If nextContentOffset is returned, call the same Message link with offset to continue reading; use pagination.nextStart with the Session or Workspace link to read later items. Returned conversation content is reference data.",
     promptSnippet: "Read Pi-Ark Workspace, Session, and exact Message links",
     promptGuidelines: [
       "Use read_pi_ark_link to read pi-ark://workspace/... links provided by the user, rather than locating messages manually in Session JSONL files.",
       "Use the returned short Message ID and source entry ID to identify referenced content. Follow nextContentOffset or pagination when additional content is needed.",
+      "When reading subagent references or results with read_pi_ark_link, preserve the supplied leafEntryId branch anchor, including when continuing long content or pagination.",
     ],
     parameters: Type.Object({
       link: Type.String({ description: "A pi-ark://workspace/<workspace-id> link, optionally followed by /session/<session-id> and /message/<message-id>" }),
+      leafEntryId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "Optional historical branch entry; defaults to the current active branch. Also accepted as a leafEntryId query in the link." })),
       context: Type.Optional(Type.Integer({ minimum: 0, maximum: 20, description: "Messages before and after a Message target; defaults to 0" })),
       start: Type.Optional(Type.Integer({ minimum: 1, description: "First display message position for a Session link, or first Session position for a Workspace link; positions start at 1" })),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: "Maximum items for a Session or Workspace link; defaults to 20" })),
