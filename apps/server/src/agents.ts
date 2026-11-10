@@ -22,6 +22,9 @@ interface AgentHandle {
   unsubscribe: () => void;
   queue: QueueItem[];
   rebuildingQueue: boolean;
+  queueVersion: number;
+  queueRevision: number;
+  queueRebuildPromise?: Promise<void>;
   displayMessages?: ReturnType<typeof buildSessionDisplayMessages>;
 }
 
@@ -185,51 +188,56 @@ export class AgentService {
     this.sendSnapshot(handle);
   }
 
-  async updateQueue(workspace: WorkspaceDefinition, sessionId: string, itemId: string, update: { direction?: "up" | "down"; mode?: QueueItemMode }): Promise<void> {
+  async updateQueue(workspace: WorkspaceDefinition, sessionId: string, itemId: string, update: { direction?: "up" | "down"; mode?: QueueItemMode }, operationId?: string) {
     if (update.direction && update.direction !== "up" && update.direction !== "down") throw Object.assign(new Error("Unknown queue direction"), { statusCode: 400 });
     if (update.mode && update.mode !== "steering" && update.mode !== "followUp") throw Object.assign(new Error("Unknown queue mode"), { statusCode: 400 });
     const handle = await this.getOrOpen(workspace, sessionId);
-    if (handle.rebuildingQueue) throw Object.assign(new Error("Queue update is already in progress"), { statusCode: 409 });
     const index = handle.queue.findIndex((item) => item.id === itemId);
     if (index < 0) throw Object.assign(new Error("Queued message is no longer available"), { statusCode: 404 });
     const item = handle.queue[index];
     if (update.mode && update.mode !== item.mode) {
       handle.queue.splice(index, 1);
       item.mode = update.mode;
-      let lastTarget = -1;
-      for (let queuedIndex = handle.queue.length - 1; queuedIndex >= 0; queuedIndex -= 1) if (handle.queue[queuedIndex].mode === update.mode) { lastTarget = queuedIndex; break; }
-      handle.queue.splice(lastTarget + 1, 0, item);
+      let insertAt = handle.queue.length;
+      if (update.mode === "steering") {
+        insertAt = 0;
+        for (let queuedIndex = handle.queue.length - 1; queuedIndex >= 0; queuedIndex -= 1) if (handle.queue[queuedIndex].mode === "steering") { insertAt = queuedIndex + 1; break; }
+      }
+      handle.queue.splice(insertAt, 0, item);
     } else if (update.direction) {
       const siblings = handle.queue.map((queued, queuedIndex) => queued.mode === item.mode ? queuedIndex : -1).filter((queuedIndex) => queuedIndex >= 0);
       const siblingIndex = siblings.indexOf(index);
       const targetSibling = update.direction === "up" ? siblingIndex - 1 : siblingIndex + 1;
-      if (targetSibling < 0 || targetSibling >= siblings.length) return;
+      if (targetSibling < 0 || targetSibling >= siblings.length) return this.queueState(handle, operationId);
       const targetIndex = siblings[targetSibling];
       [handle.queue[index], handle.queue[targetIndex]] = [handle.queue[targetIndex], handle.queue[index]];
     } else throw Object.assign(new Error("Provide a queue update"), { statusCode: 400 });
+    this.queueMutation(handle, operationId);
     await this.rebuildQueue(handle);
+    return this.queueState(handle, operationId);
   }
 
-  async takeQueuedMessage(workspace: WorkspaceDefinition, sessionId: string, itemId: string): Promise<{ text: string }> {
+  async takeQueuedMessage(workspace: WorkspaceDefinition, sessionId: string, itemId: string, operationId?: string) {
     const handle = await this.getOrOpen(workspace, sessionId);
-    if (handle.rebuildingQueue) throw Object.assign(new Error("Queue update is already in progress"), { statusCode: 409 });
     const index = handle.queue.findIndex((item) => item.id === itemId);
     if (index < 0) throw Object.assign(new Error("Queued message is no longer available"), { statusCode: 404 });
     const [item] = handle.queue.splice(index, 1);
+    this.queueMutation(handle, operationId);
     await this.rebuildQueue(handle);
-    return { text: item.text };
+    return { text: item.text, ...this.queueState(handle, operationId) };
   }
 
-  async mergeFollowUps(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
+  async mergeFollowUps(workspace: WorkspaceDefinition, sessionId: string, operationId?: string) {
     const handle = await this.getOrOpen(workspace, sessionId);
-    if (handle.rebuildingQueue) throw Object.assign(new Error("Queue update is already in progress"), { statusCode: 409 });
     const followUps = handle.queue.filter((item) => item.mode === "followUp");
-    if (followUps.length < 2) return;
+    if (followUps.length < 2) return this.queueState(handle, operationId);
     const firstFollowUpIndex = handle.queue.findIndex((item) => item.mode === "followUp");
     const merged: QueueItem = { id: followUps[0].id, mode: "followUp", text: followUps.map((item) => item.text).join("\n\n"), images: followUps.flatMap((item) => item.images) };
     handle.queue = handle.queue.filter((item) => item.mode !== "followUp");
     handle.queue.splice(firstFollowUpIndex, 0, merged);
+    this.queueMutation(handle, operationId);
     await this.rebuildQueue(handle);
+    return this.queueState(handle, operationId);
   }
 
   async delete(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
@@ -288,8 +296,15 @@ export class AgentService {
     if (handle.session.isStreaming) {
       const queued: QueueItem = { id: randomUUID(), mode: "followUp", text: promptText, images };
       handle.queue.push(queued);
-      try { await handle.session.followUp(promptText, images); }
-      catch (error) { handle.queue = handle.queue.filter((item) => item.id !== queued.id); throw error; }
+      this.publishQueueState(handle);
+      try {
+        const disposition = await handle.session.followUp(promptText, images);
+        if (disposition !== "queued") { handle.queue = handle.queue.filter((item) => item.id !== queued.id); this.publishQueueState(handle); }
+      } catch (error) {
+        handle.queue = handle.queue.filter((item) => item.id !== queued.id);
+        this.publishQueueState(handle);
+        throw error;
+      }
     } else await handle.session.prompt(promptText, { images });
   }
 
@@ -344,6 +359,8 @@ export class AgentService {
       unsubscribe: () => undefined,
       queue: [...session.getSteeringMessages().map((text) => ({ id: randomUUID(), mode: "steering" as const, text, images: [] })), ...session.getFollowUpMessages().map((text) => ({ id: randomUUID(), mode: "followUp" as const, text, images: [] }))],
       rebuildingQueue: false,
+      queueVersion: 0,
+      queueRevision: 0,
     };
     handle.unsubscribe = session.subscribe((event) => this.onEvent(handle, event));
     this.handles.set(this.key(workspace, session.sessionId), handle);
@@ -352,13 +369,15 @@ export class AgentService {
   }
 
   private onEvent(handle: AgentHandle, event: AgentSessionEvent): void {
-    handle.displayMessages = undefined;
     if (event.type === "queue_update") {
       if (handle.rebuildingQueue) return;
       this.syncQueue(handle, event.steering, event.followUp);
+      this.publishQueueState(handle);
+      return;
     }
+    handle.displayMessages = undefined;
     this.broadcast(handle, { type: "agent-event", event });
-    if (event.type === "message_end" || event.type === "agent_settled" || event.type === "queue_update") this.scheduleSnapshot(handle);
+    if (event.type === "message_end" || event.type === "agent_settled") this.scheduleSnapshot(handle);
   }
 
   private scheduleSnapshot(handle: AgentHandle): void {
@@ -380,16 +399,46 @@ export class AgentService {
     handle.queue = [...steering.map((text) => take("steering", text)), ...followUp.map((text) => take("followUp", text))];
   }
 
-  private async rebuildQueue(handle: AgentHandle): Promise<void> {
-    const queue = [...handle.queue];
+  private queueState(handle: AgentHandle, confirmedOperationId?: string) {
+    return { queue: handle.queue.map(({ id, mode, text }) => ({ id, mode, text })), queueRevision: handle.queueRevision, ...(confirmedOperationId ? { confirmedOperationId } : {}) };
+  }
+
+  private publishQueueState(handle: AgentHandle, confirmedOperationId?: string): void {
+    handle.queueRevision += 1;
+    this.broadcast(handle, { type: "queue-state", ...this.queueState(handle, confirmedOperationId) });
+  }
+
+  private queueMutation(handle: AgentHandle, operationId?: string): void {
+    handle.queueVersion += 1;
+    this.publishQueueState(handle, operationId);
+  }
+
+  private rebuildQueue(handle: AgentHandle): Promise<void> {
+    if (!handle.queueRebuildPromise) handle.queueRebuildPromise = this.runQueueRebuild(handle).finally(() => { handle.queueRebuildPromise = undefined; });
+    return handle.queueRebuildPromise;
+  }
+
+  private async runQueueRebuild(handle: AgentHandle): Promise<void> {
     handle.rebuildingQueue = true;
     try {
-      handle.session.clearQueue();
-      for (const item of queue.filter((queued) => queued.mode === "steering")) await handle.session.steer(item.text, item.images);
-      for (const item of queue.filter((queued) => queued.mode === "followUp")) await handle.session.followUp(item.text, item.images);
+      while (true) {
+        const version = handle.queueVersion;
+        const queue = [...handle.queue];
+        try {
+          handle.session.clearQueue();
+          for (const item of queue.filter((queued) => queued.mode === "steering")) await handle.session.steer(item.text, item.images);
+          for (const item of queue.filter((queued) => queued.mode === "followUp")) await handle.session.followUp(item.text, item.images);
+        } catch (error) {
+          this.syncQueue(handle, handle.session.getSteeringMessages(), handle.session.getFollowUpMessages());
+          this.publishQueueState(handle);
+          throw error;
+        }
+        if (version !== handle.queueVersion) continue;
+        this.syncQueue(handle, handle.session.getSteeringMessages(), handle.session.getFollowUpMessages());
+        this.publishQueueState(handle);
+        return;
+      }
     } finally { handle.rebuildingQueue = false; }
-    this.syncQueue(handle, handle.session.getSteeringMessages(), handle.session.getFollowUpMessages());
-    this.sendSnapshot(handle);
   }
 
   private rollbackState(handle: AgentHandle): (RollbackMarkerData & { id: string }) | undefined {
@@ -430,6 +479,7 @@ export class AgentService {
         thinkingLevel: handle.session.thinkingLevel,
         availableThinkingLevels: handle.session.getAvailableThinkingLevels(),
         queue: handle.queue.map(({ id, mode, text }) => ({ id, mode, text })),
+        queueRevision: handle.queueRevision,
         rollbackEntryId: this.rollbackEntryId(handle),
         rollback: this.rollbackState(handle),
         stats: handle.session.getSessionStats(),

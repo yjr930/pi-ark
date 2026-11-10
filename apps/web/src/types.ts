@@ -54,6 +54,18 @@ export interface AgentMessage {
   usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost?: { total: number } };
 }
 
+export interface QueuedMessage {
+  id: string;
+  mode: "steering" | "followUp";
+  text: string;
+}
+
+export interface QueueState {
+  queue: QueuedMessage[];
+  queueRevision: number;
+  confirmedOperationId?: string;
+}
+
 export interface AgentSnapshot {
   id: string;
   name?: string;
@@ -66,7 +78,8 @@ export interface AgentSnapshot {
   model: { provider: string; id: string } | null;
   thinkingLevel: string;
   availableThinkingLevels: string[];
-  queue: Array<{ id: string; mode: "steering" | "followUp"; text: string }>;
+  queue: QueuedMessage[];
+  queueRevision: number;
   rollbackEntryId?: string;
   rollback?: { id: string; targetId: string; restoreEntryId: string; draft: string };
   stats: {

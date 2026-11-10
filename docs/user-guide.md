@@ -227,7 +227,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-number>
 
 ### 等待 Session 加载
 
-首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器在内存中保存最近五个 Session 的 snapshot；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。浏览器刷新会清空该内存 cache。
+首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器在内存中保存最近五个 Session 的 snapshot 和 UI state；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。UI state 会恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开状态。浏览器刷新会清空该内存 cache。
 
 长会话的初始 Server snapshot 默认只包含最新约 100 条 messages。点击顶部 Show earlier messages 会向 Server 请求 earlier messages，并逐页扩展当前 display window，直至看到完整活动 branch。
 
@@ -260,9 +260,9 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 每条 User message 在 turn 起点显示用户头像、`User` 标签、message number、内部链接和可用的 Rollback。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。角色头像只占用 header 行，后续内容继续使用 conversation 的完整宽度。普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。Reasoning 使用较小字号和与普通 text 一致的行高。
 
-AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。Running 默认展开，其中正在执行和已经完成的 tool items 都默认关闭；用户可以手动展开 tool item。AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。没有已保存状态时，Running 默认展开，其中正在执行和已经完成的 tool items 都默认关闭；用户可以手动展开 tool item。AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。切换 Session 后再返回时，页面恢复用户后来手动调整的 Running、Tool、Reasoning、Compact 和 Message Info 状态。
 
-每个 tool call 与 result 合并为一行工具项。工具 logo 位于折叠框内，后面显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。连续工具项使用紧凑间距。展开内容与折叠框左边界对齐；第一行显示 Call 与 Result 的全局 message number，并提供对应的 `pi-ark://` link copy 按钮。Arguments 按字段显示，每个 key 使用 heading 样式，下一行显示 value，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`；Result 显示文字或图片结果。
+每个 tool call 与 result 合并为一行工具项。工具 logo 位于折叠框内，后面显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。Running、Failed、Result 和 Saved 分别使用不同的 theme color，Completed 使用中性色。Running 与其他状态使用相同的单层 row 结构；Tool permalink 通过 row 内侧的 accent 标识 target。Dark themes 使用更清楚的折叠条背景和边框，使 Running、Tool 与 Reasoning summary 和 conversation 底色区分。连续工具项使用紧凑间距。展开内容与折叠框左边界对齐；第一行显示 Call 与 Result 的全局 message number，并提供对应的 `pi-ark://` link copy 按钮。Arguments 按字段显示，每个 key 使用 heading 样式，下一行显示 value，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`；Result 显示文字或图片结果。
 
 Text item 直接显示普通文字、图片和 reasoning。含普通 text 或 image 的已完成 assistant item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；对应的流式 item 显示 Info。只包含 reasoning 和 toolCall 的 message 不显示这些操作。点击 Info 后，信息栏显示 model、context、input/output token、source message number 与 `pi-ark://` link；流式输出期间的信息栏只显示当前可用的信息。User header 提供内部链接与 Rollback。
 
@@ -272,12 +272,12 @@ Compact 使用与工具相同的单行折叠项。该行显示 compact 前的 to
 
 ### Queue
 
-AI 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up queue。点击 Send follow-up 后，Queue 立即显示该 message 和 Scheduling；Server 确认 queue item 后，Scheduling row 自动替换为正式 row。提交或连接失败时，该 row 显示 Failed，并提供清除按钮。每个正式 queued message 标记为 Steering 或 Follow-up。Queue 使用紧凑的 message rows 和独立的滚动区域；queue 增高时 conversation 自动使用剩余高度。
+AI 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up Queue。点击 Send follow-up 后，Queue 立即显示该 message 和 Scheduling；Server 通过轻量 Queue state 确认 item 后，Scheduling row 自动替换为正式 row。提交或连接失败时，该 row 显示 Failed，并提供清除按钮。每个正式 queued message 标记为 Steering 或 Follow-up。Queue mutation 使用 operation ID 和 revision 协调 optimistic UI 与 pi 的权威 Queue；快速连续操作共用当前 rebuild，并在目标 Queue 变化时追加一次 rebuild pass。Queue 使用紧凑的 message rows 和独立的滚动区域；Queue 增高时 conversation 自动使用剩余高度。
 
-- Edit 将 queued message 从 queue 取回 composer。Composer 已有文字或 attachments 时，确认 Replace draft 才会覆盖；Cancel 会保留原 composer content 与 queue item。
-- Merge follow-ups 按照当前顺序使用空行拼接全部 Follow-up，并将它们替换为一条 Follow-up。
-- 上下箭头在相同模式中调整顺序。
-- Make follow-up 或 Make steering 切换模式。
+- Edit 将 queued message 从 Queue 取回 composer。Composer 已有文字或 attachments 时，确认 Replace draft 才会覆盖；Cancel 会保留原 composer content 与 Queue item。确认后 row 立即移除，Server response 到达后 queued text 进入 composer。
+- Merge follow-ups 立即按照当前顺序显示合并后的 Follow-up；Server 使用空行拼接全部 Follow-up，并保留 attachments 与 Steering items。
+- 上下箭头立即调整相同模式中的显示顺序，Server 随后确认权威 Queue state。
+- Make follow-up 或 Make steering 立即切换模式；切换后的 message 位于目标模式分组末尾。
 - Global settings 决定同类 queued message 按 One at a time 或 All queued 投递。
 
 ### 停止运行

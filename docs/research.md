@@ -84,13 +84,13 @@ pi 的 public `message_end` listener 在 SessionManager 持久化 completed mess
 - 浏览器断线不会停止 Agent runtime。
 - 多个浏览器连接可以共享同一个 runtime。
 
-首次打开且没有浏览器内存 cache 时，Web 以首个 snapshot 判定 Session 加载完成。切回最近五个 Session 时，Web 先显示内存 LRU snapshot，再在后台以 Server snapshot 更新。Socket open 只说明 transport 已经建立。
+首次打开且没有浏览器内存 cache 时，Web 以首个 snapshot 判定 Session 加载完成。切回最近五个 Session 时，Web 先显示内存 LRU snapshot，再在后台以 Server snapshot 更新。独立的五 Session UI LRU 保存 composer draft、attachments 和 disclosure states；这些状态保持在浏览器内存中，并使用 source entry/tool call identity 恢复。Socket open 只说明 transport 已经建立。
 
 ## Queue 处理
 
 Pi SDK 提供 Steering 和 Follow-up queue。Pi-Ark 额外维护 UI item ID、mode、text 和 image，以支持重排和 mode 切换。
 
-由于 SDK 的公开 API 提供 clear、steer 和 followUp，Pi-Ark 在更新顺序时清空 queue，然后按新顺序重新提交。Queue update event 再与 Pi-Ark metadata 同步。
+由于 SDK 的公开 API 提供 clear、steer 和 followUp，Pi-Ark 在更新 mode、顺序、Edit 或 Merge 时仍需要清空 Queue，然后按新顺序重新提交。Pi-Ark 使用 queue rebuild version 和共享 promise 合并快速连续操作；rebuild 期间目标 Queue 发生变化时，再使用最新目标执行一轮。Queue update event 只同步 metadata 并发送轻量 `queue-state`，不清除 conversation display projection cache。Web 使用 operation ID、queue revision 和 optimistic operations 提供即时反馈，同时保留 pi Queue 的权威状态。
 
 ## Fork 与 Rollback
 

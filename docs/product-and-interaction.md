@@ -77,7 +77,7 @@ Session 标题优先使用用户设置的名称，其次使用首条 user messag
 
 首次打开 Session 且浏览器没有内存 cache 时，WebSocket 建立后页面继续显示 Loading conversation。首个 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
 
-浏览器在内存中保存最近五个 Session 的 snapshot。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。该 cache 不写入 localStorage，浏览器刷新后重新加载。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
+浏览器在内存中保存最近五个 Session 的 snapshot 和 Session UI state。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。该 cache 不写入 localStorage，浏览器刷新后重新加载。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
 
 Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完整 projection 的全局 offset 和总数。顶部 Show earlier messages 每次请求 Server 将当前 client 的 display window 向前扩展一页，直至显示完整活动 branch。
 
@@ -87,7 +87,7 @@ Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完�
 
 每个 turn 的 User 内容显示为一条 feed 起点，并保留用户头像、`User` 标签、message number、内部链接与 Rollback。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
 
-正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse，Running 默认展开，最新的非工具 assistant output 保持可见。Agent settled 后，该 run collapse 自动折叠并显示用时和工具消息数量，最后一条非工具内容保持展开。
+正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse。没有该 Session 的已保存 disclosure 状态时，Running 默认展开，最新的非工具 assistant output 保持可见。Agent settled 后，该 run collapse 自动折叠并显示用时和工具消息数量，最后一条非工具内容保持展开。用户随后手动改变的折叠状态在 Session 切换后恢复。
 
 Agent settled 且缺少最后一条非工具内容的历史 turn 在 run collapse 后显示紧凑的单行 Response interrupted warning。
 
@@ -95,9 +95,9 @@ Agent settled 且缺少最后一条非工具内容的历史 turn 在 run collaps
 
 Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text item 包含普通文字、图片和 reasoning，并直接显示在连续 feed 中；reasoning 使用较小字号和与普通 text 一致的行高。Global Hide reasoning 启用后，conversation 隐藏 reasoning disclosure 和内容，同时保留 Session history 中的原始 reasoning。含普通 text 或 image 的 assistant source message 在末尾显示操作行：已完成的 message 默认显示 Copy Markdown、Fork session 和 Info，流式 message 显示 Info。只包含 reasoning 和 toolCall 的 message 不显示该操作行。Info 控制的信息栏默认折叠，展开后显示 source message number、内部链接、model、context 和 input/output token；流式 message 只显示当前可用的信息。
 
-每个 tool call 与对应 tool result 合并为一行 tool item。工具 logo 位于折叠框的 summary 内，后面依次显示工具名称、实际摘要和状态；展开内容与折叠框左边界对齐。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
+每个 tool call 与对应 tool result 合并为一行 tool item。工具 logo 位于折叠框的 summary 内，后面依次显示工具名称、实际摘要和状态；展开内容与折叠框左边界对齐。Completed 使用中性色；Running 使用 warning color，Failed 使用 danger color，Result 使用 info color，Saved 使用 saved color。状态颜色作用于同一层折叠框的 border、logo 和状态文字，Running 不增加外层背景或包围框。Tool permalink target 使用折叠框内侧的 accent 标识，不改变 row 的外部尺寸。Dark themes 使用对比度更高的 fold surface、open surface 和 border colors，Running、Tool 与 Reasoning summary 可以和 conversation 底色区分。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
 
-Tool item 默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。已完成 tool item 的 message permalink target 会自动展开对应 tool item。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。错误结果显示 Failed 状态和错误颜色。
+Tool item 在没有已保存 disclosure 状态时默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。切换 Session 后，页面恢复用户对 Tool、Reasoning、Compact 和 Message Info 的展开状态。已完成 tool item 的 message permalink target 在没有用户保存状态时自动展开对应 tool item。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。错误结果显示 Failed 状态和错误颜色。
 
 Compact 与 branch summary 使用相同的 tool item。Compact 行显示 compact 前的 token 数量和 Saved 状态，展开后显示 source message number、内部链接和 pi 保存的 Markdown summary。compact 前的原始会话继续通过 earlier message 分页展示。
 
@@ -119,7 +119,9 @@ Conversation 在用户位于底部附近时跟随新输出；用户向上滚动�
 
 ### Queue
 
-Session 正在运行时，新 message 默认进入 Follow-up queue。Web 在提交后立即增加本地 Follow-up row 并显示 Scheduling；Server snapshot 出现对应 queue item 后，正式 row 替换本地 row。提交或连接失败时，本地 row 显示 Failed，并允许用户清除。Queue 区分 Steering 和 Follow-up，并使用紧凑的 message rows 显示文本摘要。用户可以在相同模式中调整顺序、切换消息模式或点击 Edit 将 queued message 取回 composer。Composer 已有文字或 attachments 时，Edit 显示覆盖确认对话框；取消后保留原 composer content 与 queue item。Merge follow-ups 按当前顺序将全部 Follow-up text 拼接为一条 Follow-up。Global settings 决定每种 queue 的默认投递方式。Queue 使用独立的最大高度和滚动区域，并由 composer 所在的 Grid row 占用页面空间。
+Session 正在运行时，新 message 默认进入 Follow-up queue。Web 在提交后立即增加本地 Follow-up row 并显示 Scheduling；Server 接受 Queue item 后发送轻量 `queue-state`，正式 row 替换本地 row。提交或连接失败时，本地 row 显示 Failed，并允许用户清除。Queue 区分 Steering 和 Follow-up，并使用紧凑的 message rows 显示文本摘要。
+
+调整顺序、切换消息模式、Edit 和 Merge follow-ups 都先在 Web 中显示 optimistic 结果。Server 使用 operation ID 确认该操作，并通过 Queue revision 更新权威状态；失败时页面恢复 Server 返回的 Queue。Mode 切换后的 item 追加到目标模式分组末尾。Composer 已有文字或 attachments 时，Edit 显示覆盖确认对话框；确认后 row 立即移除，Server response 到达后 queued text 进入 composer。Merge follow-ups 立即按照当前顺序将全部 Follow-up text 显示为一条 Follow-up。Global settings 决定每种 Queue 的默认投递方式。Queue 使用独立的最大高度和滚动区域，并由 composer 所在的 Grid row 占用页面空间。
 
 ### 附件与图片
 
@@ -187,7 +189,7 @@ Agent tools 在 Pi-Ark 新建或重新打开 Session 时进入 agent runtime。F
 
 ## 桌面与移动布局
 
-桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。
+桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。Session draft、attachments 与 disclosure 状态使用最多五个 Session 的 memory cache，不写入 localStorage。
 
 移动端使用 drawer sidebar 和顶部 mobile bar。drawer 打开时，scrim 覆盖 drawer 之外的完整应用内容，其中包括页面 header、composer 和其他浮动控件；drawer 位于 scrim 上方。点击页面入口或 Session 后，drawer 自动关闭。Composer、对话框和 Settings actions 使用适合窄屏的布局。
 

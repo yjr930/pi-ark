@@ -36,7 +36,7 @@ try {
   const agents = new AgentService(settings);
   const forked = await agents.fork(workspace, manager.getSessionId(), firstAssistant);
   assert.notEqual(forked.id, manager.getSessionId());
-  const service = agents as unknown as { rollbackEntryId(handle: unknown): string | undefined; rollbackState(handle: unknown): { id: string; targetId: string; restoreEntryId: string; draft: string } | undefined; onEvent(handle: unknown, event: unknown): void; handles: Map<string, { clients: Map<{ readyState: number; OPEN: number; send(payload: string): void }, { start: number }>; queue: Array<{ id: string; mode: "steering" | "followUp"; text: string; images: [] }>; session: { sessionManager: SessionManager; getSteeringMessages(): readonly string[]; getFollowUpMessages(): readonly string[] } }> };
+  const service = agents as unknown as { rollbackEntryId(handle: unknown): string | undefined; rollbackState(handle: unknown): { id: string; targetId: string; restoreEntryId: string; draft: string } | undefined; snapshotMessages(handle: unknown): unknown; onEvent(handle: unknown, event: unknown): void; handles: Map<string, { clients: Map<{ readyState: number; OPEN: number; send(payload: string): void }, { start: number }>; queue: Array<{ id: string; mode: "steering" | "followUp"; text: string; images: [] }>; displayMessages?: unknown; session: { sessionManager: SessionManager; clearQueue(): { steering: string[]; followUp: string[] }; getSteeringMessages(): readonly string[]; getFollowUpMessages(): readonly string[] } }> };
   const handle = service.handles.get(`${workspace.id}:${manager.getSessionId()}`)!;
   const activeForkLeaf = handle.session.sessionManager.getLeafId();
   Object.defineProperty(handle.session, "isIdle", { value: false, configurable: true });
@@ -60,12 +60,32 @@ try {
   await agents.rollbackLatest(workspace, manager.getSessionId(), secondAssistant);
   handle.session.sessionManager.appendMessage({ role: "user", content: "Replacement", timestamp: 4500 });
   await assert.rejects(() => agents.restoreRollback(workspace, manager.getSessionId()), /no longer available/);
-  handle.queue = [{ id: "queue-a", mode: "followUp", text: "A", images: [] }, { id: "queue-b", mode: "followUp", text: "B", images: [] }];
-  await agents.updateQueue(workspace, manager.getSessionId(), "queue-b", { direction: "up" });
-  assert.deepEqual(handle.session.getFollowUpMessages(), ["B", "A"]);
+  const queuePayloads: string[] = [];
+  const queueSocket = { readyState: 1, OPEN: 1, send: (payload: string) => queuePayloads.push(payload) };
+  handle.clients.set(queueSocket, { start: 0 });
+  const cachedDisplayMessages = service.snapshotMessages(handle);
+  service.onEvent(handle, { type: "queue_update", steering: [], followUp: [] });
+  assert.equal(handle.displayMessages, cachedDisplayMessages);
+  assert.deepEqual(queuePayloads.map((payload) => JSON.parse(payload).type), ["queue-state"]);
+  queuePayloads.length = 0;
+  handle.queue = [{ id: "queue-a", mode: "followUp", text: "A", images: [] }, { id: "queue-b", mode: "followUp", text: "B", images: [] }, { id: "queue-c", mode: "followUp", text: "C", images: [] }];
+  const originalClearQueue = handle.session.clearQueue.bind(handle.session);
+  let clearQueueCalls = 0;
+  handle.session.clearQueue = () => { clearQueueCalls += 1; return originalClearQueue(); };
+  const firstQueueUpdate = agents.updateQueue(workspace, manager.getSessionId(), "queue-b", { direction: "up" }, "queue-operation-1");
+  const secondQueueUpdate = agents.updateQueue(workspace, manager.getSessionId(), "queue-c", { direction: "up" }, "queue-operation-2");
+  const queueStates = await Promise.all([firstQueueUpdate, secondQueueUpdate]);
+  handle.session.clearQueue = originalClearQueue;
+  assert.equal(clearQueueCalls, 2);
+  assert.deepEqual(handle.session.getFollowUpMessages(), ["B", "C", "A"]);
+  assert.deepEqual(queueStates.map((state) => state.confirmedOperationId), ["queue-operation-1", "queue-operation-2"]);
+  assert.equal(queuePayloads.some((payload) => JSON.parse(payload).type === "snapshot"), false);
+  assert.equal(queuePayloads.some((payload) => JSON.parse(payload).confirmedOperationId === "queue-operation-1"), true);
+  assert.equal(queuePayloads.some((payload) => JSON.parse(payload).confirmedOperationId === "queue-operation-2"), true);
   await agents.updateQueue(workspace, manager.getSessionId(), "queue-a", { mode: "steering" });
   assert.deepEqual(handle.session.getSteeringMessages(), ["A"]);
-  assert.deepEqual(handle.session.getFollowUpMessages(), ["B"]);
+  assert.deepEqual(handle.session.getFollowUpMessages(), ["B", "C"]);
+  handle.clients.delete(queueSocket);
   handle.queue = [
     { id: "queue-steering", mode: "steering", text: "Steer", images: [] },
     { id: "queue-follow-up-1", mode: "followUp", text: "First follow-up", images: [] },

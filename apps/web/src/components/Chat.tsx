@@ -1,10 +1,10 @@
-import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type ReactNode } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type ReactNode } from "react";
 import { Archive, ArrowDown, ArrowUp, Check, CircleStop, Clock3, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { api, websocketUrl } from "../api";
 import { buildConversationSegments } from "../conversation";
 import { internalMessageLink, sessionPermalink } from "../permalinks";
-import { cacheSessionSnapshot, getCachedSessionSnapshot, sessionCacheKey } from "../session-cache";
-import type { AgentMessage, AgentSnapshot, ContentBlock, SessionInfo, SessionModelOption, Workspace } from "../types";
+import { cacheSessionSnapshot, cacheSessionUiState, getCachedSessionSnapshot, getCachedSessionUiState, sessionCacheKey, type CachedSessionAttachment } from "../session-cache";
+import type { AgentMessage, AgentSnapshot, ContentBlock, QueuedMessage, QueueState, SessionInfo, SessionModelOption, Workspace } from "../types";
 import { Markdown } from "./Markdown";
 import { NameDialog } from "./NameDialog";
 import { Select } from "./Select";
@@ -13,8 +13,53 @@ const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const SUPPORTED_IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 type ChatWidth = "compact" | "wide" | "full";
-interface PendingAttachment { id: string; file: File; preview?: string }
+type PendingAttachment = CachedSessionAttachment;
+type DisclosureChange = (key: string, open: boolean) => void;
 interface PendingQueuedMessage { id: string; text: string; matchText: string; expectedMatchCount: number; status: "scheduling" | "failed"; error?: string }
+type OptimisticQueueOperation =
+  | { id: string; type: "update"; itemId: string; update: { direction?: "up" | "down"; mode?: "steering" | "followUp" } }
+  | { id: string; type: "remove"; itemId: string }
+  | { id: string; type: "merge-follow-ups" };
+
+function applyQueueOperation(queue: QueuedMessage[], operation: OptimisticQueueOperation): QueuedMessage[] {
+  const next = queue.map((item) => ({ ...item }));
+  if (operation.type === "remove") return next.filter((item) => item.id !== operation.itemId);
+  if (operation.type === "merge-follow-ups") {
+    const followUps = next.filter((item) => item.mode === "followUp");
+    if (followUps.length < 2) return next;
+    const firstFollowUpIndex = next.findIndex((item) => item.mode === "followUp");
+    const merged = { ...followUps[0], text: followUps.map((item) => item.text).join("\n\n") };
+    const withoutFollowUps = next.filter((item) => item.mode !== "followUp");
+    withoutFollowUps.splice(firstFollowUpIndex, 0, merged);
+    return withoutFollowUps;
+  }
+  const index = next.findIndex((item) => item.id === operation.itemId);
+  if (index < 0) return next;
+  const item = next[index];
+  if (operation.update.mode && operation.update.mode !== item.mode) {
+    next.splice(index, 1);
+    item.mode = operation.update.mode;
+    let insertAt = next.length;
+    if (item.mode === "steering") {
+      insertAt = 0;
+      for (let queuedIndex = next.length - 1; queuedIndex >= 0; queuedIndex -= 1) if (next[queuedIndex].mode === "steering") { insertAt = queuedIndex + 1; break; }
+    }
+    next.splice(insertAt, 0, item);
+  } else if (operation.update.direction) {
+    const siblings = next.map((queued, queuedIndex) => queued.mode === item.mode ? queuedIndex : -1).filter((queuedIndex) => queuedIndex >= 0);
+    const siblingIndex = siblings.indexOf(index);
+    const targetSibling = operation.update.direction === "up" ? siblingIndex - 1 : siblingIndex + 1;
+    if (targetSibling >= 0 && targetSibling < siblings.length) {
+      const targetIndex = siblings[targetSibling];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    }
+  }
+  return next;
+}
+
+function applyQueueOperations(queue: QueuedMessage[], operations: OptimisticQueueOperation[]): QueuedMessage[] {
+  return operations.reduce(applyQueueOperation, queue);
+}
 
 function blocks(content: AgentMessage["content"]): ContentBlock[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : content || [];
@@ -94,24 +139,25 @@ function FeedTextFooter({ message, messageNumber, infoOpen, onInfoToggle, onCopy
   return <div className="feed-text-footer">{infoOpen && <FeedTextMeta message={message} messageNumber={messageNumber} onCopyLink={onCopyLink} />}<div className="feed-text-actions">{completed && message.entryId && <><button type="button" className="icon-tooltip" aria-label={markdownCopied ? "Markdown copied" : "Copy Markdown"} data-tooltip={markdownCopied ? "Markdown copied" : "Copy Markdown"} disabled={!markdown} onClick={() => void navigator.clipboard.writeText(markdown).then(() => { setMarkdownCopied(true); window.setTimeout(() => setMarkdownCopied(false), 1200); })}>{markdownCopied ? <Check size={13} /> : <Copy size={13} />}</button><button type="button" className="icon-tooltip" aria-label="Fork session" data-tooltip="Fork session" onClick={() => onFork(message.entryId!)}><GitFork size={13} /></button></>}<button type="button" className="icon-tooltip" aria-label={infoOpen ? `Hide information for AI message ${messageNumber}` : `Show information for AI message ${messageNumber}`} aria-expanded={infoOpen} data-tooltip={infoOpen ? "Hide message information" : "Show message information"} onClick={onInfoToggle}><Info size={13} /></button></div></div>;
 }
 
-function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessageNumber, target, onImageOpen, onCopyLink }: { call?: ContentBlock; result?: AgentMessage; summaryMessage?: AgentMessage; messageNumber: number; resultMessageNumber?: number; target: boolean; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void }) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessageNumber, target, stateKey, disclosureOpen, onDisclosureChange, onImageOpen, onCopyLink }: { call?: ContentBlock; result?: AgentMessage; summaryMessage?: AgentMessage; messageNumber: number; resultMessageNumber?: number; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void }) {
+  const previousRunningRef = useRef(Boolean(call && !result));
   const isSummary = Boolean(summaryMessage);
   const isCompaction = summaryMessage?.role === "compactionSummary";
   const name = isSummary ? isCompaction ? "Compact" : "Branch summary" : call?.name || result?.toolName || "Tool";
   const preview = isSummary ? isCompaction && summaryMessage?.tokensBefore ? `${number(summaryMessage.tokensBefore)} tokens before compact` : "Saved conversation context" : call ? toolCallPreview(call) : result ? toolResultPreview(result) : "{}";
   const status = isSummary ? "Saved" : result?.isError ? "Failed" : call ? result ? "Completed" : "Running" : "Result";
+  const statusClass = `status-${status.toLowerCase()}`;
   const running = Boolean(call && !result);
   const sources = [{ label: isSummary ? "Message" : call ? "Call" : "Result", messageNumber }, ...(resultMessageNumber ? [{ label: "Result", messageNumber: resultMessageNumber }] : [])];
   useLayoutEffect(() => {
-    const details = detailsRef.current;
-    if (!details) return;
-    if (running) details.open = false;
-    else if (target) details.open = true;
-  }, [running, target]);
-  return <div className={`feed-tool-item ${target ? "permalink-target" : ""}`}>
+    if (running && !previousRunningRef.current) onDisclosureChange(stateKey, false);
+    else if (target && !running && disclosureOpen === undefined) onDisclosureChange(stateKey, true);
+    previousRunningRef.current = running;
+  }, [disclosureOpen, onDisclosureChange, running, stateKey, target]);
+  const open = disclosureOpen ?? (target && !running);
+  return <div className="feed-tool-item">
     {resultMessageNumber && <span id={`message-${resultMessageNumber}`} data-message-number={resultMessageNumber} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
-    <details ref={detailsRef} className={`feed-tool-details ${result?.isError ? "error" : ""}`}><summary><span className="feed-tool-logo">{isSummary ? <Archive size={15} /> : <Wrench size={15} />}</span><strong>{name}</strong><code title={preview}>{preview}</code><span className="feed-tool-status">{status}</span></summary><div className="feed-tool-content"><MessageSourceLinks sources={sources} onCopyLink={onCopyLink} />{call && <section><strong>Arguments</strong><div className="feed-tool-arguments">{Object.entries(call.arguments || {}).length > 0 ? Object.entries(call.arguments || {}).map(([key, value]) => <div key={key}><h5>{key}</h5><pre>{formatToolArgumentValue(value)}</pre></div>) : <p>No arguments</p>}</div></section>}{result && <section><strong>Result</strong><div>{blocks(result.content).map((block, index) => {
+    <details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className={`feed-tool-details ${statusClass} ${target ? "permalink-target" : ""}`}><summary><span className="feed-tool-logo">{isSummary ? <Archive size={15} /> : <Wrench size={15} />}</span><strong>{name}</strong><code title={preview}>{preview}</code><span className="feed-tool-status">{status}</span></summary><div className="feed-tool-content"><MessageSourceLinks sources={sources} onCopyLink={onCopyLink} />{call && <section><strong>Arguments</strong><div className="feed-tool-arguments">{Object.entries(call.arguments || {}).length > 0 ? Object.entries(call.arguments || {}).map(([key, value]) => <div key={key}><h5>{key}</h5><pre>{formatToolArgumentValue(value)}</pre></div>) : <p>No arguments</p>}</div></section>}{result && <section><strong>Result</strong><div>{blocks(result.content).map((block, index) => {
       if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
       if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool result image")} key={index}><img className="message-image" src={source} alt="Tool result" /></button>; }
       return null;
@@ -119,40 +165,40 @@ function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessa
   </div>;
 }
 
-function FeedMessage({ message, messageNumber, numberByMessage, resultByCall, targetMessageNumber, hideReasoning, canRollback, rollbackTargetId, onImageOpen, onCopyLink, onFork, onRollback }: { message: AgentMessage; messageNumber: number; numberByMessage: Map<AgentMessage, number>; resultByCall: Map<ContentBlock, AgentMessage>; targetMessageNumber?: number; hideReasoning: boolean; canRollback: boolean; rollbackTargetId?: string; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
-  const [textInfoOpen, setTextInfoOpen] = useState(false);
+function FeedMessage({ message, messageNumber, numberByMessage, resultByCall, targetMessageNumber, hideReasoning, canRollback, rollbackTargetId, disclosures, onDisclosureChange, onImageOpen, onCopyLink, onFork, onRollback }: { message: AgentMessage; messageNumber: number; numberByMessage: Map<AgentMessage, number>; resultByCall: Map<ContentBlock, AgentMessage>; targetMessageNumber?: number; hideReasoning: boolean; canRollback: boolean; rollbackTargetId?: string; disclosures: Record<string, boolean>; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
   const target = messageNumber === targetMessageNumber;
-  if (message.role === "compactionSummary" || message.role === "branchSummary") return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem summaryMessage={message} messageNumber={messageNumber} target={target} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>;
-  if (message.role === "toolResult") return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem result={message} messageNumber={messageNumber} target={target} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>;
+  const messageIdentity = message.entryId || `${message.role}-${messageNumber}`;
+  const textInfoKey = `info:${messageIdentity}`;
+  const textInfoOpen = disclosures[textInfoKey] ?? false;
+  if (message.role === "compactionSummary" || message.role === "branchSummary") { const stateKey = `tool:${messageIdentity}`; return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem summaryMessage={message} messageNumber={messageNumber} target={target} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>; }
+  if (message.role === "toolResult") { const stateKey = `tool:${messageIdentity}`; return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem result={message} messageNumber={messageNumber} target={target} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>; }
   const isUser = message.role === "user";
   const hasText = hasTextFeedContent(message);
   const showAssistantFooter = hasAssistantFooterContent(message);
   const contentBlocks = blocks(message.content).map((block, index) => {
     if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown feed-text-block" onImageOpen={onImageOpen} key={index} /> : null;
     if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button feed-text-block" onClick={() => onImageOpen(source, "Attached image")} key={index}><img className="message-image" src={source} alt="Attached image" /></button>; }
-    if (block.type === "thinking") return !hideReasoning && block.thinking ? <details className="thinking feed-text-block" key={index}><summary>Reasoning</summary><Markdown source={block.thinking} className="message-markdown thinking-markdown" onImageOpen={onImageOpen} /></details> : null;
-    if (block.type === "toolCall") { const result = resultByCall.get(block); const resultMessageNumber = result ? numberByMessage.get(result) : undefined; return <ToolFeedItem call={block} result={result} messageNumber={messageNumber} resultMessageNumber={resultMessageNumber} target={target || resultMessageNumber === targetMessageNumber} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={index} />; }
+    if (block.type === "thinking") { const stateKey = `reasoning:${messageIdentity}:${index}`; const open = disclosures[stateKey] ?? false; return !hideReasoning && block.thinking ? <details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className="thinking feed-text-block" key={index}><summary>Reasoning</summary><Markdown source={block.thinking} className="message-markdown thinking-markdown" onImageOpen={onImageOpen} /></details> : null; }
+    if (block.type === "toolCall") { const result = resultByCall.get(block); const resultMessageNumber = result ? numberByMessage.get(result) : undefined; const stateKey = `tool:${block.id || `${messageIdentity}:${index}`}`; return <ToolFeedItem call={block} result={result} messageNumber={messageNumber} resultMessageNumber={resultMessageNumber} target={target || resultMessageNumber === targetMessageNumber} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={index} />; }
     return null;
   });
   if (isUser) return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-user message-user ${target ? "permalink-target" : ""}`}><div className="feed-user-header"><div className="feed-user-identity"><div className="feed-user-avatar"><UserRound size={16} /></div><div className="feed-user-label">User <span>#{messageNumber}</span></div></div><div className="feed-user-actions"><MessageLinkButton messageNumber={messageNumber} onCopyLink={onCopyLink} />{canRollback && rollbackTargetId && <button type="button" className="icon-tooltip" aria-label="Roll back latest message" data-tooltip="Roll back latest message" onClick={() => onRollback(rollbackTargetId)}><RotateCcw size={13} /></button>}</div></div><div className="feed-message-content">{contentBlocks}</div></article>;
-  const content = hasText ? <div className="feed-ai-text-body"><div className="feed-message-content">{contentBlocks}</div>{showAssistantFooter && <FeedTextFooter message={message} messageNumber={messageNumber} infoOpen={textInfoOpen} onInfoToggle={() => setTextInfoOpen((current) => !current)} onCopyLink={onCopyLink} onFork={onFork} />}</div> : <div className="feed-message-content">{contentBlocks}</div>;
+  const content = hasText ? <div className="feed-ai-text-body"><div className="feed-message-content">{contentBlocks}</div>{showAssistantFooter && <FeedTextFooter message={message} messageNumber={messageNumber} infoOpen={textInfoOpen} onInfoToggle={() => onDisclosureChange(textInfoKey, !textInfoOpen)} onCopyLink={onCopyLink} onFork={onFork} />}</div> : <div className="feed-message-content">{contentBlocks}</div>;
   return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-ai-message message-agent ${target ? "permalink-target" : ""}`}>{content}</article>;
 }
 
-function RunCollapse({ active, duration, toolMessages, target, children }: { active: boolean; duration: string; toolMessages: number; target: boolean; children: ReactNode }) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+function RunCollapse({ active, duration, toolMessages, target, stateKey, disclosureOpen, onDisclosureChange, children }: { active: boolean; duration: string; toolMessages: number; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; children: ReactNode }) {
   const previousActiveRef = useRef(active);
   useLayoutEffect(() => {
-    const details = detailsRef.current;
-    if (!details) return;
-    if (active || target) details.open = true;
-    else if (previousActiveRef.current) details.open = false;
+    if (previousActiveRef.current && !active) onDisclosureChange(stateKey, false);
+    else if ((active || target) && disclosureOpen === undefined) onDisclosureChange(stateKey, true);
     previousActiveRef.current = active;
-  }, [active, target]);
-  return <details ref={detailsRef} className={`run-collapse ${active ? "active" : ""}`}><summary><Clock3 size={13} />{active ? "Running" : duration}<span>{toolMessages} tool messages</span></summary><div>{children}</div></details>;
+  }, [active, disclosureOpen, onDisclosureChange, stateKey, target]);
+  const open = disclosureOpen ?? (active || target);
+  return <details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className={`run-collapse ${active ? "active" : ""}`}><summary><Clock3 size={13} />{active ? "Running" : duration}<span>{toolMessages} tool messages</span></summary><div>{children}</div></details>;
 }
 
-function TurnMessages({ messages, messageNumberOffset, active, targetMessageNumber, hideReasoning, rollbackEntryId, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; messageNumberOffset: number; active: boolean; targetMessageNumber?: number; hideReasoning: boolean; rollbackEntryId?: string; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
+function TurnMessages({ messages, messageNumberOffset, active, targetMessageNumber, hideReasoning, rollbackEntryId, disclosures, onDisclosureChange, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; messageNumberOffset: number; active: boolean; targetMessageNumber?: number; hideReasoning: boolean; rollbackEntryId?: string; disclosures: Record<string, boolean>; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
   const numberByMessage = new Map(messages.map((message, index) => [message, messageNumberOffset + index + 1]));
   const resultByToolCallId = new Map<string, AgentMessage>();
   for (const message of messages) if (message.role === "toolResult" && message.toolCallId) resultByToolCallId.set(message.toolCallId, message);
@@ -169,12 +215,12 @@ function TurnMessages({ messages, messageNumberOffset, active, targetMessageNumb
   }
   let latestUserMessage: AgentMessage | undefined;
   if (rollbackEntryId) for (let index = messages.length - 1; index >= 0; index -= 1) { const candidate = messages[index]; if (candidate.role === "user") { latestUserMessage = candidate; break; } }
-  const renderMessage = (message: AgentMessage, key: string) => pairedToolResults.has(message) ? null : <FeedMessage message={message} messageNumber={numberByMessage.get(message) || 0} numberByMessage={numberByMessage} resultByCall={resultByCall} targetMessageNumber={targetMessageNumber} hideReasoning={hideReasoning} canRollback={message === latestUserMessage} rollbackTargetId={rollbackEntryId} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={onRollback} key={key} />;
+  const renderMessage = (message: AgentMessage, key: string) => pairedToolResults.has(message) ? null : <FeedMessage message={message} messageNumber={numberByMessage.get(message) || 0} numberByMessage={numberByMessage} resultByCall={resultByCall} targetMessageNumber={targetMessageNumber} hideReasoning={hideReasoning} canRollback={message === latestUserMessage} rollbackTargetId={rollbackEntryId} disclosures={disclosures} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={onRollback} key={key} />;
   return <>{buildConversationSegments(messages, active).map((segment) => {
     if (segment.type === "message" && segment.message.role === "user") return renderMessage(segment.message, segment.key);
     const turnHeader = segment.type !== "warning" && segment.aiStart ? <div className="ai-turn-header" aria-label="AI response"><div className="ai-turn-avatar"><Sparkles size={15} /></div><div className="ai-turn-label">AI</div></div> : null;
     if (segment.type === "message") return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content">{renderMessage(segment.message, segment.key)}</div></div>;
-    if (segment.type === "collapsed") return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content"><RunCollapse active={segment.active} duration={segment.duration} toolMessages={segment.toolMessages} target={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber)}>{segment.messages.map((message, index) => renderMessage(message, `${segment.key}-${index}`))}</RunCollapse></div></div>;
+    if (segment.type === "collapsed") { const firstMessage = segment.messages[0]; const stateKey = `run:${firstMessage?.entryId || numberByMessage.get(firstMessage) || segment.key}`; return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content"><RunCollapse active={segment.active} duration={segment.duration} toolMessages={segment.toolMessages} target={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber)} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange}>{segment.messages.map((message, index) => renderMessage(message, `${segment.key}-${index}`))}</RunCollapse></div></div>; }
     return <div className="ai-feed-segment" key={segment.key}><div className="ai-feed-content"><div className="turn-warning" role="status"><TriangleAlert size={14} /><strong>{segment.title}</strong></div></div></div>;
   })}</>;
 }
@@ -190,9 +236,11 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
     return targetMessageNumber > cached.messageNumberOffset && targetMessageNumber <= cached.messageNumberOffset + cached.messages.length ? cached : null;
   });
   const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(cachedSnapshot);
+  const [cachedUiState] = useState(() => getCachedSessionUiState(cacheKey));
   const [models, setModels] = useState<SessionModelOption[]>([]);
-  const [draft, setDraft] = useState("");
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [draft, setDraft] = useState(cachedUiState?.draft || "");
+  const [attachments, setAttachments] = useState<PendingAttachment[]>(cachedUiState?.attachments || []);
+  const [disclosures, setDisclosures] = useState<Record<string, boolean>>(cachedUiState?.disclosures || {});
   const [preparingAttachments, setPreparingAttachments] = useState(false);
   const [status, setStatus] = useState(cachedSnapshot ? "Refreshing conversation" : "Connecting session");
   const [chatWidth, setChatWidth] = useState<ChatWidth>(() => (localStorage.getItem("pi-ark-chat-width") as ChatWidth) || "wide");
@@ -208,19 +256,20 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   const [queuedEditCandidate, setQueuedEditCandidate] = useState<{ id: string; text: string } | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
   const [pendingQueuedMessages, setPendingQueuedMessages] = useState<PendingQueuedMessage[]>([]);
+  const [optimisticQueueOperations, setOptimisticQueueOperations] = useState<OptimisticQueueOperation[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(true);
   const infoRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const attachmentRef = useRef<PendingAttachment[]>([]);
   const rollbackDraftRef = useRef("");
   const scrolledPermalinkRef = useRef("");
+  const changeDisclosure = useCallback<DisclosureChange>((key, open) => setDisclosures((current) => current[key] === open ? current : { ...current, [key]: open }), []);
 
   useEffect(() => { void api.sessionModels().then((result) => setModels(result.models)).catch(() => setModels([])); }, [workspace.id]);
-  useEffect(() => { attachmentRef.current = attachments; }, [attachments]);
   useEffect(() => { if (snapshot) cacheSessionSnapshot(cacheKey, snapshot); }, [cacheKey, snapshot]);
+  useEffect(() => { cacheSessionUiState(cacheKey, { draft, attachments, disclosures }); }, [attachments, cacheKey, disclosures, draft]);
   useLayoutEffect(() => {
     const textarea = composerTextareaRef.current;
     if (!textarea) return;
@@ -233,10 +282,8 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight + 1 ? "auto" : "hidden";
   }, [draft]);
-  useEffect(() => () => { for (const attachment of attachmentRef.current) if (attachment.preview) URL.revokeObjectURL(attachment.preview); }, []);
   useEffect(() => {
-    for (const attachment of attachmentRef.current) if (attachment.preview) URL.revokeObjectURL(attachment.preview);
-    setAttachments([]); setDraft(""); setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageNumber(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = true;
+    setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageNumber(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setOptimisticQueueOperations([]); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = true;
     let active = true;
     const connectionQuery = new URLSearchParams();
     if (targetMessageNumber) connectionQuery.set("message", String(targetMessageNumber));
@@ -257,6 +304,7 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
         setPendingQueuedMessages((current) => current.filter((item) => nextSnapshot.queue.filter((queued) => queued.mode === "followUp" && queuedTextMatches(queued.text, item.matchText)).length < item.expectedMatchCount));
         setSnapshot(nextSnapshot); setStatus(nextSnapshot.isStreaming ? "AI is working" : "Ready");
       }
+      if (payload.type === "queue-state") applyAuthoritativeQueueState(payload as QueueState);
       if (payload.type === "agent-event") {
         const agentEvent = payload.event;
         if (agentEvent.type === "agent_start") { setStatus("AI is working"); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
@@ -312,9 +360,16 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   const modelValue = snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "";
   const selectedSessionModel = models.find((model) => `${model.provider}/${model.id}` === modelValue);
   const thinkingLevels = snapshot?.availableThinkingLevels?.length ? snapshot.availableThinkingLevels : selectedSessionModel?.thinkingLevels || ["off"];
-  const queuedFollowUpCount = snapshot?.queue.filter((item) => item.mode === "followUp").length || 0;
+  const displayedQueue = useMemo(() => applyQueueOperations(snapshot?.queue || [], optimisticQueueOperations), [snapshot?.queue, optimisticQueueOperations]);
+  const queuedFollowUpCount = displayedQueue.filter((item) => item.mode === "followUp").length;
   const sessionContextPercent = snapshot?.stats?.contextUsage?.percent;
   const statusIsError = !["Connecting session", "Loading conversation", "Refreshing conversation", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
+
+  function applyAuthoritativeQueueState(state: QueueState) {
+    if (state.confirmedOperationId) setOptimisticQueueOperations((current) => current.filter((operation) => operation.id !== state.confirmedOperationId));
+    setPendingQueuedMessages((current) => current.filter((item) => state.queue.filter((queued) => queued.mode === "followUp" && queuedTextMatches(queued.text, item.matchText)).length < item.expectedMatchCount));
+    setSnapshot((current) => !current || state.queueRevision < current.queueRevision ? current : { ...current, queue: state.queue, queueRevision: state.queueRevision });
+  }
 
   function send(command: object): boolean { if (socketRef.current?.readyState !== WebSocket.OPEN) return false; socketRef.current.send(JSON.stringify(command)); return true; }
   function selectWidth(width: ChatWidth) { setChatWidth(width); localStorage.setItem("pi-ark-chat-width", width); }
@@ -402,20 +457,25 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
     finally { setActionBusy(false); }
   }
   async function updateQueue(itemId: string, update: { direction?: "up" | "down"; mode?: "steering" | "followUp" }) {
-    try { await api.updateQueuedMessage(workspace.id, session.id, itemId, update); }
-    catch (reason) { setStatus(reason instanceof Error ? reason.message : "Cannot update queued message"); }
+    const operation: OptimisticQueueOperation = { id: crypto.randomUUID(), type: "update", itemId, update };
+    setOptimisticQueueOperations((current) => [...current, operation]);
+    try { applyAuthoritativeQueueState(await api.updateQueuedMessage(workspace.id, session.id, itemId, update, operation.id)); }
+    catch (reason) { setOptimisticQueueOperations((current) => current.filter((item) => item.id !== operation.id)); setStatus(reason instanceof Error ? reason.message : "Cannot update queued message"); }
   }
   async function takeQueuedMessageForEdit(item: { id: string; text: string }) {
     if (queueBusy) return;
+    const operation: OptimisticQueueOperation = { id: crypto.randomUUID(), type: "remove", itemId: item.id };
     setQueueBusy(true);
+    setOptimisticQueueOperations((current) => [...current, operation]);
     try {
-      const result = await api.takeQueuedMessage(workspace.id, session.id, item.id);
+      const result = await api.takeQueuedMessage(workspace.id, session.id, item.id, operation.id);
+      applyAuthoritativeQueueState(result);
       for (const attachment of attachments) if (attachment.preview) URL.revokeObjectURL(attachment.preview);
       setAttachments([]);
       setDraft(result.text);
       setQueuedEditCandidate(null);
       window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
-    } catch (reason) { setStatus(reason instanceof Error ? reason.message : "Cannot edit queued message"); }
+    } catch (reason) { setOptimisticQueueOperations((current) => current.filter((queuedOperation) => queuedOperation.id !== operation.id)); setStatus(reason instanceof Error ? reason.message : "Cannot edit queued message"); }
     finally { setQueueBusy(false); }
   }
   function editQueuedMessage(item: { id: string; text: string }) {
@@ -424,9 +484,11 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   }
   async function mergeQueuedFollowUps() {
     if (queueBusy) return;
+    const operation: OptimisticQueueOperation = { id: crypto.randomUUID(), type: "merge-follow-ups" };
     setQueueBusy(true);
-    try { await api.mergeQueuedFollowUps(workspace.id, session.id); }
-    catch (reason) { setStatus(reason instanceof Error ? reason.message : "Cannot merge queued follow-ups"); }
+    setOptimisticQueueOperations((current) => [...current, operation]);
+    try { applyAuthoritativeQueueState(await api.mergeQueuedFollowUps(workspace.id, session.id, operation.id)); }
+    catch (reason) { setOptimisticQueueOperations((current) => current.filter((item) => item.id !== operation.id)); setStatus(reason instanceof Error ? reason.message : "Cannot merge queued follow-ups"); }
     finally { setQueueBusy(false); }
   }
   async function submit(event: FormEvent) {
@@ -462,11 +524,11 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
       <div className="chat-header-actions"><span className="chat-context-usage" aria-label={sessionContextPercent == null ? "Context usage unavailable" : `Context usage ${sessionContextPercent.toFixed(1)}%`}>{sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.totalDisplayMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
     </header>
     <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : allMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => updateConversationPosition(event.currentTarget)}>
-      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : allMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>#{stickyUserMessageNumber}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{snapshot?.hasEarlierMessages && <div className="conversation-history-page"><button type="button" disabled={loadingEarlierMessages} onClick={showEarlierMessages}>{loadingEarlierMessages ? "Loading earlier messages" : "Show earlier messages"}</button><span>{number(messageNumberOffset)} earlier messages</span></div>}<TurnMessages messages={allMessages} messageNumberOffset={messageNumberOffset} active={active} targetMessageNumber={targetMessageNumber} hideReasoning={hideReasoning} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber) => void navigator.clipboard.writeText(internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
+      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : allMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>#{stickyUserMessageNumber}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{snapshot?.hasEarlierMessages && <div className="conversation-history-page"><button type="button" disabled={loadingEarlierMessages} onClick={showEarlierMessages}>{loadingEarlierMessages ? "Loading earlier messages" : "Show earlier messages"}</button><span>{number(messageNumberOffset)} earlier messages</span></div>}<TurnMessages messages={allMessages} messageNumberOffset={messageNumberOffset} active={active} targetMessageNumber={targetMessageNumber} hideReasoning={hideReasoning} rollbackEntryId={snapshot?.rollbackEntryId} disclosures={disclosures} onDisclosureChange={changeDisclosure} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber) => void navigator.clipboard.writeText(internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
     </div>
     {!isLoading && <form className="composer" onSubmit={(event) => void submit(event)}>
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}
-      {((snapshot?.queue.length || 0) + pendingQueuedMessages.length > 0) && <div className="message-queue"><div className="message-queue-title"><div><strong>Queue</strong><span>Steering runs before follow-up</span></div><button type="button" className="queue-merge-button" disabled={queueBusy || queuedFollowUpCount < 2} onClick={() => void mergeQueuedFollowUps()}>Merge follow-ups</button></div>{snapshot?.queue.map((item) => { const sameMode = snapshot.queue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Edit queued message" aria-label="Edit queued message" disabled={queueBusy} onClick={() => editQueuedMessage(item)}><Pencil size={12} /></button><button type="button" title="Move queued message up" disabled={queueBusy || position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={queueBusy || position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" disabled={queueBusy} onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}{pendingQueuedMessages.map((item) => <div className={`queued-message pending ${item.status}`} key={item.id}><span className="queue-mode followUp">Follow-up</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div className="queue-pending-state" title={item.error}><span>{item.status === "scheduling" ? <LoaderCircle className="queue-pending-spinner" size={12} /> : <TriangleAlert size={12} />}{item.status === "scheduling" ? "Scheduling" : "Failed"}</span>{item.status === "failed" && <button type="button" title="Dismiss failed queued message" aria-label="Dismiss failed queued message" onClick={() => setPendingQueuedMessages((current) => current.filter((pending) => pending.id !== item.id))}><X size={12} /></button>}</div></div>)}</div>}
+      {(displayedQueue.length + pendingQueuedMessages.length > 0) && <div className="message-queue"><div className="message-queue-title"><div><strong>Queue</strong><span>Steering runs before follow-up</span></div><button type="button" className="queue-merge-button" disabled={queueBusy || queuedFollowUpCount < 2} onClick={() => void mergeQueuedFollowUps()}>Merge follow-ups</button></div>{displayedQueue.map((item) => { const sameMode = displayedQueue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Edit queued message" aria-label="Edit queued message" disabled={queueBusy} onClick={() => editQueuedMessage(item)}><Pencil size={12} /></button><button type="button" title="Move queued message up" disabled={queueBusy || position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={queueBusy || position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" disabled={queueBusy} onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}{pendingQueuedMessages.map((item) => <div className={`queued-message pending ${item.status}`} key={item.id}><span className="queue-mode followUp">Follow-up</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div className="queue-pending-state" title={item.error}><span>{item.status === "scheduling" ? <LoaderCircle className="queue-pending-spinner" size={12} /> : <TriangleAlert size={12} />}{item.status === "scheduling" ? "Scheduling" : "Failed"}</span>{item.status === "failed" && <button type="button" title="Dismiss failed queued message" aria-label="Dismiss failed queued message" onClick={() => setPendingQueuedMessages((current) => current.filter((pending) => pending.id !== item.id))}><X size={12} /></button>}</div></div>)}</div>}
       {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <div className={`attachment-preview ${attachment.preview ? "image" : "file"}`} key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt={attachment.file.name} /> : <FileIcon size={18} />}<span><strong>{attachment.file.name}</strong><small>{number(attachment.file.size / 1024)} KB</small></span><button type="button" title={`Remove ${attachment.file.name}`} onClick={() => removeAttachment(attachment.id)}><Trash2 size={13} /></button></div>)}</div>}
       <textarea ref={composerTextareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onPaste={pasteAttachments} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Send message here" rows={1} />
       <div className="composer-toolbar"><button type="button" className="attach-button" title="Add attachments or images" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(event.target.files)} /><div className="composer-runtime composer-model"><Select ariaLabel="Session model" value={modelValue} placeholder={snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "Select…"} options={models.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name || model.id, description: model.id, status: model.provider }))} onChange={(value) => { const model = models.find((item) => `${item.provider}/${item.id}` === value); if (model) { setStatus("Changing model"); send({ type: "set-model", provider: model.provider, model: model.id }); } }} /></div><div className="composer-runtime composer-thinking"><Select ariaLabel="Session thinking level" value={snapshot?.thinkingLevel || ""} options={thinkingLevels.map((level) => ({ value: level, label: level }))} onChange={(level) => { setStatus("Changing thinking level"); send({ type: "set-thinking-level", level }); }} /></div><span className="composer-hint">Enter to send · Shift Enter for a new line</span><button className="send-button" title={active ? "Send follow-up" : "Send"} disabled={preparingAttachments || (!draft.trim() && attachments.length === 0)}><ArrowUp size={18} /></button><button type="button" className="stop-button" title="Stop" disabled={!active} onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>

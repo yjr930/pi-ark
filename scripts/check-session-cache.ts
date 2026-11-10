@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cacheSessionSnapshot, deleteCachedSessionSnapshot, getCachedSessionSnapshot, SESSION_CACHE_LIMIT } from "../apps/web/src/session-cache.ts";
+import { cacheSessionSnapshot, cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionSnapshot, getCachedSessionUiState, SESSION_CACHE_LIMIT } from "../apps/web/src/session-cache.ts";
 import type { AgentSnapshot } from "../apps/web/src/types.ts";
 
 function snapshot(id: string): AgentSnapshot {
@@ -15,6 +15,7 @@ function snapshot(id: string): AgentSnapshot {
     thinkingLevel: "off",
     availableThinkingLevels: ["off"],
     queue: [],
+    queueRevision: 0,
     stats: { userMessages: 1, assistantMessages: 0, toolCalls: 0, totalMessages: 1, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 },
   };
 }
@@ -27,4 +28,12 @@ assert.equal(getCachedSessionSnapshot("workspace:session-0")?.id, "session-0");
 assert.equal(getCachedSessionSnapshot("workspace:session-new")?.id, "session-new");
 deleteCachedSessionSnapshot("workspace:session-new");
 assert.equal(getCachedSessionSnapshot("workspace:session-new"), undefined);
+
+for (let index = 0; index < SESSION_CACHE_LIMIT; index += 1) cacheSessionUiState(`workspace:ui-${index}`, { draft: `draft-${index}`, attachments: [], disclosures: { [`tool-${index}`]: true } });
+assert.equal(getCachedSessionUiState("workspace:ui-0")?.draft, "draft-0");
+cacheSessionUiState("workspace:ui-new", { draft: "new draft", attachments: [], disclosures: { "run-new": false } });
+assert.equal(getCachedSessionUiState("workspace:ui-1"), undefined);
+assert.deepEqual(getCachedSessionUiState("workspace:ui-0")?.disclosures, { "tool-0": true });
+deleteCachedSessionSnapshot("workspace:ui-new");
+assert.equal(getCachedSessionUiState("workspace:ui-new"), undefined);
 console.log("session cache checks passed");

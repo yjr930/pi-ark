@@ -85,7 +85,7 @@ docs/               产品、架构、使用和集成文档
 |---|---|---|
 | Application shell | `apps/web/src/App.tsx` | Auth 状态、Workspace/Session 选择、页面导航、URL 和响应式侧栏 |
 | Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、message renderer、composer、queue、fork 和 rollback |
-| Session snapshot cache | `apps/web/src/session-cache.ts` | 最近五个 Session 的浏览器内存 LRU snapshot cache |
+| Session memory cache | `apps/web/src/session-cache.ts` | 最近五个 Session 的 snapshot 与 UI state 浏览器内存 LRU cache |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
 | Workspace list | `apps/web/src/components/WorkspaceList.tsx` | 选择、重命名和关闭 Workspace |
 | Session list | `apps/web/src/components/SessionList.tsx` | Session actions、groups 和 Archived 区域 |
@@ -139,8 +139,8 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 - `AgentSession`
 - 已连接的 WebSocket clients，以及每个 client 已加载的 display window 起点
 - pi event unsubscribe function
-- Pi-Ark queue metadata
-- queue rebuild 状态
+- Pi-Ark queue metadata、queue revision 和 rebuild version
+- 共享的 queue rebuild promise 与 rebuild 状态
 - 当前活动 branch 的 display projection cache
 
 多个浏览器连接共享同一个 Session runtime。浏览器断开不会中止 Agent；重新连接会收到当前 snapshot。Session message/tree 变化时，AgentService 清除 display projection cache；后续 snapshot 重新构建 projection。
@@ -176,7 +176,9 @@ Snapshot 包含以下状态：
 - Rollback 和 restore 状态。
 - Session statistics。
 
-首次打开且浏览器没有内存 cache 时，Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。切回最近查看的 Session 时，Web 先显示最多五个 Session 的内存 LRU cache，再连接 Server，并以权威 snapshot 更新 cache。Session 删除后，Web 清除对应 cache entry。该 cache 不写入 localStorage，浏览器刷新后重新从 Server 加载。
+首次打开且浏览器没有内存 cache 时，Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。切回最近查看的 Session 时，Web 先显示最多五个 Session 的内存 LRU snapshot，再连接 Server，并以权威 snapshot 更新 cache。
+
+同一模块还保存最多五个 Session 的 memory-only UI state，包括 composer draft、待发送 attachments 和 conversation disclosures。Disclosure key 使用 source entry ID、tool call ID 或 run 中首条 source entry ID，因此 Server snapshot 更新和 earlier-message pagination 不改变该 identity。Session 删除或 UI cache 淘汰时，Web 释放对应 attachment preview object URLs。发送或手动移除 attachment 时也立即释放 preview。该 cache 不写入 localStorage，浏览器刷新后重新从 Server 加载。
 
 ### Streaming events
 
@@ -188,21 +190,24 @@ WebSocket prompt 可以包含文字和 base64 attachments。Attachment service �
 
 Prompt 文字追加保存后的文件名和绝对路径。支持的图片同时作为 pi image content 发送；普通附件通过路径供 Agent tools 使用。
 
-Session idle 时调用 `session.prompt()`。Session streaming 时，Pi-Ark 将新 message 记录为 Follow-up queue item，并调用 `session.followUp()`。Web 在两种状态下都显示 Send 与 Stop；idle 状态的 Stop 为 disabled，streaming 状态的 Send 使用 Follow-up 语义。Web 在发送 active prompt 前创建本地 Scheduling row；该 row 使用 match text 和预期 occurrence count 与后续 Server queue snapshot 对账，避免相同 Follow-up text 导致提前移除。
+Session idle 时调用 `session.prompt()`。Session streaming 时，Pi-Ark 将新 message 记录为 Follow-up queue item，立即广播轻量 `queue-state`，再调用 `session.followUp()`。Web 在两种状态下都显示 Send 与 Stop；idle 状态的 Stop 为 disabled，streaming 状态的 Send 使用 Follow-up 语义。Web 在发送 active prompt 前创建本地 Scheduling row；该 row 使用 match text 和预期 occurrence count 与后续 Server `queue-state` 对账，避免相同 Follow-up text 导致提前移除。Attachments 的浏览器编码与 Server 保存仍在 Queue 确认之前执行。
 
 ### Queue
 
-Runtime 启动时，Pi-Ark 从 pi 的 steering/follow-up queues 建立带随机 ID 的 UI metadata。Queue update event 会按 mode 和 text 复用已有 ID。Web 的 Scheduling row 不写入 Server queue metadata；对应权威 item 出现在 snapshot 后，Web 移除本地 row。WebSocket send、Server error 或连接失败会将对应本地 row 标记为 Failed。
+Runtime 启动时，Pi-Ark 从 pi 的 steering/follow-up queues 建立带随机 ID 的 UI metadata。Queue update event 会按 mode 和 text 复用已有 ID。每次 Queue 权威状态变化都会递增 `queueRevision`，并通过轻量 `queue-state` 发送 Queue items；该 event 不清除 display projection cache，也不生成 conversation snapshot。Web 的 Scheduling row 不写入 Server queue metadata；对应权威 item 出现在 `queue-state` 后，Web 移除本地 row。WebSocket send、Server error 或连接失败会将对应本地 row 标记为 Failed。
 
-重新排序、切换 mode、取回编辑或合并 Follow-up 时，AgentService 先修改 Pi-Ark queue metadata，然后执行以下步骤：
+pi public API 提供追加和整体清空，没有单 item mode、删除或排序方法。重新排序、切换 mode、取回编辑或合并 Follow-up 时，AgentService 先修改 Pi-Ark queue metadata，递增 queue rebuild version，并立即广播带 `confirmedOperationId` 的 `queue-state`。Web 将本地 optimistic operation 叠加在最后一份权威 Queue 上；对应 operation ID 被 Server 确认后移除 optimistic layer。HTTP response 也返回 Queue items、revision 和 operation ID；失败时 Web 移除 optimistic operation，Server 则从 pi 当前 Queue 恢复 metadata 并广播更高 revision 的状态。
 
-1. 复制当前 queue。
+Queue rebuild 执行以下过程：
+
+1. 复制当前目标 Queue 与 rebuild version。
 2. `clearQueue()`。
 3. 按新顺序重新提交 Steering items。
 4. 按新顺序重新提交 Follow-up items。
-5. 重新同步 metadata 并发送 snapshot。
+5. 如果 rebuild 期间 version 已变化，则使用最新目标 Queue 再执行一轮。
+6. version 未变化时，从 pi Queue 重新同步 metadata，并广播最终 `queue-state`。
 
-该流程保留 Pi-Ark queue item 中的 image content。取回编辑会删除指定 queue item，并将其 text 返回给 Web；Web 在 composer 已有文字或 attachments 时先显示覆盖确认。合并 Follow-up 会按照当前 Follow-up 顺序使用两个换行符连接 text、连接对应 image content，并将这些 items 替换为一条 Follow-up item。
+同一个 Session 同时只运行一个共享的 rebuild promise。快速连续操作可以修改目标 Queue，并共用当前 rebuild；Server 不再返回 Queue update in progress。该流程保留 Pi-Ark queue item 中的 image content。取回编辑会 optimistic 地移除指定 item，并在 response 到达后将 text 放回 composer；Web 在 composer 已有文字或 attachments 时先显示覆盖确认。合并 Follow-up 会 optimistic 地按照当前 Follow-up 顺序使用两个换行符连接 text；Server rebuild 同时连接对应 image content。
 
 ### Fork
 
@@ -235,11 +240,11 @@ Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分�
 `buildConversationSegments()` 只以 user message 划分 turn；compaction summary、branch summary、assistant message 与 tool result 都保留在当前 AI response 中。每轮 response 的第一个 segment 带 `aiStart` 标记，Web 只在该位置显示一次 AI 头像和 `AI` 标签。分页内容从 response 中间开始时，当前页面中的 response 前缀共同使用一次 `aiStart`。User source message 保留独立的用户头像、`User` 标签、message number 与操作按钮。角色 header 与后续 feed 内容使用独立布局，因此头像不会缩进后续内容。含普通 text 或 image 的 assistant source message 在末尾渲染操作行：完成态显示 Copy Markdown、Fork session 和 Info，流式状态显示 Info；只包含 reasoning 和 toolCall 的 source message 不渲染操作行。Info 控制 source information 与 metrics 的显示。
 
 - 没有 tool activity 的 turn 按 source message 和 content block 顺序展示为连续 feed。
-- Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output；`RunCollapse` 在 active 状态开始时默认展开，但其中的 tool details 保持默认关闭。`ToolFeedItem` 在进入 Running 状态时于 layout effect 中关闭 details，后续允许用户手动展开；已完成的 permalink target 才会自动展开 details。
-- 已完成 tool turn 将最后一条非工具 assistant output 之前的过程放入 run collapse；`RunCollapse` 观察 active→completed 转换并自动折叠。
+- Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output；没有保存状态时，`RunCollapse` 在 active 状态开始时默认展开，其中的 tool details 默认关闭。用户手动改变的 Run、Tool、Reasoning 和 Message Info disclosure 状态写入当前 Session 的 UI memory cache，并在切换 Session 后恢复。
+- 已完成 tool turn 将最后一条非工具 assistant output 之前的过程放入 run collapse；`RunCollapse` 观察 active→completed 转换并自动折叠并更新缓存状态。已完成的 permalink target 在没有已有用户状态时自动展开对应 details。
 - Idle 且缺少最后一条非工具 assistant output 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Compact 与 branch summary 也使用 tool feed item。展开 tool item 后先显示 call/result source message number 与 `pi-ark://` link copy 按钮，再显示 arguments、result 或 summary。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。Dark themes 为 Running、Tool、Reasoning 等折叠条提供独立的 fold surface、open surface 和 border colors，使 summary 与 conversation 底色保持清楚区分。Compact 与 branch summary 也使用 tool feed item。展开 tool item 后先显示 call/result source message number 与 `pi-ark://` link copy 按钮，再显示 arguments、result 或 summary。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
 
 每条 source message 继续保留全局 message number、entry ID 和 permalink anchor。配对的 tool result 不重复渲染，但 tool item 内保留 result anchor。浏览器 permalink 打开外层 run 并高亮对应 source message 或 tool item；`pi-ark://` 是 feed 中提供的 message link copy 格式。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
 
@@ -417,9 +422,9 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/fork` | Fork |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback` | Rollback |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback/restore` | Restore rollback |
-| PATCH | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/:itemId` | Queue reorder/mode |
-| DELETE | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/:itemId` | 从 queue 取回 message 进行编辑 |
-| POST | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/merge-follow-ups` | 按顺序合并全部 Follow-up |
+| PATCH | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/:itemId` | Queue reorder/mode，并返回权威 Queue state |
+| DELETE | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/:itemId` | 从 Queue 取回 message，并返回 text 与权威 Queue state |
+| POST | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/merge-follow-ups` | 按顺序合并全部 Follow-up，并返回权威 Queue state |
 | GET/POST | `/api/workspaces/:workspaceId/session-groups` | List 或 create group |
 | PATCH/DELETE | `/api/workspaces/:workspaceId/session-groups/:groupId` | Rename 或 delete group |
 
@@ -445,7 +450,8 @@ Browser commands：
 
 Server messages：
 
-- `snapshot`，其中包含 `messageNumberOffset`、`totalDisplayMessages` 和 `hasEarlierMessages`
+- `snapshot`，其中包含 `messageNumberOffset`、`totalDisplayMessages`、`hasEarlierMessages` 和 `queueRevision`
+- `queue-state`，其中包含 Queue items、`queueRevision` 和可选的 `confirmedOperationId`
 - `agent-event`
 - `notice`
 - `error`
@@ -511,4 +517,4 @@ npm run check:ui
 npm run release:build
 ```
 
-Behavior scripts 覆盖 conversation segmentation、Session snapshot LRU、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。
+Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、Session 切换后的 draft/attachment/disclosure 恢复、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

@@ -22,7 +22,7 @@ await mkdir(sessionFixtureDirectory, { recursive: true });
 const sessionFixture = SessionManager.create(workspacePath, sessionFixtureDirectory);
 sessionFixture.appendSessionInfo("Browser UI fixture");
 sessionFixture.appendMessage({ role: "user", content: [{ type: "text", text: "Browser folding check" }], timestamp: Date.now() - 4000 });
-sessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Checking the browser fixture" }, { type: "toolCall", id: "browser-read-call", name: "read", arguments: { path: "README.md" } }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 120, output: 30, cacheRead: 10, cacheWrite: 0, totalTokens: 160, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: Date.now() - 3000 });
+sessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Checking the browser fixture" }, { type: "thinking", thinking: "Browser fixture reasoning" }, { type: "toolCall", id: "browser-read-call", name: "read", arguments: { path: "README.md" } }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 120, output: 30, cacheRead: 10, cacheWrite: 0, totalTokens: 160, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: Date.now() - 3000 });
 sessionFixture.appendMessage({ role: "toolResult", toolCallId: "browser-read-call", toolName: "read", content: [{ type: "text", text: "Browser fixture tool result" }], isError: false, timestamp: Date.now() - 2000 });
 sessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Final browser answer" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 180, output: 45, cacheRead: 20, cacheWrite: 0, totalTokens: 245, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - 1000 });
 const sessionFixturePath = sessionFixture.getSessionFile();
@@ -117,6 +117,8 @@ try {
   await compactMessage.waitFor();
   const compactDetails = compactMessage.locator(".feed-tool-details");
   assert.match(await compactDetails.locator(":scope > summary").textContent(), /Compact.*120.*tokens before compact.*Saved/);
+  assert.match(await compactDetails.getAttribute("class"), /status-saved/);
+  assert.equal(await compactDetails.locator(".feed-tool-status").evaluate((element) => { const probe = document.createElement("span"); probe.style.color = "var(--saved)"; document.body.append(probe); const expected = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(element).color === expected; }), true);
   assert.equal(await compactDetails.getAttribute("open"), null);
   assert.equal(await page.getByText("Older compacted context remains available.", { exact: true }).isVisible(), false);
   await compactDetails.locator(":scope > summary").click();
@@ -155,6 +157,40 @@ try {
   await page.locator(".status-dot").filter({ hasText: "Refreshing conversation" }).waitFor({ timeout: 500 });
   assert.equal(await page.locator(".session-loading").count(), 0);
   await page.locator(".status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
+
+  const restoredRun = page.locator(".run-collapse").last();
+  await restoredRun.locator(":scope > summary").click();
+  const restoredTool = restoredRun.locator(".feed-tool-details");
+  await restoredTool.locator(":scope > summary").click();
+  const restoredReasoning = restoredRun.locator(".thinking");
+  await restoredReasoning.locator(":scope > summary").click();
+  const sessionStateFinalMessage = page.locator('.feed-source-message[data-message-number="4"]');
+  await sessionStateFinalMessage.getByRole("button", { name: "Show information for AI message 4" }).click();
+  const restoredComposer = page.locator(".composer textarea");
+  await restoredComposer.fill("Session-specific draft");
+  await page.locator('.composer input[type="file"]').setInputFiles(join(filesFixtureDirectory, "preview.png"));
+  await page.locator(".attachment-preview").filter({ hasText: "preview.png" }).waitFor();
+  await compactedSessionRow.locator(".session-open").click();
+  await page.getByText("Answer after compact", { exact: true }).waitFor();
+  assert.notEqual(await compactMessage.locator(".feed-tool-details").getAttribute("open"), null);
+  assert.equal(await page.locator(".composer textarea").inputValue(), "");
+  await fixtureSessionRow.locator(".session-open").click();
+  await page.getByText("Final browser answer", { exact: true }).waitFor();
+  assert.equal(await page.locator(".composer textarea").inputValue(), "Session-specific draft");
+  assert.notEqual(await page.locator(".run-collapse").last().getAttribute("open"), null);
+  assert.notEqual(await page.locator(".run-collapse").last().locator(".feed-tool-details").getAttribute("open"), null);
+  assert.notEqual(await page.locator(".run-collapse").last().locator(".thinking").getAttribute("open"), null);
+  assert.equal(await page.locator('.feed-source-message[data-message-number="4"]').getByRole("button", { name: "Hide information for AI message 4" }).getAttribute("aria-expanded"), "true");
+  const foldColors = await page.locator(".run-collapse").last().evaluate((run) => ({ conversation: getComputedStyle(run.closest(".conversation")).backgroundColor, run: getComputedStyle(run.querySelector(":scope > summary")).backgroundColor, tool: getComputedStyle(run.querySelector(".feed-tool-details")).backgroundColor, reasoning: getComputedStyle(run.querySelector(".thinking > summary")).backgroundColor, toolBorder: getComputedStyle(run.querySelector(".feed-tool-details")).borderTopColor }));
+  assert.notEqual(foldColors.run, foldColors.conversation);
+  assert.notEqual(foldColors.tool, foldColors.conversation);
+  assert.notEqual(foldColors.reasoning, foldColors.conversation);
+  assert.notEqual(foldColors.toolBorder, foldColors.tool);
+  const restoredAttachmentImage = page.locator(".attachment-preview").filter({ hasText: "preview.png" }).locator("img");
+  await restoredAttachmentImage.waitFor();
+  assert.equal(await restoredAttachmentImage.evaluate((image) => image.complete && image.naturalWidth > 0), true);
+  await page.getByTitle("Remove preview.png").click();
+  await page.locator(".composer textarea").fill("");
 
   assert.equal(await page.locator(".sidebar-resizer > button").count(), 1);
   assert.equal(await page.locator(".sidebar-footer, .collapsed-workspace-entry").count(), 0);
@@ -237,6 +273,7 @@ try {
   let activeSocket;
   let activeSnapshot;
   let activeQueue = Array.from({ length: 6 }, (_, index) => ({ id: `active-queue-${index}`, mode: "followUp", text: `Queued follow-up ${index + 1}` }));
+  let activeQueueRevision = 0;
   let activeMessages = [
     { role: "assistant", content: [{ type: "toolCall", id: "loose-bash-call", name: "bash", arguments: { command: "echo loose tool call" } }], timestamp: 500, entryId: "loose-bash" },
     { role: "toolResult", toolCallId: "loose-bash-call", toolName: "bash", content: [{ type: "text", text: "Loose tool result" }], timestamp: 600, entryId: "loose-bash-result" },
@@ -260,24 +297,55 @@ try {
   ];
   await activePage.route("**/api/workspaces/*/sessions/*/queue/**", async (route) => {
     const request = route.request();
-    const pathname = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const pathname = url.pathname;
+    const body = request.postDataJSON?.() || {};
+    const operationId = body.operationId || url.searchParams.get("operationId") || undefined;
+    if (request.method() === "PATCH") {
+      const itemId = decodeURIComponent(pathname.split("/").at(-1));
+      const index = activeQueue.findIndex((item) => item.id === itemId);
+      if (index < 0) return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "Queued message is no longer available" }) });
+      const item = activeQueue[index];
+      if (body.mode && body.mode !== item.mode) {
+        activeQueue.splice(index, 1);
+        item.mode = body.mode;
+        let insertAt = activeQueue.length;
+        if (item.mode === "steering") {
+          insertAt = 0;
+          for (let queuedIndex = activeQueue.length - 1; queuedIndex >= 0; queuedIndex -= 1) if (activeQueue[queuedIndex].mode === "steering") { insertAt = queuedIndex + 1; break; }
+        }
+        activeQueue.splice(insertAt, 0, item);
+      } else if (body.direction) {
+        const siblings = activeQueue.map((queued, queuedIndex) => queued.mode === item.mode ? queuedIndex : -1).filter((queuedIndex) => queuedIndex >= 0);
+        const siblingIndex = siblings.indexOf(index);
+        const targetSibling = body.direction === "up" ? siblingIndex - 1 : siblingIndex + 1;
+        if (targetSibling >= 0 && targetSibling < siblings.length) [activeQueue[index], activeQueue[siblings[targetSibling]]] = [activeQueue[siblings[targetSibling]], activeQueue[index]];
+      }
+      activeQueueRevision += 1;
+      const state = { queue: activeQueue.map((queued) => ({ ...queued })), queueRevision: activeQueueRevision, confirmedOperationId: operationId };
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (activeSocket) activeSocket.send(JSON.stringify({ type: "queue-state", ...state }));
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
+    }
     if (request.method() === "POST" && pathname.endsWith("/queue/merge-follow-ups")) {
       const followUps = activeQueue.filter((item) => item.mode === "followUp");
       if (followUps.length >= 2) activeQueue = [...activeQueue.filter((item) => item.mode !== "followUp"), { id: followUps[0].id, mode: "followUp", text: followUps.map((item) => item.text).join("\n\n") }];
-      await route.fulfill({ status: 204, body: "" });
-      if (activeSnapshot && activeSocket) { activeSnapshot.session.queue = activeQueue; activeSocket.send(JSON.stringify(activeSnapshot)); }
-      return;
+      activeQueueRevision += 1;
+      const state = { queue: activeQueue.map((queued) => ({ ...queued })), queueRevision: activeQueueRevision, confirmedOperationId: operationId };
+      if (activeSocket) activeSocket.send(JSON.stringify({ type: "queue-state", ...state }));
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
     }
     if (request.method() === "DELETE") {
       const itemId = decodeURIComponent(pathname.split("/").at(-1));
       const item = activeQueue.find((queued) => queued.id === itemId);
       if (!item) return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "Queued message is no longer available" }) });
       activeQueue = activeQueue.filter((queued) => queued.id !== itemId);
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text: item.text }) });
-      if (activeSnapshot && activeSocket) { activeSnapshot.session.queue = activeQueue; activeSocket.send(JSON.stringify(activeSnapshot)); }
-      return;
+      activeQueueRevision += 1;
+      const state = { text: item.text, queue: activeQueue.map((queued) => ({ ...queued })), queueRevision: activeQueueRevision, confirmedOperationId: operationId };
+      if (activeSocket) activeSocket.send(JSON.stringify({ type: "queue-state", ...state }));
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) });
     }
-    return route.fulfill({ status: 204, body: "" });
+    return route.fallback();
   });
   await activePage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
     activeSocket = webSocket;
@@ -289,7 +357,8 @@ try {
         const queuedText = command.text?.trim() || "Review the attached files.";
         setTimeout(() => {
           activeQueue = [...activeQueue, { id: `scheduled-${activeQueue.length}`, mode: "followUp", text: queuedText }];
-          if (activeSnapshot && activeSocket) { activeSnapshot.session.queue = activeQueue; activeSocket.send(JSON.stringify(activeSnapshot)); }
+          activeQueueRevision += 1;
+          if (activeSocket) activeSocket.send(JSON.stringify({ type: "queue-state", queue: activeQueue, queueRevision: activeQueueRevision }));
         }, 500);
         return;
       }
@@ -303,6 +372,7 @@ try {
       payload.session.isIdle = false;
       payload.session.messages = activeMessages;
       payload.session.queue = activeQueue;
+      payload.session.queueRevision = activeQueueRevision;
       activeSnapshot = payload;
       webSocket.send(JSON.stringify(payload));
     });
@@ -430,18 +500,26 @@ try {
   await activePage.getByText("Live output at the bottom", { exact: true }).waitFor();
   await activePage.waitForTimeout(100);
   assert.ok(await activeConversation.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight <= 1));
+  const optimisticQueueRow = activePage.locator(".queued-message").filter({ hasText: "Queued follow-up 1" });
+  await optimisticQueueRow.getByRole("button", { name: "Make steering" }).click();
+  await optimisticQueueRow.getByText("Steering", { exact: true }).waitFor({ timeout: 250 });
+  await optimisticQueueRow.getByRole("button", { name: "Make follow-up" }).click();
+  await optimisticQueueRow.getByText("Follow-up", { exact: true }).waitFor({ timeout: 250 });
+  await activePage.waitForTimeout(700);
   const mergeFollowUps = activePage.getByRole("button", { name: "Merge follow-ups" });
   assert.equal(await mergeFollowUps.isEnabled(), true);
   await mergeFollowUps.click();
   await activePage.waitForFunction(() => document.querySelectorAll(".queued-message").length === 1);
   assert.equal(await mergeFollowUps.isDisabled(), true);
-  const mergedQueueText = Array.from({ length: 6 }, (_, index) => `Queued follow-up ${index + 1}`).join("\n\n");
+  const mergedQueueText = [2, 3, 4, 5, 6, 1].map((index) => `Queued follow-up ${index}`).join("\n\n");
   const activeTextarea = activePage.locator(".composer textarea");
   await activePage.getByRole("button", { name: "Edit queued message" }).click();
   await activePage.waitForFunction(() => document.querySelectorAll(".queued-message").length === 0);
   assert.equal(await activeTextarea.inputValue(), mergedQueueText);
   activeQueue = [{ id: "active-editable", mode: "followUp", text: "Edit this queued follow-up" }];
+  activeQueueRevision += 1;
   activeSnapshot.session.queue = activeQueue;
+  activeSnapshot.session.queueRevision = activeQueueRevision;
   activeSocket.send(JSON.stringify(activeSnapshot));
   await activePage.getByRole("button", { name: "Edit queued message" }).waitFor();
   await activeTextarea.fill("Existing composer draft");
@@ -455,7 +533,7 @@ try {
   assert.equal(await activePage.locator(".queued-message").count(), 1);
   await activePage.getByRole("button", { name: "Edit queued message" }).click();
   await activePage.getByRole("dialog", { name: "Replace composer draft?" }).getByRole("button", { name: "Replace draft" }).click();
-  await activePage.waitForFunction(() => document.querySelectorAll(".queued-message").length === 0);
+  await activePage.waitForFunction(() => document.querySelectorAll(".queued-message").length === 0 && document.querySelector(".composer textarea")?.value === "Edit this queued follow-up");
   assert.equal(await activeTextarea.inputValue(), "Edit this queued follow-up");
   await activeTextarea.fill("Optimistic scheduling message");
   await activePage.getByTitle("Send follow-up").click();
@@ -469,10 +547,26 @@ try {
   const lateRunningTool = activeRun.locator(".feed-tool-details").filter({ hasText: "echo late tool" }).last();
   await lateRunningTool.locator(":scope > summary").filter({ hasText: "echo late tool" }).waitFor();
   assert.equal(await lateRunningTool.getAttribute("open"), null);
+  assert.match(await lateRunningTool.getAttribute("class"), /status-running/);
+  const runningToolStyle = await lateRunningTool.evaluate((details) => {
+    const item = details.closest(".feed-tool-item");
+    const probe = document.createElement("span");
+    probe.style.color = "var(--warning)";
+    document.body.append(probe);
+    const warning = getComputedStyle(probe).color;
+    probe.remove();
+    return { status: getComputedStyle(details.querySelector(".feed-tool-status")).color, itemBackground: getComputedStyle(item).backgroundColor, itemPadding: getComputedStyle(item).paddingLeft, itemShadow: getComputedStyle(item).boxShadow, warning };
+  });
+  assert.equal(runningToolStyle.status, runningToolStyle.warning);
+  assert.equal(runningToolStyle.itemBackground, "rgba(0, 0, 0, 0)");
+  assert.equal(runningToolStyle.itemPadding, "0px");
+  assert.equal(runningToolStyle.itemShadow, "none");
   activeMessages = [...activeMessages, { role: "toolResult", toolCallId: "active-late-call", toolName: "bash", content: [{ type: "text", text: "Late tool completed" }], timestamp: 5800, entryId: "active-late-result" }];
   activeSnapshot.session.messages = activeMessages;
   activeSocket.send(JSON.stringify(activeSnapshot));
   await lateRunningTool.locator(".feed-tool-status").filter({ hasText: "Completed" }).waitFor();
+  assert.match(await lateRunningTool.getAttribute("class"), /status-completed/);
+  assert.notEqual(await lateRunningTool.locator(".feed-tool-status").evaluate((element) => getComputedStyle(element).color), runningToolStyle.warning);
   assert.equal(await lateRunningTool.getAttribute("open"), null);
   activeSnapshot.session.isStreaming = false;
   activeSnapshot.session.isIdle = true;
@@ -508,6 +602,7 @@ try {
       payload.session.messages = [
         { role: "user", content: [{ type: "text", text: "Hide reasoning browser turn" }], timestamp: 1000, entryId: "hidden-reasoning-user" },
         { role: "assistant", content: [{ type: "thinking", thinking: "This reasoning must stay hidden" }, { type: "toolCall", id: "hidden-reasoning-call", name: "bash", arguments: { command: "echo hidden reasoning" } }], timestamp: 2000, entryId: "hidden-reasoning-assistant" },
+        { role: "toolResult", toolCallId: "orphan-result-call", toolName: "lookup", content: [{ type: "text", text: "Standalone result" }], timestamp: 2100, entryId: "hidden-standalone-result" },
       ];
       webSocket.send(JSON.stringify(payload));
     });
@@ -519,6 +614,9 @@ try {
   const hiddenReasoningTool = hiddenReasoningPage.locator(".feed-tool-details").filter({ hasText: "echo hidden reasoning" });
   await hiddenReasoningTool.locator(".feed-tool-status").filter({ hasText: "Running" }).waitFor();
   assert.equal(await hiddenReasoningTool.getAttribute("open"), null);
+  const standaloneResult = hiddenReasoningPage.locator(".feed-tool-details.status-result").filter({ hasText: "Standalone result" });
+  await standaloneResult.waitFor();
+  assert.equal(await standaloneResult.locator(".feed-tool-status").evaluate((element) => { const probe = document.createElement("span"); probe.style.color = "var(--info)"; document.body.append(probe); const expected = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(element).color === expected; }), true);
   assert.equal(await hiddenReasoningPage.locator(".feed-text-footer").count(), 0);
   await hiddenReasoningPage.close();
   const interruptedPage = await page.context().newPage();
@@ -535,7 +633,7 @@ try {
       payload.session.messages = [
         { role: "user", content: [{ type: "text", text: "Interrupted browser turn" }], timestamp: 1000, entryId: "interrupted-user" },
         { role: "assistant", content: [{ type: "text", text: "Reading a file" }, { type: "toolCall", id: "interrupted-read-call", name: "read", arguments: { path: "README.md" } }], timestamp: 2000, entryId: "interrupted-call" },
-        { role: "toolResult", toolCallId: "interrupted-read-call", toolName: "read", content: [{ type: "text", text: "Hidden until the result frame opens" }], timestamp: 3000, entryId: "interrupted-result" },
+        { role: "toolResult", toolCallId: "interrupted-read-call", toolName: "read", content: [{ type: "text", text: "Hidden until the result frame opens" }], isError: true, timestamp: 3000, entryId: "interrupted-result" },
       ];
       webSocket.send(JSON.stringify(payload));
     });
@@ -557,6 +655,8 @@ try {
   assert.equal(await interruptedResult.count(), 1);
   await interruptedRun.getByText("Reading a file", { exact: true }).waitFor();
   const interruptedExecution = interruptedResult.locator(".feed-tool-details");
+  assert.match(await interruptedExecution.getAttribute("class"), /status-failed/);
+  assert.equal(await interruptedExecution.locator(".feed-tool-status").evaluate((element) => { const probe = document.createElement("span"); probe.style.color = "var(--danger)"; document.body.append(probe); const expected = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(element).color === expected; }), true);
   assert.equal(await interruptedExecution.getAttribute("open"), null);
   assert.equal(await interruptedExecution.locator(":scope > summary code").textContent(), "README.md");
   assert.equal(await interruptedResultContent.isVisible(), false);
@@ -765,6 +865,18 @@ try {
   await permalinkPage.goto(copiedMessageUrl.toString());
   await permalinkPage.locator(".feed-source-message.permalink-target").filter({ hasText: "Final browser answer" }).waitFor();
   await permalinkPage.close();
+  const toolPermalinkUrl = new URL(page.url());
+  toolPermalinkUrl.searchParams.set("message", "2");
+  const toolPermalinkPage = await page.context().newPage();
+  await toolPermalinkPage.goto(toolPermalinkUrl.toString());
+  const targetedToolDetails = toolPermalinkPage.locator(".feed-tool-details.permalink-target");
+  await targetedToolDetails.waitFor();
+  const targetedToolLayout = await targetedToolDetails.evaluate((details) => { const item = details.closest(".feed-tool-item"); return { itemPadding: getComputedStyle(item).paddingLeft, itemBackground: getComputedStyle(item).backgroundColor, itemShadow: getComputedStyle(item).boxShadow, detailsShadow: getComputedStyle(details).boxShadow }; });
+  assert.equal(targetedToolLayout.itemPadding, "0px");
+  assert.equal(targetedToolLayout.itemBackground, "rgba(0, 0, 0, 0)");
+  assert.equal(targetedToolLayout.itemShadow, "none");
+  assert.notEqual(targetedToolLayout.detailsShadow, "none");
+  await toolPermalinkPage.close();
   await finalMessage.getByRole("button", { name: "Copy Markdown" }).click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "Final browser answer");
   await rollbackButton.click();
