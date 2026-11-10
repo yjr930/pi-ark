@@ -131,7 +131,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .page-loading { flex-direction: row; gap: 9px; font-size: 12px; }.page-loading svg { animation: spin 1s linear infinite; }
 .no-session h2 { margin: 17px 0 6px; color: #e8e8e9; font-size: 20px; }.no-session p { margin: 0 0 20px; font-size: 13px; }
 
-.files-page, .terminal-page { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.files-page, .terminal-page, .notebook-page { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.notebook-header h2 { display: flex; align-items: center; gap: 8px; }.notebook-status { min-width: 76px; color: var(--muted-2); font-size: 10px; text-align: right; }.notebook-status.saving { color: var(--warning); }.notebook-status.error { color: var(--danger); }.notebook-editor { min-height: 0; padding: 24px; display: flex; justify-content: center; overflow: hidden; }.notebook-editor textarea { width: min(780px, 100%); height: 100%; padding: 24px 26px; resize: none; outline: none; color: var(--text); border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 16px 50px rgba(0,0,0,.12); font: 14px/1.7 "SFMono-Regular", Consolas, monospace; tab-size: 2; }.notebook-editor textarea:focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: 0 16px 50px rgba(0,0,0,.12), 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent); }.notebook-editor textarea::placeholder { color: var(--muted-2); }.notebook-editor textarea:disabled { opacity: .65; }
+@media (max-width: 760px) { .notebook-editor { padding: 12px; }.notebook-editor textarea { padding: 18px 16px; } }
 .file-workspace { --file-browser-width: 320px; min-height: 0; display: grid; grid-template-columns: clamp(230px, var(--file-browser-width), calc(100% - 320px)) 7px minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); }
 .breadcrumbs { grid-column: 1 / -1; grid-row: 1; height: 42px; padding: 0 10px; display: flex; align-items: center; gap: 1px; border-bottom: 1px solid var(--line-soft); overflow-x: auto; }
 .breadcrumbs span { display: flex; align-items: center; color: #4f4f54; }.breadcrumbs button { padding: 4px 5px; display: flex; align-items: center; gap: 5px; border: 0; color: #8d8d92; background: transparent; font-size: 10px; white-space: nowrap; cursor: pointer; }
@@ -253,9 +255,9 @@ html, body { color: var(--text); background: var(--bg); }
 .session-actions-menu { top: 31px; right: 0; width: 174px; }
 .collapsed-workspace-entry { width: 40px; height: 40px; margin: 2px auto 7px; display: grid; place-items: center; border: 1px solid var(--line-soft); border-radius: 9px; color: var(--accent); background: var(--surface); cursor: pointer; }
 .collapsed-workspace-entry:hover { border-color: var(--line); background: var(--hover); }
-.session-group-toolbar { padding: 2px 9px 7px; }
-.session-group-toolbar > button { width: 100%; height: 31px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted); background: transparent; font-size: 10px; cursor: pointer; }
-.session-group-toolbar > button:hover { color: var(--text); border-color: var(--muted-2); background: var(--hover); }
+.session-notebook-entry { padding: 2px 9px 7px; }
+.session-notebook-entry > button { width: 100%; height: 31px; padding: 0 9px; display: flex; align-items: center; gap: 7px; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted); background: transparent; font-size: 10px; cursor: pointer; }
+.session-notebook-entry > button:hover, .session-notebook-entry > button.active { color: var(--text); border-color: var(--muted-2); background: var(--hover); }.session-notebook-entry > button.active { box-shadow: inset 2px 0 var(--accent); }
 .session-group-list { display: flex; flex-direction: column; gap: 3px; }
 .session-group-section { margin: 0 7px; }
 .session-group-heading { height: 34px; display: flex; align-items: center; }

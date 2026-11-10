@@ -193,7 +193,7 @@ PI_ARK_NEW_PASSWORD='new-password' pi-ark-dev password --no-restart
 
 ### 新建 Session
 
-点击 Sessions 标题旁的加号。新 Session 会立即打开；首次发送 message 后，Session 列表使用首条 user message 作为默认标题。
+Sessions 标题右侧的四个按钮从左到右依次是显示归档 Session、打开内部链接、新增 Session group 和新建 Session。点击最右侧的加号后，新 Session 会立即打开；首次发送 message 后，Session 列表使用首条 user message 作为默认标题。
 
 ### 管理 Session
 
@@ -208,11 +208,17 @@ PI_ARK_NEW_PASSWORD='new-password' pi-ark-dev password --no-restart
 
 Delete 会影响 Session 数据。确认对话框会显示即将删除的 Session 名称。
 
+每个 Session row 使用单行布局，较长标题会省略。列表不直接显示更新时间；将鼠标停在 Session row 上时，浏览器 tooltip 按 `Last Updated: xxxx-xx-xx xx:xx:xx` 显示最近更新时间。
+
 Session row 会显示当前状态：旋转图标表示 Agent 正在运行；绿色圆点表示该 Session 已经产生尚未查看的新输出；感叹号表示最近一次 Agent run 发生错误。点击带绿色圆点的 Session 并打开 Agent 页面后，圆点消失。Error 图标会保留到下一次运行更新状态。Question 状态显示属于后续计划，当前 Agent runtime 尚未提供显式 question state。
 
 ### 使用 Session group
 
-点击 New group 创建 group。每个 group 可以重命名或删除。Manage groups 允许同一个 Session 同时加入多个 group。
+点击 Sessions 标题栏的 New session group 图标创建 group。每个 group 可以重命名或删除。Manage groups 允许同一个 Session 同时加入多个 group。
+
+### 使用 Notebook
+
+点击 Session 列表顶部的 Notebook 行，主内容区会打开当前 Workspace 的临时笔记。直接输入文字即可；停止输入约 300 ms 后页面自动保存，离开输入框或切换页面时也会提交尚未保存的内容。右上角显示 Loading notes、Saving、Saved 或 Save failed。笔记保存在 `<workspace>/.pi-ark/notebook.md`，每个 Workspace 使用独立内容。
 
 ### 打开内部链接
 
@@ -237,7 +243,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
 
 Composer 为空时显示 `Send message here`。在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
 
-输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。当前 turn 的 user message 越过顶部后会固定显示在 conversation 顶部；向上滚动到原 message 时，顶部 bar 会立即切换到前一个 user message。点击顶部 User bar 的任意位置可以返回原 message。
+输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。当前 turn 的 user message 越过顶部后会固定显示在 conversation 顶部；向上滚动到原 message 时，顶部 bar 会立即切换到前一个 user message。点击顶部 User bar 的任意位置可以返回原 message；定位后的 User message 位于顶部 bar 下方，并保留 8 px 间距。
 
 ### 选择当前 Session 的 model
 
@@ -481,6 +487,7 @@ Workspace data：
 ```text
 <workspace>/.pi-ark/
   config.json
+  notebook.md
   sessions-meta.json
   attachments/
   sessions/

@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, FolderPlus, LoaderCircle, MoreHorizontal, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { internalSessionLink } from "../permalinks";
@@ -6,6 +6,12 @@ import type { SessionGroup, SessionInfo, SessionStatusView } from "../types";
 import { NameDialog } from "./NameDialog";
 
 type Changed = (removedFromActiveId?: string) => void;
+
+function lastUpdatedTooltip(value: string): string {
+  const date = new Date(value);
+  const part = (number: number) => String(number).padStart(2, "0");
+  return `Last Updated: ${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}:${part(date.getSeconds())}`;
+}
 
 function GroupAssignmentDialog({ workspaceId, session, groups, onClose, onChanged }: { workspaceId: string; session: SessionInfo; groups: SessionGroup[]; onClose: () => void; onChanged: Changed }) {
   const [selected, setSelected] = useState(session.groups);
@@ -63,7 +69,7 @@ function SessionRow({ workspaceId, session, status, groups, active, onSelect, on
   const title = session.name || session.firstMessage || "New session";
   return <>
     <div className={`session-list-item ${active ? "active" : ""}`}>
-      <button className="session-open" onClick={onSelect}><span className="sidebar-item-copy"><strong>{title}</strong><small>{session.pinned && <Pin size={9} />} {new Date(session.modified).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small></span><SessionState status={status} /></button>
+      <button className="session-open" title={lastUpdatedTooltip(session.modified)} onClick={onSelect}>{session.pinned && <Pin className="session-pin" size={10} />}<strong>{title}</strong><SessionState status={status} /></button>
       <div className="session-menu-root" ref={menuRef}><button className="row-menu-trigger" title={`Actions for ${title}`} aria-label={`Actions for ${title}`} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><MoreHorizontal size={15} /></button>
         {menuOpen && <div className="row-actions-menu session-actions-menu">
           <button onClick={() => { setMenuOpen(false); setRenameOpen(true); }}><Pencil size={14} />Rename</button>
@@ -103,9 +109,8 @@ function GroupSection({ group, sessions, statuses, workspaceId, activeSessionId,
   </div>;
 }
 
-export function SessionList({ workspaceId, sessions, statuses, activeSessionId, showArchived, onSelect, onChanged }: { workspaceId: string; sessions: SessionInfo[]; statuses: Record<string, SessionStatusView>; activeSessionId: string; showArchived: boolean; onSelect: (sessionId: string) => void; onChanged: Changed }) {
+export function SessionList({ workspaceId, sessions, statuses, activeSessionId, showArchived, notebookActive, createGroupOpen, onSelect, onOpenNotebook, onCreateGroupClose, onChanged }: { workspaceId: string; sessions: SessionInfo[]; statuses: Record<string, SessionStatusView>; activeSessionId: string; showArchived: boolean; notebookActive: boolean; createGroupOpen: boolean; onSelect: (sessionId: string) => void; onOpenNotebook: () => void; onCreateGroupClose: () => void; onChanged: Changed }) {
   const [groups, setGroups] = useState<SessionGroup[]>([]);
-  const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const active = sessions.filter((session) => !session.archived);
   const archived = sessions.filter((session) => session.archived);
   const ungrouped = active.filter((session) => session.groups.length === 0);
@@ -113,9 +118,9 @@ export function SessionList({ workspaceId, sessions, statuses, activeSessionId, 
   useEffect(loadGroups, [workspaceId]);
 
   return <div className="session-list">
-    <div className="session-group-toolbar"><button onClick={() => setCreateGroupOpen(true)}><FolderPlus size={13} />New group</button></div>
+    <div className="session-notebook-entry"><button className={notebookActive ? "active" : ""} onClick={onOpenNotebook}><NotebookPen size={14} />Notebook</button></div>
     {groups.length === 0 ? <div className="session-items">{active.map((session) => <SessionRow workspaceId={workspaceId} session={session} status={statuses[session.id]} groups={groups} active={session.id === activeSessionId} onSelect={() => onSelect(session.id)} onChanged={onChanged} key={session.id} />)}</div> : <div className="session-group-list">{groups.map((group) => <GroupSection group={group} sessions={active.filter((session) => session.groups.includes(group.id))} statuses={statuses} workspaceId={workspaceId} activeSessionId={activeSessionId} groups={groups} onSelect={onSelect} onChanged={onChanged} onGroupsChanged={loadGroups} key={group.id} />)}<GroupSection group={{ id: "", name: "Ungrouped" }} sessions={ungrouped} statuses={statuses} workspaceId={workspaceId} activeSessionId={activeSessionId} groups={groups} onSelect={onSelect} onChanged={onChanged} onGroupsChanged={loadGroups} /></div>}
     {showArchived && <div className="archived-sessions"><div className="archived-sessions-label"><span>Archived</span><small>{archived.length}</small></div><div className="session-items archived">{archived.map((session) => <SessionRow workspaceId={workspaceId} session={session} status={statuses[session.id]} groups={groups} active={session.id === activeSessionId} onSelect={() => onSelect(session.id)} onChanged={onChanged} key={session.id} />)}{archived.length === 0 && <div className="empty-session-group">No archived sessions</div>}</div></div>}
-    {createGroupOpen && <NameDialog title="Create session group" description="Use groups to organize related sessions. A session can belong to several groups." label="Group name" submitLabel="Create group" icon={<FolderPlus size={18} />} onClose={() => setCreateGroupOpen(false)} onSubmit={async (name) => { await api.createSessionGroup(workspaceId, name); loadGroups(); setCreateGroupOpen(false); }} />}
+    {createGroupOpen && <NameDialog title="Create session group" description="Use groups to organize related sessions. A session can belong to several groups." label="Group name" submitLabel="Create group" icon={<FolderPlus size={18} />} onClose={onCreateGroupClose} onSubmit={async (name) => { await api.createSessionGroup(workspaceId, name); loadGroups(); onCreateGroupClose(); }} />}
   </div>;
 }

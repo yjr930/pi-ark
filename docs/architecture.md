@@ -79,6 +79,7 @@ docs/               产品、架构、使用和集成文档
 | Pi-Ark link tool | `apps/server/src/agent-tools/read-pi-ark-link.ts` | `read_pi_ark_link` 的参数、输出 schema、说明和执行入口 |
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
 | Session metadata | `apps/server/src/session-metadata.ts` | Pin、Archive、group 和串行原子写入 |
+| Workspace Notebook | `apps/server/src/workspace-notebook.ts` | Workspace 临时笔记的读取与串行原子写入 |
 | Global settings | `apps/server/src/settings.ts` | Provider、model、thinking、queue、compaction、retry 和 credential login |
 | OAuth flow | `apps/server/src/auth-flows.ts` | Subscription login 的事件、prompt、answer 和 cancel 状态 |
 | Pi-Ark release | `apps/server/src/pi-core.ts` | Pi-Ark 与 bundled pi core 版本信息、GitHub Releases 查询、完整 release 更新、回退和延迟重启 |
@@ -94,7 +95,8 @@ docs/               产品、架构、使用和集成文档
 | Session status projection | `apps/web/src/session-status.ts` | 合并 runtime revision、计算 unread output 和记录当前浏览器的查看状态 |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
 | Workspace list | `apps/web/src/components/WorkspaceList.tsx` | 选择、重命名和关闭 Workspace |
-| Session list | `apps/web/src/components/SessionList.tsx` | Session actions、groups 和 Archived 区域 |
+| Session list | `apps/web/src/components/SessionList.tsx` | 单行 Session、更新时间 tooltip、Notebook 入口、groups 和 Archived 区域 |
+| Notebook | `apps/web/src/components/Notebook.tsx` | Workspace 笔记加载、debounce 自动保存和保存状态 |
 | Files | `apps/web/src/components/Files.tsx` | 全宽目录导航、可调整的文件列表、path copy、文本阅读和 Markdown image path |
 | Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示 |
 | Terminal | `apps/web/src/components/Terminal.tsx` | xterm.js、FitAddon 和 Terminal WebSocket |
@@ -222,6 +224,8 @@ AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 cli
 Web 将最后收到的 revision 保存在当前页面内存中。较旧的 response 不覆盖较新的状态。Session 的 `updateRevision` 增加且进入 `ready` 时，Web 显示 unread output；首次收到已有 completed revision 的 Session 也会显示 unread output。浏览器在可见的 Agent 页面打开该 Session 后清除 unread 标记。Web 按 Workspace 保存这份内存状态，因此切换 Workspace 后返回仍可看到尚未查看的新输出。Error 由 Server runtime state 决定，打开 Session 不会清除 error；下一次 Agent run 会更新该状态。该查看状态不写入 localStorage，也不写入 Session JSONL。
 
 当前 Agent runtime 没有面向 Web 的显式 question lifecycle、question event 或 answer API。Sidebar Question indicator 作为计划能力保留；后续需要先定义 runtime question state 与 answer transport，再加入状态优先级和图标。
+
+SessionList 将每个 Session 渲染为高度 32 px 的单行 row，标题使用 ellipsis，更新时间通过 `title` attribute 格式化为 `Last Updated: yyyy-mm-dd hh:mm:ss`。Sessions header 的操作顺序是 archive visibility、internal link、create group 和 create Session。原 create-group toolbar 改为 Notebook 入口；App 将 `notebook` 保存为 URL page，并在主内容区 lazy-load Notebook component。
 
 ### Prompt 与 attachments
 
@@ -395,10 +399,11 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | 路径 | 内容 |
 |---|---|
 | `<workspace>/.pi-ark/sessions/*.jsonl` | pi session tree |
+| `<workspace>/.pi-ark/notebook.md` | Workspace Notebook 的 UTF-8 Markdown 文本 |
 | `<workspace>/.pi-ark/sessions-meta.json` | Pin、Archive、groups 和 group definitions |
 | `<workspace>/.pi-ark/attachments/<session>/` | Session attachments |
 
-Global config 和 Session metadata 使用 temporary file 加 rename 的方式写入。Global config 使用服务进程级 write queue，Session metadata 按 Workspace 使用 write queue，以保留自动保存与并发请求中的其他字段。
+Global config、Session metadata 和 Workspace Notebook 使用 temporary file 加 rename 的方式写入。Global config 使用服务进程级 write queue，Session metadata 按 Workspace 使用 write queue，Notebook 按目标文件使用 write queue。Web Notebook 在输入停止约 300 ms 后保存，并在 blur 或页面卸载时提交尚未保存的内容；同一页面的请求通过 Promise chain 按编辑顺序发送。
 
 ### Browser-local preferences
 
@@ -432,6 +437,7 @@ Global config 和 Session metadata 使用 temporary file 加 rename 的方式写
 | GET | `/api/workspaces/:workspaceId/file` | 文本或图片 preview metadata；执行 Global preview limit |
 | GET | `/api/workspaces/:workspaceId/image` | Files/Markdown image stream；执行 Global preview limit |
 | GET | `/api/workspaces/:workspaceId/download` | 原始文件 stream download；不执行 preview limit |
+| GET/PUT | `/api/workspaces/:workspaceId/notebook` | 读取或自动保存 Workspace Notebook |
 
 ### Settings
 

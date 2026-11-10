@@ -446,7 +446,8 @@ export function Chat({ workspace, session, targetMessageId, hideReasoning, onSes
     followOutputRef.current = false;
     const conversationTop = conversation.getBoundingClientRect().top;
     const messageTop = message.getBoundingClientRect().top;
-    conversation.scrollTo({ top: Math.max(0, conversation.scrollTop + messageTop - conversationTop - 8), behavior: "smooth" });
+    const stickyHeight = conversation.querySelector<HTMLElement>(".conversation-sticky-user")?.getBoundingClientRect().height || 0;
+    conversation.scrollTo({ top: Math.max(0, conversation.scrollTop + messageTop - conversationTop - stickyHeight - 8), behavior: "smooth" });
   }
   function addFiles(files: FileList | File[] | null) {
     if (!files) return;

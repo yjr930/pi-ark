@@ -1,6 +1,6 @@
 {
   "name": "pi-ark",
-  "version": "0.1.5-dev.24",
+  "version": "0.1.5-dev.25",
   "private": true,
   "description": "Workspace-oriented web interface for the pi coding agent",
   "type": "module",
@@ -14,7 +14,8 @@
     "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w @pi-ark/server\" \"npm run dev -w @pi-ark/web\"",
     "build": "npm run build -w @pi-ark/web && npm run build -w @pi-ark/server",
     "check": "npm run check -w @pi-ark/web && npm run check -w @pi-ark/server",
-    "check:behavior": "tsx scripts/check-conversation.ts && tsx scripts/check-compaction-stats.ts && tsx scripts/check-session-cache.ts && tsx scripts/check-session-status.ts && tsx scripts/check-attachments.ts && tsx scripts/check-auth-flow.ts && tsx scripts/check-model-preferences.ts && tsx scripts/check-session-actions.ts && tsx scripts/check-pi-ark-links.ts && tsx scripts/check-system-prompt.ts && tsx scripts/check-files.ts && tsx scripts/check-instances.ts",
+    "check:behavior": "tsx scripts/check-conversation.ts && tsx scripts/check-compaction-stats.ts && tsx scripts/check-session-cache.ts && tsx scripts/check-session-status.ts && tsx scripts/check-attachments.ts && tsx scripts/check-auth-flow.ts && tsx scripts/check-model-preferences.ts && tsx scripts/check-session-actions.ts && tsx scripts/check-pi-ark-links.ts && tsx scripts/check-system-prompt.ts && tsx scripts/check-files.ts && tsx scripts/check-instances.ts && tsx scripts/check-notebook.ts",
+    "check:notebook": "tsx scripts/check-notebook.ts",
     "check:ui": "node scripts/check-ui.mjs",
     "release:build": "node scripts/build-release.mjs",
     "release:install": "node scripts/install-release.mjs",

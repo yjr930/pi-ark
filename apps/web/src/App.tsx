@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { Archive, Box, ChevronDown, ChevronLeft, ChevronRight, Files as FilesIcon, Settings as Gear, Link2, LoaderCircle, Menu, MessageSquare, Plus, TerminalSquare } from "lucide-react";
+import { Archive, Box, ChevronDown, ChevronLeft, ChevronRight, Files as FilesIcon, FolderPlus, Settings as Gear, Link2, LoaderCircle, Menu, MessageSquare, Plus, TerminalSquare } from "lucide-react";
 import { api } from "./api";
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog";
 import { Chat } from "./components/Chat";
@@ -14,6 +14,7 @@ import { applyTheme } from "./theme";
 import type { SessionInfo, UiSettings, Workspace } from "./types";
 
 const Files = lazy(() => import("./components/Files").then((module) => ({ default: module.Files })));
+const Notebook = lazy(() => import("./components/Notebook").then((module) => ({ default: module.Notebook })));
 const Terminal = lazy(() => import("./components/Terminal").then((module) => ({ default: module.Terminal })));
 const Settings = lazy(() => import("./components/Settings").then((module) => ({ default: module.Settings })));
 type Page = AppPage;
@@ -38,6 +39,7 @@ export default function App() {
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [workspacesExpanded, setWorkspacesExpanded] = useState(() => localStorage.getItem("pi-ark-workspaces-expanded") !== "false");
   const [showArchivedSessions, setShowArchivedSessions] = useState(false);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [sessionLinkOpen, setSessionLinkOpen] = useState(false);
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
   const [error, setError] = useState("");
@@ -143,7 +145,7 @@ export default function App() {
   }
 
   function selectWorkspace(id: string) {
-    setWorkspaceId(id); setTargetMessageId(undefined); setPage("agent"); window.history.replaceState(null, "", workspaceLocation(id));
+    setWorkspaceId(id); setTargetMessageId(undefined); setCreateGroupOpen(false); setPage("agent"); window.history.replaceState(null, "", workspaceLocation(id));
   }
 
   function selectPage(nextPage: Page) {
@@ -154,6 +156,10 @@ export default function App() {
   function selectSession(id: string) {
     setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, id) }));
     setSessionId(id); setTargetMessageId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, id));
+  }
+
+  function openNotebook() {
+    setPage("notebook"); setSidebar(false); window.history.replaceState(null, "", appLocation("notebook", workspaceId, sessionId));
   }
 
   async function openInternalSessionLink(value: string) {
@@ -209,8 +215,8 @@ export default function App() {
         <button className={page === "settings" ? "active" : ""} onClick={() => selectPage("settings")}><Gear size={16} /><span>Settings</span></button>
       </nav>
       <section className="sidebar-section sessions-section">
-        <div className="sidebar-section-header"><span>Sessions</span><div className="sidebar-header-actions"><button className="icon-button" title="Open Pi-Ark session link" aria-label="Open Pi-Ark session link" onClick={() => setSessionLinkOpen(true)}><Link2 size={14} /></button><button className={`icon-button ${showArchivedSessions ? "active" : ""}`} title={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-label={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchivedSessions} onClick={() => setShowArchivedSessions((current) => !current)}><Archive size={14} /></button><button className="icon-button" title="New session" onClick={() => void createSession()}><Plus size={15} /></button></div></div>
-        {workspace && <SessionList workspaceId={workspace.id} sessions={sessions} statuses={sessionStatuses} activeSessionId={sessionId} showArchived={showArchivedSessions} onSelect={selectSession} onChanged={refreshSessions} />}
+        <div className="sidebar-section-header"><span>Sessions</span><div className="sidebar-header-actions"><button className={`icon-button ${showArchivedSessions ? "active" : ""}`} title={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-label={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchivedSessions} onClick={() => setShowArchivedSessions((current) => !current)}><Archive size={14} /></button><button className="icon-button" title="Open Pi-Ark session link" aria-label="Open Pi-Ark session link" onClick={() => setSessionLinkOpen(true)}><Link2 size={14} /></button><button className="icon-button" title="New session group" aria-label="New session group" onClick={() => setCreateGroupOpen(true)}><FolderPlus size={14} /></button><button className="icon-button" title="New session" aria-label="New session" onClick={() => void createSession()}><Plus size={15} /></button></div></div>
+        {workspace && <SessionList workspaceId={workspace.id} sessions={sessions} statuses={sessionStatuses} activeSessionId={sessionId} showArchived={showArchivedSessions} notebookActive={page === "notebook"} createGroupOpen={createGroupOpen} onSelect={selectSession} onOpenNotebook={openNotebook} onCreateGroupClose={() => setCreateGroupOpen(false)} onChanged={refreshSessions} />}
       </section>
     </aside>
     <div className="sidebar-resizer desktop-only" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={beginSidebarResize}><button title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onPointerDown={(event) => event.stopPropagation()} onClick={toggleSidebar}>{sidebarCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}</button></div>
@@ -220,6 +226,7 @@ export default function App() {
       {!workspace && page !== "settings" && <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>}
       {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}`} workspace={workspace} session={selectedSession} targetMessageId={targetMessageId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
+        {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} />}
         {workspace && page === "files" && <Files workspace={workspace} />}
         {workspace && page === "terminal" && <Terminal workspace={workspace} />}
       </Suspense>

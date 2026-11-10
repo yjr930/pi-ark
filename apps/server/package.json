@@ -1,6 +1,6 @@
 {
   "name": "@pi-ark/server",
-  "version": "0.1.5-dev.24",
+  "version": "0.1.5-dev.25",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

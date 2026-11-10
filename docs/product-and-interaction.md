@@ -26,7 +26,7 @@ Pi-Ark 是面向个人或受控团队环境的 pi coding agent Web UI。服务�
 
 1. Workspaces：选择、添加、重命名和关闭 Workspace。
 2. 页面导航：Agent、Files、Terminal 和 Settings。
-3. Sessions：新建 Session、打开内部链接、显示归档 Session、管理 Session group 和选择 Session。
+3. Sessions：打开 Notebook、选择 Session，并通过标题栏按钮显示归档 Session、打开内部链接、新增 Session group 和新建 Session。
 
 主内容区根据当前页面展示对应功能。URL query 保存页面与选择状态；Session 和 message 也可以使用 `pi-ark://` 内部链接定位。
 
@@ -52,7 +52,7 @@ Registry 为空时，主内容区显示 No open workspace，并提供 Add worksp
 
 ### Session 列表
 
-Session 标题优先使用用户设置的名称，其次使用首条 user message。列表显示最近修改日期；置顶 Session 额外显示 Pin 图标。
+Session 标题优先使用用户设置的名称，其次使用首条 user message。每个 Session 使用单行 row，标题在可用宽度内省略；列表不直接显示日期，悬停 Session row 时通过原生 tooltip 显示 `Last Updated: xxxx-xx-xx xx:xx:xx`。置顶 Session 额外显示 Pin 图标。
 
 Session row 的右侧状态区域使用以下优先级：Agent 正在运行时显示 warning color spinner；最近一次 Agent run 以 error 结束时显示 danger color 感叹号；非当前 Agent page 的 Session 完成新输出时显示绿色 unread dot。打开对应 Session 后，当前浏览器清除 unread dot。Error 状态持续到下一次 Agent run 更新状态。状态和已查看记录只保存在当前 Server process 与浏览器页面内存中。
 
@@ -69,7 +69,11 @@ Session row 的右侧状态区域使用以下优先级：Agent 正在运行时�
 
 ### Session group
 
-用户可以创建、重命名和删除 group。一个 Session 可以出现在多个 group 中；未分配 group 的 Session 显示在 Ungrouped。删除 group 会移除 group 本身及 Session 的对应关联，不会删除 Session。
+Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark session link、New session group 和 New session 四个图标按钮。用户可以创建、重命名和删除 group。一个 Session 可以出现在多个 group 中；未分配 group 的 Session 显示在 Ungrouped。删除 group 会移除 group 本身及 Session 的对应关联，不会删除 Session。
+
+### Workspace Notebook
+
+原 New group 独立栏位显示 Notebook 入口。打开后，主内容区显示当前 Workspace 的纯文本 Markdown 笔记编辑器；输入停止约 300 ms 后自动保存，离开输入框或页面时立即提交尚未保存的内容。Header 显示 Loading notes、Saving、Saved 或 Save failed。每个 Workspace 使用独立的 `.pi-ark/notebook.md`，再次打开 Notebook 时恢复保存内容。
 
 ### 新建与选择
 
@@ -129,7 +133,7 @@ Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只�
 
 Composer 提供当前 Session 的 model 与 thinking 选择器，选择器直接显示当前值，不显示 `MODEL` 与 `THINKING` 提示文字。Model 列表来自当前可用凭证，Thinking 选项来自所选 model 的 pi capability。选择结果只影响当前 Session。
 
-Conversation 在用户位于底部附近时跟随新输出；用户向上滚动后，后续 event 保留当前阅读位置。User message 的顶部越过 conversation 顶部时，该 message 显示为不透明的 sticky User bar；向上滚动并让原 message 重新进入顶部后，bar 立即切换到前一个 user message。点击 sticky User bar 的任意位置会定位到原 message。已经展开的 run collapse summary 以不透明的 sticky row 固定在 User bar 下方。Message permalink 继续使用平滑定位。
+Conversation 在用户位于底部附近时跟随新输出；用户向上滚动后，后续 event 保留当前阅读位置。User message 的顶部越过 conversation 顶部时，该 message 显示为不透明的 sticky User bar；向上滚动并让原 message 重新进入顶部后，bar 立即切换到前一个 user message。点击 sticky User bar 的任意位置会定位到原 message，并将目标 message 放在 sticky bar 下方且保留 8 px 间距。已经展开的 run collapse summary 以不透明的 sticky row 固定在 User bar 下方。Message permalink 继续使用平滑定位。
 
 ### Queue
 

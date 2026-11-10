@@ -1,7 +1,7 @@
 import { validMessageTarget } from "../../server/src/internal-links";
 export { internalMessageLink, internalSessionLink, parseInternalSessionLink, type InternalSessionTarget } from "../../server/src/internal-links";
 
-export type AppPage = "agent" | "files" | "terminal" | "settings";
+export type AppPage = "agent" | "notebook" | "files" | "terminal" | "settings";
 
 export interface PermalinkTarget {
   workspaceId?: string;
@@ -14,7 +14,7 @@ export function readPermalink(): PermalinkTarget {
   const params = new URLSearchParams(window.location.search);
   const messageId = validMessageTarget(params.get("message"));
   const rawPage = params.get("page");
-  const page: AppPage = rawPage === "files" || rawPage === "terminal" || rawPage === "settings" ? rawPage : "agent";
+  const page: AppPage = rawPage === "notebook" || rawPage === "files" || rawPage === "terminal" || rawPage === "settings" ? rawPage : "agent";
   return {
     workspaceId: params.get("workspace") || undefined,
     sessionId: params.get("session") || undefined,

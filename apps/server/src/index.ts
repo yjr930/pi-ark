@@ -13,6 +13,7 @@ import { PiCoreService } from "./pi-core.js";
 import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput, type ModelPreferencesInput } from "./settings.js";
 import { openTerminal } from "./terminal.js";
 import { WorkspaceService } from "./workspaces.js";
+import { readWorkspaceNotebook, saveWorkspaceNotebook } from "./workspace-notebook.js";
 
 const previousAgentDir = process.env.PI_ARK_MIGRATE_AGENT_DIR || process.env.PI_CODING_AGENT_DIR;
 await ensurePiArkAgentState(previousAgentDir);
@@ -134,6 +135,9 @@ app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/ap
   reply.header("X-Content-Type-Options", "nosniff").header("Content-Length", download.size).header("Content-Disposition", contentDispositionFilename(download.name)).type("application/octet-stream");
   return reply.send(download.content);
 });
+
+app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/notebook", async (request) => readWorkspaceNotebook(workspaces.get(request.params.workspaceId)));
+app.put<{ Params: { workspaceId: string }; Body: { content?: unknown } }>("/api/workspaces/:workspaceId/notebook", async (request) => saveWorkspaceNotebook(workspaces.get(request.params.workspaceId), request.body?.content));
 
 app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/sessions", async (request) => ({
   sessions: await agents.list(workspaces.get(request.params.workspaceId)),
