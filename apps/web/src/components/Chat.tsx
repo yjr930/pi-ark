@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from "react";
-import { Archive, ArrowDown, ArrowUp, Braces, Check, CircleStop, Clock3, Code2, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, Check, CircleStop, Clock3, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Megaphone, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { api, websocketUrl } from "../api";
 import { buildConversationSegments, previousConversationPageStart } from "../conversation";
 import { internalMessageLink, sessionPermalink } from "../permalinks";
@@ -22,17 +22,9 @@ function messageMarkdown(message: AgentMessage): string {
   return blocks(message.content).filter((block) => block.type === "text" && block.text).map((block) => block.text).join("\n\n");
 }
 
-function compactToolCalls(message: AgentMessage): ContentBlock[] {
-  if (message.role !== "assistant") return [];
-  const content = blocks(message.content);
-  const calls = content.filter((block) => block.type === "toolCall");
-  const hasVisibleMessage = content.some((block) => {
-    if (block.type === "toolCall") return false;
-    if (block.type === "text") return Boolean(block.text?.trim());
-    if (block.type === "thinking") return Boolean(block.thinking?.trim());
-    return true;
-  });
-  return calls.length > 0 && !hasVisibleMessage ? calls : [];
+function hasTextFeedContent(message: AgentMessage): boolean {
+  if (message.role === "user") return true;
+  return blocks(message.content).some((block) => block.type === "text" ? Boolean(block.text?.trim()) : block.type === "thinking" ? Boolean(block.thinking?.trim()) : block.type === "image");
 }
 
 function matchesToolResult(call: ContentBlock, result: AgentMessage | undefined): result is AgentMessage {
@@ -56,121 +48,84 @@ function toolResultPreview(message: AgentMessage): string {
   return "Empty result";
 }
 
-function ToolCall({ call }: { call: ContentBlock }) {
-  const preview = toolCallPreview(call);
-  return <details className="tool-activity tool-call-activity"><summary><Code2 size={13} /><strong>{call.name || "Tool"}</strong><code title={preview}>{preview}</code><span>Call</span></summary><pre>{JSON.stringify(call.arguments || {}, null, 2)}</pre></details>;
+function MessageSourceLinks({ sources, onCopyLink }: { sources: Array<{ label: string; messageNumber: number }>; onCopyLink: (messageNumber: number) => void }) {
+  const [copiedMessageNumber, setCopiedMessageNumber] = useState<number>();
+  return <div className="feed-source-links">{sources.map((source) => <span key={`${source.label}-${source.messageNumber}`}><code>{source.label} #{source.messageNumber}</code><button type="button" className="icon-tooltip" aria-label={copiedMessageNumber === source.messageNumber ? "Internal link copied" : `Copy internal link for message ${source.messageNumber}`} data-tooltip={copiedMessageNumber === source.messageNumber ? "Link copied" : "Copy Pi-Ark link"} onClick={() => { onCopyLink(source.messageNumber); setCopiedMessageNumber(source.messageNumber); window.setTimeout(() => setCopiedMessageNumber(undefined), 1200); }}>{copiedMessageNumber === source.messageNumber ? <Check size={12} /> : <Link2 size={12} />}</button></span>)}</div>;
 }
 
-function ToolResult({ message, onImageOpen }: { message: AgentMessage; onImageOpen: (source: string, alt: string) => void }) {
-  const preview = toolResultPreview(message);
-  return <details className={`tool-activity tool-result ${message.isError ? "error" : ""}`}><summary><Wrench size={13} /><strong>{message.toolName || "Tool"}</strong><code title={preview}>{preview}</code><span>{message.isError ? "Failed" : "Result"}</span></summary><div className="tool-activity-content">{blocks(message.content).map((block, index) => {
-    if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
-    if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool result image")} key={index}><img className="message-image" src={source} alt="Tool result" /></button>; }
-    return null;
-  })}</div></details>;
-}
-
-function CompactToolCallMessage({ call, result, labelMessageNumber, domMessageNumber, anchors, entryId, dataRole, target, onImageOpen, onCopyLink }: { call: ContentBlock; result?: AgentMessage; labelMessageNumber: number; domMessageNumber?: number; anchors?: Array<{ messageNumber: number; role: string; entryId?: string }>; entryId?: string; dataRole: string; target: boolean; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number, kind: "url" | "internal") => void }) {
-  const [urlCopied, setUrlCopied] = useState(false);
-  const [internalLinkCopied, setInternalLinkCopied] = useState(false);
-  const toolName = call.name || result?.toolName || "Tool";
-  const preview = toolCallPreview(call);
-  const status = result?.isError ? "Failed" : result ? "Completed" : "Running";
-  const copyMessageNumber = domMessageNumber || labelMessageNumber;
-  return <article id={domMessageNumber ? `message-${domMessageNumber}` : undefined} data-message-number={domMessageNumber} data-message-role={dataRole} data-entry-id={entryId} className={`single-tool-call-message ${target ? "permalink-target" : ""}`}>
-    {anchors?.map((anchor) => <span id={`message-${anchor.messageNumber}`} data-message-number={anchor.messageNumber} data-message-role={anchor.role} data-entry-id={anchor.entryId} className="message-inline-anchor" key={anchor.messageNumber} />)}
-    <div className="message-avatar"><Wrench size={16} /></div>
-    <div className="single-tool-label"><strong>{toolName}</strong><span>#{labelMessageNumber}</span></div>
-    <details className={`single-tool-execution ${result?.isError ? "error" : ""}`} open={target || undefined}><summary><Code2 size={13} /><code title={preview}>{preview}</code><span>{status}</span></summary><div><section><strong>Arguments</strong><pre>{JSON.stringify(call.arguments || {}, null, 2)}</pre></section>{result && <section><strong>Result</strong><div>{blocks(result.content).map((block, index) => {
-      if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
-      if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool result image")} key={index}><img className="message-image" src={source} alt="Tool result" /></button>; }
-      return null;
-    })}</div></section>}</div></details>
-    <div className="message-heading-actions"><button type="button" className="message-icon-action icon-tooltip" aria-label={urlCopied ? "Message URL copied" : `Copy URL for message ${copyMessageNumber}`} data-tooltip={urlCopied ? "URL copied" : "Copy message URL"} onClick={() => { onCopyLink(copyMessageNumber, "url"); setUrlCopied(true); window.setTimeout(() => setUrlCopied(false), 1200); }}>{urlCopied ? <Check size={12} /> : <Link2 size={12} />}</button><button type="button" className="message-icon-action icon-tooltip" aria-label={internalLinkCopied ? "Internal link copied" : `Copy internal link for message ${copyMessageNumber}`} data-tooltip={internalLinkCopied ? "Internal link copied" : "Copy Pi-Ark internal link"} onClick={() => { onCopyLink(copyMessageNumber, "internal"); setInternalLinkCopied(true); window.setTimeout(() => setInternalLinkCopied(false), 1200); }}>{internalLinkCopied ? <Check size={12} /> : <Braces size={12} />}</button></div>
-  </article>;
-}
-
-function SummaryMessage({ message, messageNumber, target, onImageOpen, onCopyLink }: { message: AgentMessage; messageNumber: number; target: boolean; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number, kind: "url" | "internal") => void }) {
-  const [urlCopied, setUrlCopied] = useState(false);
-  const [internalLinkCopied, setInternalLinkCopied] = useState(false);
-  const isCompaction = message.role === "compactionSummary";
-  const label = isCompaction ? "Compact" : "Branch summary";
-  const description = isCompaction && message.tokensBefore ? `${number(message.tokensBefore)} tokens before compact` : "Saved conversation context";
-  return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`message conversation-summary-message ${target ? "permalink-target" : ""}`}>
-    <div className="message-avatar"><Archive size={16} /></div>
-    <div className="message-body">
-      <div className="message-heading"><div className="message-label">{label}<span>#{messageNumber}</span></div><div className="message-heading-actions"><button type="button" className="message-icon-action icon-tooltip" aria-label={urlCopied ? "Message URL copied" : `Copy URL for message ${messageNumber}`} data-tooltip={urlCopied ? "URL copied" : "Copy message URL"} onClick={() => { onCopyLink(messageNumber, "url"); setUrlCopied(true); window.setTimeout(() => setUrlCopied(false), 1200); }}>{urlCopied ? <Check size={12} /> : <Link2 size={12} />}</button><button type="button" className="message-icon-action icon-tooltip" aria-label={internalLinkCopied ? "Internal link copied" : `Copy internal link for message ${messageNumber}`} data-tooltip={internalLinkCopied ? "Internal link copied" : "Copy Pi-Ark internal link"} onClick={() => { onCopyLink(messageNumber, "internal"); setInternalLinkCopied(true); window.setTimeout(() => setInternalLinkCopied(false), 1200); }}>{internalLinkCopied ? <Check size={12} /> : <Braces size={12} />}</button></div></div>
-      <details className="conversation-summary" open={target || undefined}><summary><Archive size={13} /><strong>{isCompaction ? "Compacted context" : "Branch context"}</strong><span>{description}</span></summary><div>{message.summary && <Markdown source={message.summary} className="message-markdown" onImageOpen={onImageOpen} />}</div></details>
-    </div>
-  </article>;
-}
-
-function Message({ message, messageNumber, target, canRollback, onImageOpen, onCopyLink, onFork, onRollback }: { message: AgentMessage; messageNumber: number; target: boolean; canRollback: boolean; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number, kind: "url" | "internal") => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
+function FeedTextMeta({ message, messageNumber, canRollback, rollbackTargetId, onCopyLink, onFork, onRollback }: { message: AgentMessage; messageNumber: number; canRollback: boolean; rollbackTargetId?: string; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
   const [markdownCopied, setMarkdownCopied] = useState(false);
-  const [urlCopied, setUrlCopied] = useState(false);
-  const [internalLinkCopied, setInternalLinkCopied] = useState(false);
-  if (message.role === "system") return null;
-  const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
-  const icon = isUser ? <UserRound size={16} /> : isAssistant ? <Sparkles size={16} /> : <Wrench size={16} />;
+  const completed = !isAssistant || Boolean(message.stopReason && message.stopReason !== "pending");
   const markdown = messageMarkdown(message);
   const contextTokens = message.usage?.totalTokens || (message.usage ? message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite : 0);
   const contextPercent = message.contextWindow && contextTokens ? contextTokens / message.contextWindow * 100 : undefined;
-  const showFooter = isAssistant && Boolean(message.entryId) && message.stopReason !== "pending";
-  return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} className={`message ${isUser ? "message-user" : "message-agent"} ${target ? "permalink-target" : ""}`}>
-    <div className="message-avatar">{icon}</div>
-    <div className="message-body">
-      <div className="message-heading"><div className="message-label">{isUser ? "User" : isAssistant ? "AI" : message.toolName || message.role}<span>#{messageNumber}</span></div><div className="message-heading-actions"><button type="button" className="message-icon-action icon-tooltip" aria-label={urlCopied ? "Message URL copied" : `Copy URL for message ${messageNumber}`} data-tooltip={urlCopied ? "URL copied" : "Copy message URL"} onClick={() => { onCopyLink(messageNumber, "url"); setUrlCopied(true); window.setTimeout(() => setUrlCopied(false), 1200); }}>{urlCopied ? <Check size={12} /> : <Link2 size={12} />}</button><button type="button" className="message-icon-action icon-tooltip" aria-label={internalLinkCopied ? "Internal link copied" : `Copy internal link for message ${messageNumber}`} data-tooltip={internalLinkCopied ? "Internal link copied" : "Copy Pi-Ark internal link"} onClick={() => { onCopyLink(messageNumber, "internal"); setInternalLinkCopied(true); window.setTimeout(() => setInternalLinkCopied(false), 1200); }}>{internalLinkCopied ? <Check size={12} /> : <Braces size={12} />}</button>{isUser && canRollback && <button type="button" className="message-icon-action icon-tooltip" aria-label="Roll back latest message" data-tooltip="Roll back latest message" onClick={() => onRollback(message.entryId!)}><RotateCcw size={12} /></button>}</div></div>
-      {message.role === "toolResult" ? <ToolResult message={message} onImageOpen={onImageOpen} /> : blocks(message.content).map((block, index) => {
-        if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
-        if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Attached image")} key={index}><img className="message-image" src={source} alt="Attached image" /></button>; }
-        if (block.type === "thinking") return block.thinking ? <details className="thinking" key={index}><summary>Reasoning</summary><Markdown source={block.thinking} className="message-markdown thinking-markdown" onImageOpen={onImageOpen} /></details> : null;
-        if (block.type === "toolCall") return <ToolCall call={block} key={index} />;
-        return null;
-      })}
-      {showFooter && <div className="message-footer">
-        <div className="message-metrics"><span>{message.responseModel || message.model || "Unknown model"}</span>{message.contextWindow && <span>Context {contextPercent?.toFixed(1) || "0.0"}%</span>}{message.usage && <span>I/{number(message.usage.input)} O/{number(message.usage.output)}</span>}</div>
-        <div className="message-actions"><button type="button" className="icon-tooltip" aria-label={markdownCopied ? "Markdown copied" : "Copy Markdown"} data-tooltip={markdownCopied ? "Markdown copied" : "Copy Markdown"} disabled={!markdown} onClick={() => void navigator.clipboard.writeText(markdown).then(() => { setMarkdownCopied(true); window.setTimeout(() => setMarkdownCopied(false), 1200); })}>{markdownCopied ? <Check size={13} /> : <Copy size={13} />}</button><button type="button" className="icon-tooltip" aria-label="Fork session" data-tooltip="Fork session" onClick={() => onFork(message.entryId!)}><GitFork size={13} /></button></div>
-      </div>}
-    </div>
-  </article>;
+  return <div className="feed-text-meta">
+    <MessageSourceLinks sources={[{ label: message.role === "user" ? "User" : "AI", messageNumber }]} onCopyLink={onCopyLink} />
+    {isAssistant && completed && <div className="feed-text-metrics"><span>{message.responseModel || message.model || "Unknown model"}</span>{message.contextWindow && <span>Context {contextPercent?.toFixed(1) || "0.0"}%</span>}{message.usage && <span>I/{number(message.usage.input)} O/{number(message.usage.output)}</span>}</div>}
+    <div className="feed-text-actions">{isAssistant && completed && message.entryId && <><button type="button" className="icon-tooltip" aria-label={markdownCopied ? "Markdown copied" : "Copy Markdown"} data-tooltip={markdownCopied ? "Markdown copied" : "Copy Markdown"} disabled={!markdown} onClick={() => void navigator.clipboard.writeText(markdown).then(() => { setMarkdownCopied(true); window.setTimeout(() => setMarkdownCopied(false), 1200); })}>{markdownCopied ? <Check size={13} /> : <Copy size={13} />}</button><button type="button" className="icon-tooltip" aria-label="Fork session" data-tooltip="Fork session" onClick={() => onFork(message.entryId!)}><GitFork size={13} /></button></>}{message.role === "user" && canRollback && rollbackTargetId && <button type="button" className="icon-tooltip" aria-label="Roll back latest message" data-tooltip="Roll back latest message" onClick={() => onRollback(rollbackTargetId)}><RotateCcw size={13} /></button>}</div>
+  </div>;
 }
 
-function TurnMessages({ messages, messageNumberOffset, active, targetMessageNumber, rollbackEntryId, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; messageNumberOffset: number; active: boolean; targetMessageNumber?: number; rollbackEntryId?: string; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number, kind: "url" | "internal") => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
+function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessageNumber, target, onImageOpen, onCopyLink }: { call?: ContentBlock; result?: AgentMessage; summaryMessage?: AgentMessage; messageNumber: number; resultMessageNumber?: number; target: boolean; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void }) {
+  const isSummary = Boolean(summaryMessage);
+  const isCompaction = summaryMessage?.role === "compactionSummary";
+  const name = isSummary ? isCompaction ? "Compact" : "Branch summary" : call?.name || result?.toolName || "Tool";
+  const preview = isSummary ? isCompaction && summaryMessage?.tokensBefore ? `${number(summaryMessage.tokensBefore)} tokens before compact` : "Saved conversation context" : call ? toolCallPreview(call) : result ? toolResultPreview(result) : "{}";
+  const status = isSummary ? "Saved" : result?.isError ? "Failed" : call ? result ? "Completed" : "Running" : "Result";
+  const sources = [{ label: isSummary ? "Message" : call ? "Call" : "Result", messageNumber }, ...(resultMessageNumber ? [{ label: "Result", messageNumber: resultMessageNumber }] : [])];
+  return <div className={`feed-tool-item ${target ? "permalink-target" : ""}`}>
+    {resultMessageNumber && <span id={`message-${resultMessageNumber}`} data-message-number={resultMessageNumber} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
+    <div className="feed-tool-logo">{isSummary ? <Archive size={15} /> : <Wrench size={15} />}</div>
+    <details className={`feed-tool-details ${result?.isError ? "error" : ""}`} open={target || undefined}><summary><strong>{name}</strong><code title={preview}>{preview}</code><span>{status}</span></summary><div className="feed-tool-content"><MessageSourceLinks sources={sources} onCopyLink={onCopyLink} />{call && <section><strong>Arguments</strong><pre>{JSON.stringify(call.arguments || {}, null, 2)}</pre></section>}{result && <section><strong>Result</strong><div>{blocks(result.content).map((block, index) => {
+      if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
+      if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool result image")} key={index}><img className="message-image" src={source} alt="Tool result" /></button>; }
+      return null;
+    })}</div></section>}{summaryMessage?.summary && <section><strong>Summary</strong><Markdown source={summaryMessage.summary} className="message-markdown" onImageOpen={onImageOpen} /></section>}</div></details>
+  </div>;
+}
+
+function FeedMessage({ message, messageNumber, numberByMessage, resultByCall, targetMessageNumber, canRollback, rollbackTargetId, onImageOpen, onCopyLink, onFork, onRollback }: { message: AgentMessage; messageNumber: number; numberByMessage: Map<AgentMessage, number>; resultByCall: Map<ContentBlock, AgentMessage>; targetMessageNumber?: number; canRollback: boolean; rollbackTargetId?: string; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
+  const target = messageNumber === targetMessageNumber;
+  if (message.role === "compactionSummary" || message.role === "branchSummary") return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem summaryMessage={message} messageNumber={messageNumber} target={target} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>;
+  if (message.role === "toolResult") return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem result={message} messageNumber={messageNumber} target={target} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>;
+  const isUser = message.role === "user";
+  const showTextMeta = isUser || hasTextFeedContent(message);
+  const content = <div className="feed-message-content">{blocks(message.content).map((block, index) => {
+    if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown feed-text-block" onImageOpen={onImageOpen} key={index} /> : null;
+    if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button feed-text-block" onClick={() => onImageOpen(source, "Attached image")} key={index}><img className="message-image" src={source} alt="Attached image" /></button>; }
+    if (block.type === "thinking") return block.thinking ? <details className="thinking feed-text-block" key={index}><summary>Reasoning</summary><Markdown source={block.thinking} className="message-markdown thinking-markdown" onImageOpen={onImageOpen} /></details> : null;
+    if (block.type === "toolCall") { const result = resultByCall.get(block); const resultMessageNumber = result ? numberByMessage.get(result) : undefined; return <ToolFeedItem call={block} result={result} messageNumber={messageNumber} resultMessageNumber={resultMessageNumber} target={target || resultMessageNumber === targetMessageNumber} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={index} />; }
+    return null;
+  })}{showTextMeta && <FeedTextMeta message={message} messageNumber={messageNumber} canRollback={canRollback} rollbackTargetId={rollbackTargetId} onCopyLink={onCopyLink} onFork={onFork} onRollback={onRollback} />}</div>;
+  return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${isUser ? "feed-user message-user" : "feed-ai-message message-agent"} ${target ? "permalink-target" : ""}`}>{isUser ? <><div className="feed-user-avatar"><UserRound size={16} /></div><div className="feed-user-body">{content}</div></> : content}</article>;
+}
+
+function TurnMessages({ messages, messageNumberOffset, active, targetMessageNumber, rollbackEntryId, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; messageNumberOffset: number; active: boolean; targetMessageNumber?: number; rollbackEntryId?: string; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
   const numberByMessage = new Map(messages.map((message, index) => [message, messageNumberOffset + index + 1]));
-  const indexByMessage = new Map(messages.map((message, index) => [message, index]));
   const resultByToolCallId = new Map<string, AgentMessage>();
   for (const message of messages) if (message.role === "toolResult" && message.toolCallId) resultByToolCallId.set(message.toolCallId, message);
+  const resultByCall = new Map<ContentBlock, AgentMessage>();
   const pairedToolResults = new Set<AgentMessage>();
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
-    const calls = compactToolCalls(message);
+    if (message.role !== "assistant") continue;
+    const calls = blocks(message.content).filter((block) => block.type === "toolCall");
     for (const call of calls) {
       const result = call.id ? resultByToolCallId.get(call.id) : calls.length === 1 && matchesToolResult(call, messages[index + 1]) ? messages[index + 1] : undefined;
-      if (result) pairedToolResults.add(result);
+      if (result) { resultByCall.set(call, result); pairedToolResults.add(result); }
     }
   }
   let latestUserMessage: AgentMessage | undefined;
   if (rollbackEntryId) for (let index = messages.length - 1; index >= 0; index -= 1) { const candidate = messages[index]; if (candidate.role === "user") { latestUserMessage = candidate; break; } }
-  const render = (message: AgentMessage, key: string) => {
-    if (pairedToolResults.has(message)) return null;
-    const messageNumber = numberByMessage.get(message) || 0;
-    if (message.role === "compactionSummary" || message.role === "branchSummary") return <SummaryMessage message={message} messageNumber={messageNumber} target={messageNumber === targetMessageNumber} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={key} />;
-    const calls = compactToolCalls(message);
-    if (calls.length > 0) return calls.map((call, callIndex) => {
-      const messageIndex = indexByMessage.get(message) || 0;
-      const result = call.id ? resultByToolCallId.get(call.id) : calls.length === 1 && matchesToolResult(call, messages[messageIndex + 1]) ? messages[messageIndex + 1] : undefined;
-      const resultMessageNumber = result ? numberByMessage.get(result) : undefined;
-      const multiCall = calls.length > 1;
-      const domMessageNumber = multiCall ? resultMessageNumber || (callIndex === 0 ? messageNumber : undefined) : messageNumber;
-      const labelMessageNumber = multiCall ? resultMessageNumber || messageNumber : messageNumber;
-      const anchors = multiCall ? callIndex === 0 && domMessageNumber !== messageNumber ? [{ messageNumber, role: message.role, entryId: message.entryId }] : [] : resultMessageNumber ? [{ messageNumber: resultMessageNumber, role: "toolResult", entryId: result?.entryId }] : [];
-      const target = (callIndex === 0 && messageNumber === targetMessageNumber) || resultMessageNumber === targetMessageNumber;
-      return <CompactToolCallMessage call={call} result={result} labelMessageNumber={labelMessageNumber} domMessageNumber={domMessageNumber} anchors={anchors} entryId={result && domMessageNumber === resultMessageNumber ? result.entryId : message.entryId} dataRole={result && domMessageNumber === resultMessageNumber ? "toolResult" : message.role} target={target} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={`${key}-call-${callIndex}`} />;
-    });
-    return <Message message={message} messageNumber={messageNumber} target={messageNumber === targetMessageNumber} canRollback={message === latestUserMessage} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={() => { if (rollbackEntryId) onRollback(rollbackEntryId); }} key={key} />;
-  };
-  return <>{buildConversationSegments(messages, active).map((segment) => segment.type === "message" ? render(segment.message, segment.key) : segment.type === "collapsed" ? <details className={`run-collapse ${segment.active ? "active" : ""}`} open={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber) || undefined} key={segment.key}><summary><Clock3 size={13} />{segment.active ? "Running" : segment.duration}<span>{segment.toolMessages} tool messages</span></summary><div>{segment.messages.map((message, index) => render(message, `${segment.key}-${index}`))}</div></details> : <div className="turn-warning" role="status" key={segment.key}><TriangleAlert size={14} /><strong>{segment.title}</strong></div>)}</>;
+  const renderMessage = (message: AgentMessage, key: string) => pairedToolResults.has(message) ? null : <FeedMessage message={message} messageNumber={numberByMessage.get(message) || 0} numberByMessage={numberByMessage} resultByCall={resultByCall} targetMessageNumber={targetMessageNumber} canRollback={message === latestUserMessage} rollbackTargetId={rollbackEntryId} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={onRollback} key={key} />;
+  return <>{buildConversationSegments(messages, active).map((segment) => {
+    if (segment.type === "message" && segment.message.role === "user") return renderMessage(segment.message, segment.key);
+    const avatar = segment.type !== "warning" && segment.aiStart ? <div className="ai-feed-avatar" aria-label="AI response"><Megaphone size={15} /></div> : null;
+    if (segment.type === "message") return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{avatar}<div className="ai-feed-content">{renderMessage(segment.message, segment.key)}</div></div>;
+    if (segment.type === "collapsed") return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{avatar}<div className="ai-feed-content"><details className={`run-collapse ${segment.active ? "active" : ""}`} open={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber) || undefined}><summary><Clock3 size={13} />{segment.active ? "Running" : segment.duration}<span>{segment.toolMessages} tool messages</span></summary><div>{segment.messages.map((message, index) => renderMessage(message, `${segment.key}-${index}`))}</div></details></div></div>;
+    return <div className="ai-feed-segment" key={segment.key}><div className="ai-feed-content"><div className="turn-warning" role="status"><TriangleAlert size={14} /><strong>{segment.title}</strong></div></div></div>;
+  })}</>;
 }
 
 function number(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value); }
@@ -436,7 +391,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
       <div className="chat-header-actions"><button className="subtle-icon-button" title="Copy session URL" disabled={isLoading} onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={15} /> : <Link2 size={15} />}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} disabled={isLoading} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.stats?.totalMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{snapshot?.stats?.contextUsage?.percent == null ? "Unknown" : `${snapshot.stats.contextUsage.percent.toFixed(1)}% · ${number(snapshot.stats.contextUsage.tokens || 0)} / ${number(snapshot.stats.contextUsage.contextWindow)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl></div>}</div></div>
     </header>
     <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : visibleMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => updateConversationPosition(event.currentTarget)}>
-      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : visibleMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>#{stickyUserMessageNumber}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{visibleStartIndex > 0 && <div className="conversation-history-page"><button type="button" onClick={showEarlierMessages}>Show earlier messages</button><span>{number(visibleStartIndex)} earlier messages</span></div>}<TurnMessages messages={visibleMessages} messageNumberOffset={visibleStartIndex} active={active} targetMessageNumber={targetMessageNumber} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber, kind) => void navigator.clipboard.writeText(kind === "url" ? sessionPermalink(workspace.id, session.id, messageNumber) : internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
+      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : visibleMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>#{stickyUserMessageNumber}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{visibleStartIndex > 0 && <div className="conversation-history-page"><button type="button" onClick={showEarlierMessages}>Show earlier messages</button><span>{number(visibleStartIndex)} earlier messages</span></div>}<TurnMessages messages={visibleMessages} messageNumberOffset={visibleStartIndex} active={active} targetMessageNumber={targetMessageNumber} rollbackEntryId={snapshot?.rollbackEntryId} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber) => void navigator.clipboard.writeText(internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
     </div>
     {!isLoading && <form className="composer" onSubmit={(event) => void submit(event)}>
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}

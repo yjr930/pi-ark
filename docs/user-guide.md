@@ -256,13 +256,17 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
-AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量。只包含 tool call blocks 的 assistant message 使用单行工具消息；其中的一项或多项 tool calls 分别显示一行，包括 run 内外的消息。顺序为工具头像、工具名称与对应 message number、可展开执行条、两个 copy link 按钮。执行条显示 bash command、文件 path 或其他 arguments 摘要，空 arguments 显示 `{}`；连续单行工具消息使用紧凑间距。assistant message 包含 text、reasoning 或 image 时保持普通 AI message，其中的 LLM 内容直接显示，各 tool call 和 tool result 使用独立 details。
+每轮 AI response 只在开头显示一次 AI 头像。后续的普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。
 
-展开单行工具消息可以查看 Arguments 和 Result，Failed 表示工具返回错误。完整 AI message 直接显示 reasoning 与 commentary，并通过其中的 tool details 查看 arguments；对应的 tool result details 显示工具输出。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
 
-Agent settled 后，如果历史 turn 在 final assistant response 之前停止，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过执行条查看。
+每个 tool call 与 result 合并为一行工具项。该行显示工具 logo，折叠框内显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。连续工具项使用紧凑间距。展开后，第一行显示 Call 与 Result 的全局 message number，并提供对应的 `pi-ark://` link copy 按钮；下面显示 Arguments 和 Result，空 arguments 显示 `{}`。
 
-compact 操作显示为独立的 Compact message。点击 Compact message 的折叠条可以查看 compact summary；compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
+Text item 直接显示普通文字、图片和 reasoning。已完成的 assistant text 在内容后显示 model、context、input/output token、`pi-ark://` link、Copy Markdown 和 Fork；流式输出期间依赖完成状态的信息和按钮暂不显示。User text 的 inline 信息行提供内部链接与 Rollback。
+
+Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过折叠框查看。
+
+Compact 使用与工具相同的单行折叠项。该行显示 compact 前的 token 数量和 Saved 状态；展开后显示 source message number、内部链接和 compact summary。compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
 
 ### Queue
 
@@ -280,7 +284,7 @@ Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follo
 
 ### Fork
 
-Assistant response footer 显示 model、Context 百分比、`I/input token` 和 `O/output token`。Fork session 从该 response 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
+已完成的 assistant text item 在 inline metadata 中显示 model、Context 百分比、`I/input token` 和 `O/output token`。Fork session 从该 text 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
 
 ### Rollback 与 Restore
 
@@ -295,7 +299,7 @@ Assistant response footer 显示 model、Context 百分比、`I/input token` 和
 
 ### Copy 与链接
 
-每条 message header 可以复制浏览器 URL 或 Pi-Ark 内部链接。Assistant response footer 可以 Copy Markdown。复制成功后，按钮会短暂显示完成状态。
+Text 的 inline 信息行和展开后的 tool item 可以复制 `pi-ark://` message link。页面不提供绝对浏览器 message URL 的复制按钮。已完成的 assistant text 可以 Copy Markdown。复制成功后，按钮会短暂显示完成状态。
 
 ### 查看 Session information
 

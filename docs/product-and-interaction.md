@@ -83,25 +83,27 @@ WebSocket 建立后，页面继续显示 Loading conversation。首个完整 sna
 
 没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。状态栏在连接、加载、工作、运行工具、就绪和连接错误之间变化。
 
-正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse，最新的非工具 assistant output 保持可见。Agent settled 后，已完成的 run collapse 显示用时和工具消息数量，final assistant response 保持展开。
+每个 turn 的 User 内容显示为一条 feed 起点。该轮 AI response 只在开头显示一次 AI 头像，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。
 
-Agent settled 且缺少 final assistant response 的历史 turn 在 run collapse 后显示紧凑的单行 Response interrupted warning。
+正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse，最新的非工具 assistant output 保持可见。Agent settled 后，已完成的 run collapse 显示用时和工具消息数量，最后一条非工具内容保持展开。
+
+Agent settled 且缺少最后一条非工具内容的历史 turn 在 run collapse 后显示紧凑的单行 Response interrupted warning。
 
 ### 工具展示
 
-Conversation renderer 对只包含 tool call blocks 的 assistant message 使用一行 tool projection，包括 run collapse 内部与普通 message segment。一项或多项 tool calls 分别显示为单行 rows；每行依次显示工具头像、工具名称与对应 message number、可展开执行条和两个 message link 按钮。执行条显示当前 tool arguments 的实际摘要；bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL 或紧凑 arguments。连续单行 tool rows 使用紧凑的内部上下间距和行间距，run 边界继续区分工具过程与普通消息。
+Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text item 包含普通文字、图片和 reasoning，并直接显示在连续 feed 中。已完成的 assistant text 在内容后显示 inline metadata（model、context、input/output token）与操作按钮；流式 message 尚未完成时，这些完成态信息和按钮保持隐藏。
 
-执行条默认关闭。展开后按 Arguments 和 Result 显示格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。assistant message 包含可见的 text、reasoning 或 image 时使用普通 AI message renderer，LLM 内容保持直接可见，各 tool call 使用独立 details；对应 tool result 继续作为独立 message 显示。空 arguments 显示 `{}`。
+每个 tool call 与对应 tool result 合并为一行 tool item。该行由工具 logo 和折叠框组成；折叠框依次显示工具名称、实际摘要和状态。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
 
-Tool call message 与 tool result message 继续保留各自的 message number、source entry ID 和 permalink anchor。Permalink 指向其中任一 message 时，外层 run collapse 和对应执行条自动展开。
+Tool item 默认关闭。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。空 arguments 显示 `{}`。
 
-每个 compact entry 显示为独立的 Compact message。Compact message 默认折叠，展开后显示 pi 保存的 compact summary，并显示 compact 前的 token 数量。compact 前的原始会话继续通过 earlier message 分页展示。
+Compact 与 branch summary 使用相同的 tool item。Compact 行显示 compact 前的 token 数量和 Saved 状态，展开后显示 source message number、内部链接和 pi 保存的 Markdown summary。compact 前的原始会话继续通过 earlier message 分页展示。
 
-Message header 使用 User 与 AI 角色名称。普通 message 使用紧凑的垂直间距。
+Tool call message 与 tool result message 继续保留各自的 message number、source entry ID 和 permalink anchor。Permalink 指向其中任一 source message 时，外层 run collapse 和对应 tool item 自动展开。
 
 ### Message 标识与链接
 
-每条 snapshot message 按当前 projection 顺序编号。Message header 可以复制浏览器 URL 或 `pi-ark://` 内部 message link。浏览器 URL 打开后会定位并高亮目标 message；内部链接可以通过侧栏的 Open Pi-Ark session link 对话框打开。
+每条 snapshot message 按当前 projection 顺序编号。Text 的 inline metadata 与 tool item 的展开内容只提供 `pi-ark://` message link copy 按钮，不提供绝对浏览器 URL copy 按钮。内部链接可以通过侧栏的 Open Pi-Ark session link 对话框打开；带 message query 的浏览器 URL 仍可以定位并高亮目标 source message。
 
 ### Composer
 
@@ -125,7 +127,7 @@ Session 正在运行时，新 message 默认进入 Follow-up queue。Queue 区�
 
 ### Assistant response actions
 
-已完成的 assistant response footer 显示 model、context 使用百分比、`I/input token` 和 `O/output token`，并提供以下操作：
+已完成的 assistant text item 在内容后的 inline metadata 中显示 model、context 使用百分比、`I/input token` 和 `O/output token`，并提供以下操作：
 
 - Copy Markdown：复制 assistant response 的文字 Markdown。
 - Fork session：从该 response 对应的 session entry 创建新分支，并要求输入新 Session 名称。
@@ -190,4 +192,4 @@ Agent tools 在 Pi-Ark 新建或重新打开 Session 时进入 agent runtime。F
 
 普通对话框共享紧凑的 card、header、field 和 action 样式。Delete 与 Disconnect Provider 等会删除数据的操作使用 danger 样式；Rollback 使用 neutral secondary 样式。
 
-异步操作通过页面 status、Settings notice、dialog error 或全局错误提示反馈。Copy URL、Copy Markdown、Copy internal link 和 device code copy 使用短暂的 Copied 状态确认操作完成。
+异步操作通过页面 status、Settings notice、dialog error 或全局错误提示反馈。Copy Markdown、Copy internal link 和 device code copy 使用短暂的 Copied 状态确认操作完成。

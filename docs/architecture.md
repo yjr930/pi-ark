@@ -229,18 +229,18 @@ Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 e
 
 Web 默认显示最近约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。点击 Show earlier messages 后，Web 再增加一页 earlier messages；message number 始终按完整 display projection 计算，因此分页前后的 permalink 保持一致。
 
-`buildConversationSegments()` 以 user message 划分 turn，并将 compaction summary 与 branch summary 作为独立边界。
+`buildConversationSegments()` 以 user message 划分 turn，并将 compaction summary 与 branch summary 作为独立边界。每轮 response 的第一个 segment 带 `aiStart` 标记，Web 只在该位置显示一次 AI 头像。
 
-- 没有 tool activity 的 turn 按 message 顺序展示。
+- 没有 tool activity 的 turn 按 source message 和 content block 顺序展示为连续 feed。
 - Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output。
-- 已完成 tool turn 将 final assistant response 之前的过程放入 run collapse。
-- Idle 且缺少 final assistant response 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
+- 已完成 tool turn 将最后一条非工具 assistant output 之前的过程放入 run collapse。
+- Idle 且缺少最后一条非工具 assistant output 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages。assistant message 只包含 tool call blocks 时，renderer 通过 `toolCall.id` 与 tool result 的 `toolCallId` 配对，并将其中的一项或多项 tool calls 分别显示为单行 tool rows。该折叠条摘要来自 command、path、query、pattern、URL 或紧凑 arguments，展开内容显示 arguments 和 result。assistant message 包含可见的 text、reasoning 或 image 时保持普通 AI message renderer，其中的 LLM 内容和 tool call details 按原顺序显示；对应 tool results 保持独立 message renderer。原 messages 继续保留 source entry ID、message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；tool call 与 result 合并成带 logo 的单行折叠项。Compact 与 branch summary 也使用 tool feed item。展开 tool item 后先显示 call/result source message number 与 `pi-ark://` link copy 按钮，再显示 arguments、result 或 summary。
 
-Message permalink 指向 tool-only compact row 的 tool call 或 tool result 时，外层 run 与对应执行条自动打开；指向完整 message 时，Web 打开外层 run 并高亮对应 message。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
+每条 source message 继续保留全局 message number、entry ID 和 permalink anchor。配对的 tool result 不重复渲染，但 tool item 内保留 result anchor。浏览器 permalink 打开外层 run 并高亮对应 source message 或 tool item；`pi-ark://` 是 feed 中提供的 message link copy 格式。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
 
-Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Message content 位于独立的 padding wrapper 中。Web 根据 user message top 与 scroll container top 的关系选择 sticky User bar，因此向上和向下滚动都会在 message 越过顶部时切换。User bar 使用真实高度与等量负 margin 保持布局位置，并使用覆盖整条 bar 的 button 与不透明背景遮住下方内容；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
+Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Web 根据 user feed item top 与 scroll container top 的关系选择 sticky User bar，因此向上和向下滚动都会在 user item 越过顶部时切换。User bar 使用真实高度与等量负 margin 保持布局位置，并使用覆盖整条 bar 的 button 与不透明背景遮住下方内容；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
 
 ## Settings 与 pi resources
 

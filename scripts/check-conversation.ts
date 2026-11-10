@@ -12,7 +12,9 @@ const completed = buildConversationSegments(messages, false);
 assert.deepEqual(completed.map((segment) => segment.type), ["message", "collapsed", "message"]);
 assert.equal(completed[1].type === "collapsed" && completed[1].messages.length, 2);
 assert.equal(completed[1].type === "collapsed" && completed[1].duration, "用时 5 秒");
+assert.equal(completed[1].type === "collapsed" && completed[1].aiStart, true);
 assert.equal(completed[2].type === "message" && completed[2].message.content?.[0]?.text, "Final answer");
+assert.equal(completed[2].type === "message" && completed[2].aiStart, undefined);
 const interruptedMessages: AgentMessage[] = [
   { role: "user", content: "Inspect", timestamp: 1000 },
   { role: "assistant", content: [{ type: "text", text: "Checking files" }, { type: "toolCall", name: "read", arguments: { path: "README.md" } }, { type: "toolCall", name: "bash", arguments: { command: "pwd" } }], timestamp: 2000 },
@@ -36,6 +38,7 @@ assert.equal(streaming[1].type === "collapsed" && streaming[1].active, true);
 assert.equal(streaming[2].type === "message" && streaming[2].message.content?.[0]?.text, "Final answer");
 const direct = buildConversationSegments([{ role: "user", content: "Hi", timestamp: 1 }, { role: "assistant", content: [{ type: "text", text: "Hello" }], timestamp: 2 }], false);
 assert.deepEqual(direct.map((segment) => segment.type), ["message", "message"]);
+assert.equal(direct[1].type === "message" && direct[1].aiStart, true);
 const compactBoundary = buildConversationSegments([
   { role: "user", content: "Before compact", timestamp: 1 },
   { role: "assistant", content: [{ type: "text", text: "Before compact answer" }], timestamp: 2 },
@@ -44,7 +47,10 @@ const compactBoundary = buildConversationSegments([
   { role: "assistant", content: [{ type: "text", text: "After compact answer" }], timestamp: 5 },
 ], false);
 assert.deepEqual(compactBoundary.map((segment) => segment.type), ["message", "message", "message", "message", "message"]);
+assert.equal(compactBoundary[1].type === "message" && compactBoundary[1].aiStart, true);
 assert.equal(compactBoundary[2].type === "message" && compactBoundary[2].message.role, "compactionSummary");
+assert.equal(compactBoundary[2].type === "message" && compactBoundary[2].aiStart, undefined);
+assert.equal(compactBoundary[4].type === "message" && compactBoundary[4].aiStart, true);
 const pagedMessages = Array.from({ length: 130 }, (_, index) => [{ role: "user", content: `Question ${index + 1}` }, { role: "assistant", content: [{ type: "text", text: `Answer ${index + 1}` }] }]).flat() as AgentMessage[];
 assert.equal(previousConversationPageStart(pagedMessages), 160);
 assert.equal(previousConversationPageStart(pagedMessages, 160), 60);
