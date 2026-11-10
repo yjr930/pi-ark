@@ -208,7 +208,7 @@ try {
   let activeMessages = [
     { role: "assistant", content: [{ type: "toolCall", id: "loose-bash-call", name: "bash", arguments: { command: "echo loose tool call" } }], timestamp: 500, entryId: "loose-bash" },
     { role: "toolResult", toolCallId: "loose-bash-call", toolName: "bash", content: [{ type: "text", text: "Loose tool result" }], timestamp: 600, entryId: "loose-bash-result" },
-    { role: "assistant", content: [{ type: "toolCall", id: "multi-read-call", name: "read", arguments: { path: "README.md" } }, { type: "toolCall", id: "multi-refresh-call", name: "refresh", arguments: {} }], timestamp: 700, entryId: "multi-tool-call" },
+    { role: "assistant", content: [{ type: "text", text: "Parallel tool preface remains visible" }, { type: "toolCall", id: "multi-read-call", name: "read", arguments: { path: "README.md" } }, { type: "toolCall", id: "multi-refresh-call", name: "refresh", arguments: {} }], timestamp: 700, entryId: "multi-tool-call" },
     { role: "toolResult", toolCallId: "multi-read-call", toolName: "read", content: [{ type: "text", text: "Generic read result" }], timestamp: 800, entryId: "multi-read-result" },
     { role: "toolResult", toolCallId: "multi-refresh-call", toolName: "refresh", content: [{ type: "text", text: "Generic refresh result" }], timestamp: 900, entryId: "multi-refresh-result" },
     ...Array.from({ length: 12 }, (_, index) => [
@@ -263,11 +263,15 @@ try {
   await activeRun.locator(":scope > summary").filter({ hasText: "Running" }).waitFor();
   const ordinaryToolRows = activePage.locator(".conversation-content > .single-tool-call-message");
   await ordinaryToolRows.first().waitFor();
-  assert.equal(await ordinaryToolRows.count(), 3);
+  assert.equal(await ordinaryToolRows.count(), 1);
   assert.match(await ordinaryToolRows.first().locator(".single-tool-label").textContent(), /bash\s*#1/);
-  assert.deepEqual(await ordinaryToolRows.locator(".single-tool-execution > summary code").allTextContents(), ["echo loose tool call", "README.md", "{}"]);
-  assert.equal(await ordinaryToolRows.evaluateAll((rows) => rows.every((row) => row.getBoundingClientRect().height <= 46)), true);
-  assert.equal(await activePage.locator(".tool-call-activity, .tool-result").count(), 0);
+  assert.equal(await ordinaryToolRows.locator(".single-tool-execution > summary code").textContent(), "echo loose tool call");
+  assert.equal(await ordinaryToolRows.first().evaluate((row) => row.getBoundingClientRect().height <= 46), true);
+  const multiToolMessage = activePage.locator('.message-agent[data-message-number="3"]');
+  await multiToolMessage.getByText("Parallel tool preface remains visible", { exact: true }).waitFor();
+  assert.match(await multiToolMessage.locator(".message-label").textContent(), /^AI#3$/);
+  assert.deepEqual(await multiToolMessage.locator(".tool-call-activity > summary code").allTextContents(), ["README.md", "{}"]);
+  assert.deepEqual(await activePage.locator(".tool-result > summary code").allTextContents(), ["Generic read result", "Generic refresh result"]);
   assert.equal(await activePage.getByRole("status").filter({ hasText: "Response interrupted" }).count(), 0);
   assert.equal(await activePage.getByTitle("Send follow-up").count(), 1);
   const activeStop = activePage.getByTitle("Stop");

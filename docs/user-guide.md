@@ -256,7 +256,7 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
-AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量。所有 tool call 与 tool result 都显示为同一种一行工具消息，包括 run 内外、multi-tool message 和独立 tool result。顺序为工具头像、工具名称与 message number、可展开执行条、两个 copy link 按钮。执行条显示 bash command、文件 path、其他 arguments 或 result 文本摘要，空 arguments 显示 `{}`；连续工具行之间没有 message 分隔线。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量。恰好包含一个 tool call 的 assistant message 与对应 result 显示为一行工具消息，包括 run 内外的消息。顺序为工具头像、工具名称与 assistant message number、可展开执行条、两个 copy link 按钮。执行条显示 bash command、文件 path 或其他 arguments 摘要，空 arguments 显示 `{}`；连续单行工具消息之间没有 message 分隔线。包含多个 tool calls 的 assistant message 保持普通 AI message，其中的 LLM text 与 reasoning 直接显示，各 tool call 和 tool result 使用独立 details。
 
 展开执行条可以查看 Process、Arguments 和 Result。Process 保留 reasoning 与 commentary，Result 显示工具输出，Failed 表示工具返回错误。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
 

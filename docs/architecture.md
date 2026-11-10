@@ -236,7 +236,7 @@ Web 默认显示最近约 100 条 messages。分页起点向前对齐到 user、
 - 已完成 tool turn 将 final assistant response 之前的过程放入 run collapse。
 - Idle 且缺少 final assistant response 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 配对。包含一个或多个 tool calls 的 assistant message 都展开为单行 tool rows；multi-tool message 的每个 result 使用自己的 message number，assistant source entry 的 permalink anchor 保留在第一行。无法配对的独立 tool result 也使用相同的单行 renderer。折叠条摘要来自 command、path、query、pattern、URL、紧凑 arguments 或 result 文本，展开内容显示原 thinking/commentary、arguments 和 result。原 messages 继续保留 source entry ID、message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages。一个 assistant message 恰好包含一个 tool call 时，renderer 通过 `toolCall.id` 与紧随其后的 tool result 的 `toolCallId` 配对，并显示单行 tool row。该折叠条摘要来自 command、path、query、pattern、URL 或紧凑 arguments，展开内容显示原 thinking/commentary、arguments 和 result。包含多个 tool calls 的 assistant message 保持普通 AI message renderer，其中的 LLM text、reasoning 和 tool call details 按原顺序显示；对应 tool results 保持独立 message renderer。原 messages 继续保留 source entry ID、message number 与 permalink anchor。pi JSONL tree 继续保留原始 entry。
 
 Message permalink 指向 tool call 或 tool result 时，外层 run 与对应执行条自动打开。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
 
