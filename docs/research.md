@@ -10,11 +10,13 @@ Pi-Ark 不解析 pi CLI 文本，也不为每条 message 启动独立 pi process
 
 Pi-Ark 使用以下公开 API：
 
-- `createAgentSession(...)`：按 Workspace cwd、SessionManager、tools 和 ResourceLoader 创建 runtime。
+- `createAgentSession(...)`：按 Workspace cwd、SessionManager、tools 和 ResourceLoader 创建 runtime，并通过 `customTools` 注册 Pi-Ark 自带的 `read_pi_ark_link`。
 - `SessionManager.create(cwd, sessionDir)`：在 Workspace state directory 中创建持久化 Session。
 - `SessionManager.list(cwd, sessionDir)`：列出 Workspace Session。
 - `SessionManager.open(path, sessionDir)`：恢复 JSONL Session。
 - `SessionManager.inMemory()`：为 Global effective system prompt preview 创建临时 Session。
+- `SessionManager.findById(cwd, id, sessionDir)`：按 Session ID 查找真实文件，通过 header discovery 避免读取其他 Session 的完整正文。
+- `parseSessionEntries(content)` 与 `SessionManager.inMemory(cwd, undefined, entries)`：在内存中加载 link 目标文件，并在内存中完成旧格式的迁移。
 - `getBranch()`：读取当前活动 branch 的完整 entry path，用于浏览器 display projection。
 - `sessionEntryToContextMessages(entry)`：将 message、compaction、branch summary 和可显示 custom message entry 转换为 Web message，同时保留 source entry。
 - `buildSessionContext()`：判断已有 Session 并让 Agent runtime 恢复 pi 的 compaction-aware 模型上下文。
@@ -56,6 +58,14 @@ Pi-Ark 使用 `DefaultResourceLoader` 组合以下内容：
 - Workspace system prompt append。
 
 Global preview 通过临时 AgentSession 的 `systemPrompt` 读取 complete effective prompt。Workspace append 使用 `appendSystemPromptOverride` 放在 Global append resources 后面。
+
+## Pi-Ark 自带的链接读取工具
+
+Pi-Ark 使用 SDK 的 `defineTool()` 定义 `read_pi_ark_link`，并通过 `createAgentSession({ customTools, tools })` 注册和启用。工具的参数与 `outputSchema` 使用 TypeBox，成功结果同时返回模型可读的 JSON text 和 `structuredContent`。`description`、`promptSnippet` 和 `promptGuidelines` 提供工具选择说明；读取与标识映射由 Server 的 `SessionReader` 执行。
+
+Web 和工具共用内部链接解析、完整活动分支的 display projection，以及短 Message ID 与旧数字目标的定位。对于已有 runtime，reader 使用其 SessionManager；对于其他 Session，reader 使用公开的文件解析和内存加载 API。该选择保留原文件，并保持目标 Agent 的 lifecycle 和活动 leaf。与恢复 runtime 所用的 `SessionManager.open()` 相比，内存加载将旧格式的迁移保留在内存中。
+
+工具提供 Workspace 摘要、Session 分页、Message 前后文和长正文续读。单次 JSON text 最多为 48 KiB，`nextContentOffset` 与分页位置支持后续读取。该能力通过进程内的 native custom tool 提供，SessionReader 作为独立模块供后续集成复用。
 
 ## Session 存储选择
 

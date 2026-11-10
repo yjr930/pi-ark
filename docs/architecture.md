@@ -71,7 +71,11 @@ docs/               产品、架构、使用和集成文档
 | Global/Workspace config | `apps/server/src/config.ts` | 配置解析、data directory、Workspace schema 和原子写入 |
 | Authentication | `apps/server/src/auth.ts` | scrypt password、内存 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
-| Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments 和广播 |
+| Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments、自带工具注册和广播 |
+| Internal links | `apps/server/src/internal-links.ts` | Web 与 Server 共用的 Workspace、Session 和 Message 内部链接解析与生成 |
+| Session display | `apps/server/src/session-display.ts` | 完整活动分支的 display projection、短 Message ID 和旧数字目标的定位 |
+| Session reader | `apps/server/src/session-reader.ts` | Workspace 摘要、Session 分页、Message 定位、前后文和长内容续读 |
+| Pi-Ark link tool | `apps/server/src/agent-tools/read-pi-ark-link.ts` | `read_pi_ark_link` 的参数、输出 schema、说明和执行入口 |
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
 | Session metadata | `apps/server/src/session-metadata.ts` | Pin、Archive、group 和串行原子写入 |
 | Global settings | `apps/server/src/settings.ts` | Provider、model、thinking、queue、compaction、retry 和 credential login |
@@ -154,13 +158,35 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 创建 AgentSession 时，AgentService 加载以下输入：
 
 - Workspace cwd。
-- Workspace 启用的 tools。
+- Workspace 启用的 tools，以及 Pi-Ark 自带的 `read_pi_ark_link`。
 - Pi-Ark agent directory 中的 Global resources。
 - Workspace system prompt append。
 - 已有 SessionManager。
 - `enabledModels` 解析出的 scoped models。
 
 新 Session 使用已勾选模型中的 Global default；Global default 不在当前 scope 中时，使用 scope 中的第一个模型。恢复已有 Session 时，pi SDK 优先恢复 Session JSONL 记录的当前模型，scoped models 用于后续模型选择。
+
+### Pi-Ark link 读取工具
+
+`AgentService` 接收当前 `WorkspaceService` registry，并在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `read_pi_ark_link`。显式 `tools` 列表包含该名称，使工具始终与 Workspace 所选的文件工具一起可用。Global effective system prompt preview 使用同一份工具定义。工具提供 `description`、`promptSnippet` 和 `promptGuidelines`，引导 Agent 使用工具读取用户提供的内部链接。
+
+`internal-links.ts` 是独立于浏览器环境的链接模块，Web 的 `permalinks.ts` 直接复用该模块。工具支持 `pi-ark://workspace/<workspace-id>`、其后的 `/session/<session-id>`，以及 `/message/<message-id>`。Web 的 Session link 对话框继续接受 Session 和 Message link。短 Message ID 与旧数字目标共用 `session-display.ts` 的定位函数；数字目标按完整活动分支的 display position 解析，返回值中的链接使用短 Message ID。
+
+`SessionReader` 按 registry 取得 Workspace。目标 Session 已有 runtime 时，reader 读取该 runtime 的 SessionManager，以保留当前活动 leaf。其他目标使用 `SessionManager.findById()` 查找实际文件，再通过 `parseSessionEntries()` 和 `SessionManager.inMemory(cwd, undefined, entries)` 加载。旧格式的迁移在内存中完成。读取过程保持目标文件和运行状态，并且不会创建目标 AgentSession。工具采用与 Web 相同的完整 display projection，包含 compact 之前的消息及 summary。
+
+参数和返回行为如下：
+
+| 参数 | 行为 |
+|---|---|
+| `link` | Workspace、Session 或 Message 内部链接 |
+| `context` | Message 目标前后的消息数量，默认为 0，范围为 0–20 |
+| `start` | Workspace 的 Session 列表位置，或 Session 的 display message 位置，从 1 开始 |
+| `limit` | Workspace 或 Session 的分页数量，默认为 20，范围为 1–100；Session 省略 `start` 时返回末尾一页 |
+| `offset` | Message 正文的 UTF-16 字符位置，默认为 0；使用返回的 `nextContentOffset` 继续读取 |
+
+成功结果以 JSON text 和符合 `outputSchema` 的 `structuredContent` 返回。结果包含 Workspace、Session、target、messages 或 Session 摘要、pagination 和 `truncated`。每条消息包含短 Message ID、source entry ID、当前 display position、内部链接、role、timestamp 和可用的 model 或 tool 信息。正文按顺序保留文本、reasoning、tool call arguments、tool result 和 summary；图片表示为 MIME type 占位说明。消息的 `contentOffset`、`totalContentCharacters` 和 `nextContentOffset` 支持完整续读。
+
+单次序列化的结果最多为 48 KiB。Message 加前后文时优先为目标分配正文空间，结果仍按 display position 排列。部分消息提供 `nextContentOffset`；`pagination.nextStart` 指向后续条目，调用方使用 Session 或 Workspace link 继续分页。`INVALID_LINK`、`UNKNOWN_WORKSPACE`、`UNKNOWN_SESSION`、`MESSAGE_NOT_FOUND`、`INVALID_ARGUMENT`、`PAGE_OUT_OF_RANGE` 和 `CONTENT_OUT_OF_RANGE` 区分链接与读取错误。工具支持 AbortSignal，并声明读取性质的 annotations。
 
 ### Snapshot
 

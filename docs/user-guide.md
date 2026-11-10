@@ -305,6 +305,21 @@ Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follo
 
 Assistant text 的 Info 信息栏和展开后的 tool item 可以复制 `pi-ark://` message link。持久化 message 使用 Session 内唯一的七字符短 Message ID；单个 Session 的 source entry 上限是 10000000。页面不提供绝对浏览器 message URL 的复制按钮。已完成的 assistant text 可以 Copy Markdown。复制成功后，按钮会短暂显示完成状态。
 
+### 通过 link 引用会话内容
+
+将 Pi-Ark 的 Session link 或 Message link 粘贴到发送给 Agent 的消息中，并说明希望 Agent 阅读或处理的内容。Agent 自带 `read_pi_ark_link`，可以根据链接读取目标，例如：
+
+```text
+请阅读这条消息，并根据其中的方案继续开发：
+pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
+```
+
+Message link 默认读取指定消息。需要前后文时，可以要求 Agent 同时阅读相邻消息；工具的 `context` 支持前后各最多 20 条消息。Session link 默认读取末尾 20 条消息，Agent 可以通过 `start` 和 `limit` 分页阅读更早或后续的内容。Workspace link（`pi-ark://workspace/<workspace-id>`）可以读取 Session 列表摘要。
+
+工具返回消息的短 Message ID、source entry ID 和正文，并兼容旧数字 Message link。较长的正文会提供 `nextContentOffset`，Agent 可以使用同一个 Message link 和对应的 `offset` 继续读取。单次结果最多为 48 KiB。正文包含 reasoning 和工具过程，图片以 MIME type 说明表示。工具读取当前服务中已经注册的 Workspace，并保持目标 Session 的运行状态与活动分支。
+
+该工具随新建或重新打开的 Session 启用，Workspace 的 Agent tools 设置继续控制文件工具。
+
 ### 查看 Session information
 
 会话状态栏左侧依次显示标题、编辑标题按钮和状态。标题组不占用剩余空间；标题根据实际文字长度占用空间，达到当前上限后截断；编辑按钮紧跟标题。右侧只显示 context 百分比数字和信息按钮。Disconnected、Connection error 和其他错误状态使用完整红灯、红色系底色和边框。移动端的过长状态文字会省略，红灯保持完整显示。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。

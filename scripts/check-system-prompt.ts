@@ -20,6 +20,7 @@ try {
 
   const config = await import("../apps/server/src/config.ts");
   const { AgentService } = await import("../apps/server/src/agents.ts");
+  const { WorkspaceService } = await import("../apps/server/src/workspaces.ts");
   const { PiCoreService } = await import("../apps/server/src/pi-core.ts");
   await config.ensurePiArkAgentState(legacyAgentDir);
   assert.deepEqual(JSON.parse(await readFile(join(agentDir, "auth.json"), "utf8")), { provider: "development-copy" });
@@ -53,7 +54,7 @@ try {
   await config.saveWorkspaceSystemPrompt(workspace, { append: "" });
   assert.deepEqual((await config.loadWorkspaceSettings(workspace)).agent.systemPrompt, { append: "" });
 
-  const service = new AgentService({} as never) as unknown as { createResourceLoader(workspace: typeof workspace, append: string): Promise<{ getSystemPrompt(): string | undefined; getAppendSystemPrompt(): string[] }> };
+  const service = new AgentService({} as never, new WorkspaceService([workspace])) as unknown as { createResourceLoader(workspace: typeof workspace, append: string): Promise<{ getSystemPrompt(): string | undefined; getAppendSystemPrompt(): string[] }> };
   const loader = await service.createResourceLoader(workspace, "Workspace append");
   assert.equal(loader.getSystemPrompt(), "Global replacement");
   assert.deepEqual(loader.getAppendSystemPrompt(), ["Global append", "Workspace append"]);

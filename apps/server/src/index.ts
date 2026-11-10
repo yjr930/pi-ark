@@ -25,7 +25,7 @@ const workspaces = new WorkspaceService(config.workspaces);
 const settings = await SettingsService.create(config.workspaces[0]?.path || process.cwd());
 const piCore = new PiCoreService();
 const authFlows = new AuthFlowService((providerId, interaction) => settings.loginSubscription(providerId, interaction));
-const agents = new AgentService(settings);
+const agents = new AgentService(settings, workspaces);
 
 function contentDispositionFilename(name: string): string {
   const fallback = name.replace(/[^\x20-\x7e]|["\\]/g, "_") || "download";

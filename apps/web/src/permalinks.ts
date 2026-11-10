@@ -1,3 +1,6 @@
+import { validMessageTarget } from "../../server/src/internal-links";
+export { internalMessageLink, internalSessionLink, parseInternalSessionLink, type InternalSessionTarget } from "../../server/src/internal-links";
+
 export type AppPage = "agent" | "files" | "terminal" | "settings";
 
 export interface PermalinkTarget {
@@ -5,11 +8,6 @@ export interface PermalinkTarget {
   sessionId?: string;
   messageId?: string;
   page: AppPage;
-}
-
-function validMessageTarget(value: string | null): string | undefined {
-  const target = value?.trim();
-  return target && (/^m[0-9a-z]{6}$/.test(target) || /^[1-9]\d*$/.test(target)) ? target : undefined;
 }
 
 export function readPermalink(): PermalinkTarget {
@@ -23,30 +21,6 @@ export function readPermalink(): PermalinkTarget {
     messageId,
     page,
   };
-}
-
-export interface InternalSessionTarget {
-  workspaceId: string;
-  sessionId: string;
-  messageId?: string;
-}
-
-export function internalSessionLink(workspaceId: string, sessionId: string): string {
-  return `pi-ark://workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(sessionId)}`;
-}
-
-export function internalMessageLink(workspaceId: string, sessionId: string, messageId: string): string {
-  return `${internalSessionLink(workspaceId, sessionId)}/message/${encodeURIComponent(messageId)}`;
-}
-
-export function parseInternalSessionLink(value: string): InternalSessionTarget | undefined {
-  const match = /^pi-ark:\/\/workspace\/([^/]+)\/session\/([^/]+)(?:\/message\/([^/]+))?$/.exec(value.trim());
-  if (!match) return undefined;
-  try {
-    const messageId = validMessageTarget(match[3] ? decodeURIComponent(match[3]) : null);
-    if (match[3] && !messageId) return undefined;
-    return { workspaceId: decodeURIComponent(match[1]), sessionId: decodeURIComponent(match[2]), messageId };
-  } catch { return undefined; }
 }
 
 export function sessionPermalink(workspaceId: string, sessionId: string, messageId?: string): string {

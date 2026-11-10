@@ -111,6 +111,14 @@ Tool call message 与 tool result message 继续保留各自的短 Message ID、
 
 每条持久化 snapshot message 使用 Session 内唯一的七字符短 Message ID，格式为 `m` 加六位小写 base36，例如 `m04k9z2`。Server 根据 Session ID 与 source entry 在 append-only Session entries 中的固定位置，通过 31-bit 一一映射生成 ID；ID 不写回 pi JSONL。单个 Session 最多支持 10000000 个 source entries，达到上限后 Server 拒绝新的 prompt。User header、assistant text 的 Info 信息栏与 tool item 的展开内容只提供 `pi-ark://` message link copy 按钮，不提供绝对浏览器 URL copy 按钮。内部链接可以通过侧栏的 Open Pi-Ark session link 对话框打开；带 Message ID query 的浏览器 URL 可以定位并高亮目标 source message。旧的纯数字 message target 继续按原 display position 解析，并由 Server 返回对应的短 Message ID。
 
+### Agent 读取内部链接
+
+Agent 自带 `read_pi_ark_link`，用户可以在消息中提供 Pi-Ark 的 Workspace、Session 或 Message link。工具按当前服务的 Workspace registry 解析目标，并返回目标内容及其来源标识。Message link 接受短 Message ID 和旧数字目标，返回的 Message link 使用短 Message ID。工具与页面共用完整活动分支的 display projection，因此也可以读取 compact 之前的消息。
+
+Workspace link 返回 Session 摘要。Session link 默认返回末尾 20 条消息，并提供从 1 开始的 `start` 与最多 100 条的 `limit`。Message link 默认返回目标消息，`context` 可以增加前后各最多 20 条消息。结果包含短 Message ID、source entry ID、当前 display position、role、timestamp 和可用的 model 或 tool 信息。
+
+正文包含文本、reasoning、tool arguments、tool result 和 summary；图片以 MIME type 说明表示。单次结果最多为 48 KiB，较长的正文通过 `nextContentOffset` 和 `offset` 继续读取，更多条目通过分页位置继续读取。读取保持目标 Session 的运行状态与活动分支。
+
 ### Composer
 
 Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只改变 conversation message 区域的宽度。Composer 作为 Agent 页面 Grid 的底部行参与布局，queue 增高时 conversation 使用剩余高度。
@@ -186,7 +194,7 @@ Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本�
 Workspace configuration 包含以下区域：
 
 - System prompt append：在 pi 加载 Global system prompt 资源后追加 Workspace 内容。
-- Agent tools：选择 read、bash、edit 和 write；至少保留一个 tool。
+- Agent tools：选择 read、bash、edit 和 write；至少保留一个 tool。Pi-Ark 自带的 `read_pi_ark_link` 随 Session 启用。
 - File browser：控制 hidden files 的显示，以及 Files 文本、Markdown 和图片的最大预览大小。
 
 Agent tools 在 Pi-Ark 新建或重新打开 Session 时进入 agent runtime。File browser 设置保存后立即用于后续 Files 请求。

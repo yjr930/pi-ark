@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { AgentService, buildSessionDisplayMessages, sessionMessageId } from "../apps/server/src/agents.ts";
 import { SettingsService } from "../apps/server/src/settings.ts";
+import { WorkspaceService } from "../apps/server/src/workspaces.ts";
 
 const directory = await mkdtemp(join(tmpdir(), "pi-ark-session-actions-"));
 const workspace = { id: "session-actions", name: "Session actions", path: directory };
@@ -43,7 +44,7 @@ try {
   const secondAssistant = manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Second answer" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 20, output: 6, cacheRead: 0, cacheWrite: 0, totalTokens: 26, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 4000 });
   assert.ok(firstUser && secondUser);
   const settings = await SettingsService.create(directory);
-  const agents = new AgentService(settings);
+  const agents = new AgentService(settings, new WorkspaceService([workspace]));
   const forked = await agents.fork(workspace, manager.getSessionId(), firstAssistant);
   assert.notEqual(forked.id, manager.getSessionId());
   const service = agents as unknown as { rollbackEntryId(handle: unknown): string | undefined; rollbackState(handle: unknown): { id: string; targetId: string; restoreEntryId: string; draft: string } | undefined; snapshotMessages(handle: unknown): Array<{ messageId: string; content?: unknown }>; onEvent(handle: unknown, event: unknown): void; handles: Map<string, { clients: Map<{ readyState: number; OPEN: number; send(payload: string): void }, { start: number; targetMessageId?: string }>; queue: Array<{ id: string; mode: "steering" | "followUp"; text: string; images: [] }>; displayMessages?: unknown; runtimeState: "ready" | "running" | "error"; statusRevision: number; updateRevision: number; errorMessage?: string; session: { sessionManager: SessionManager; clearQueue(): { steering: string[]; followUp: string[] }; getSteeringMessages(): readonly string[]; getFollowUpMessages(): readonly string[] } }> };
