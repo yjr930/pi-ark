@@ -81,7 +81,7 @@ WebSocket 建立后，页面继续显示 Loading conversation。首个完整 sna
 
 ### 空 Session 与运行状态
 
-没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态，右侧显示 Context 百分比和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。Disconnected、Connection error 和其他错误状态使用红灯，并增加红色系底色和边框。
+没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态；标题使用实际文字宽度并受当前 max-width 限制，编辑按钮紧跟标题。右侧只显示 context 百分比数字和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。Disconnected、Connection error 和其他错误状态使用红灯，并增加红色系底色和边框。移动端 Chat 主列始终限制在 viewport 内，header、conversation、sticky User row、Running 和 composer 不产生页面横向溢出。
 
 每个 turn 的 User 内容显示为一条 feed 起点，并保留用户头像、`User` 标签、message number、内部链接与 Rollback。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
 
@@ -91,11 +91,11 @@ Agent settled 且缺少最后一条非工具内容的历史 turn 在 run collaps
 
 ### 工具展示
 
-Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text item 包含普通文字、图片和 reasoning，并直接显示在连续 feed 中；reasoning 使用较小字号和与普通 text 一致的行高。每条含 text 内容的 assistant source message 在末尾显示操作行：已完成的 message 默认显示 Copy Markdown、Fork session 和 Info，流式 message 显示 Info。Info 控制的信息栏默认折叠，展开后显示 source message number、内部链接、model、context 和 input/output token；流式 message 只显示当前可用的信息。
+Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text item 包含普通文字、图片和 reasoning，并直接显示在连续 feed 中；reasoning 使用较小字号和与普通 text 一致的行高。Global Hide reasoning 启用后，conversation 隐藏 reasoning disclosure 和内容，同时保留 Session history 中的原始 reasoning。含普通 text 或 image 的 assistant source message 在末尾显示操作行：已完成的 message 默认显示 Copy Markdown、Fork session 和 Info，流式 message 显示 Info。只包含 reasoning 和 toolCall 的 message 不显示该操作行。Info 控制的信息栏默认折叠，展开后显示 source message number、内部链接、model、context 和 input/output token；流式 message 只显示当前可用的信息。
 
 每个 tool call 与对应 tool result 合并为一行 tool item。工具 logo 位于折叠框的 summary 内，后面依次显示工具名称、实际摘要和状态；展开内容与折叠框左边界对齐。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
 
-Tool item 默认关闭；active Running 默认展开时，其中的最新 tool item 也保持关闭。message permalink target 会自动展开对应 tool item。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。错误结果显示 Failed 状态和错误颜色。
+Tool item 默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。已完成 tool item 的 message permalink target 会自动展开对应 tool item。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。错误结果显示 Failed 状态和错误颜色。
 
 Compact 与 branch summary 使用相同的 tool item。Compact 行显示 compact 前的 token 数量和 Saved 状态，展开后显示 source message number、内部链接和 pi 保存的 Markdown summary。compact 前的原始会话继续通过 earlier message 分页展示。
 
@@ -127,7 +127,7 @@ Session 正在运行时，新 message 默认进入 Follow-up queue。Web 在提�
 
 ### Assistant response actions
 
-已完成的 assistant text item 在内容末尾默认提供以下操作；Info 展开的信息栏显示 model、context 使用百分比、`I/input token`、`O/output token`、source message number 和内部链接：
+含普通 text 或 image 的已完成 assistant item 在内容末尾默认提供以下操作；只包含 reasoning 和 toolCall 的 message 不显示操作行。Info 展开的信息栏显示 model、context 使用百分比、`I/input token`、`O/output token`、source message number 和内部链接：
 
 - Copy Markdown：复制 assistant response 的文字 Markdown。
 - Fork session：从该 response 对应的 session entry 创建新分支，并要求输入新 Session 名称。
@@ -163,7 +163,7 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限。Workspace 是启动�
 
 Global configuration 对所有 Workspace 生效，并使用以下主题分类：
 
-- Interface：Appearance，包含 Ark Dark、Graphite、Midnight、Paper 和 Snow。
+- Interface：Appearance，包含 Ark Dark、Graphite、Midnight、Paper、Snow 和 Hide reasoning。
 - AI runtime：Provider and model，包含 Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
 - Installation and maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及 status/logs/restart 等 service commands。
 - Agent instructions and behavior：System prompt 和 Agent defaults，包含可选 replacement/append 文件路径、effective prompt preview、Steering、Follow-up、automatic compaction 和 automatic retry。

@@ -28,9 +28,10 @@ try {
   assert.equal(coreInfo.agentDir, agentDir);
   assert.match(coreInfo.corePath, /@earendil-works\/pi-coding-agent$/);
   assert.match(coreInfo.version, /^\d+\.\d+\.\d+/);
-  await Promise.all([config.saveGlobalArkSettings("graphite"), config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }])]);
+  assert.deepEqual(await config.loadUiSettings(), { theme: "ark-dark", hideReasoning: false });
+  await Promise.all([config.saveGlobalArkSettings({ theme: "graphite", hideReasoning: true }), config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }])]);
   const queuedGlobal = await config.loadConfig();
-  assert.equal(queuedGlobal.ui.theme, "graphite");
+  assert.deepEqual(queuedGlobal.ui, { theme: "graphite", hideReasoning: true });
   assert.equal(queuedGlobal.workspaces[0].name, "Queued workspace");
 
   await writeFile(join(agentDir, "SYSTEM.md"), "Global replacement");

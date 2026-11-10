@@ -10,7 +10,7 @@ export interface WorkspaceDefinition {
 
 export const ARK_THEMES = ["ark-dark", "graphite", "midnight", "paper", "snow"] as const;
 export type ArkTheme = (typeof ARK_THEMES)[number];
-export interface ArkUiSettings { theme: ArkTheme }
+export interface ArkUiSettings { theme: ArkTheme; hideReasoning: boolean }
 
 export interface ArkConfig {
   listen: { host: string; port: number };
@@ -73,7 +73,7 @@ export async function loadConfig(): Promise<ArkConfig> {
     listen: { host: parsed.listen?.host || "127.0.0.1", port: parsed.listen?.port || 31415 },
     tls: { keyPath: resolveFromHome(parsed.tls.keyPath), certPath: resolveFromHome(parsed.tls.certPath) },
     workspaces: parsed.workspaces.map((workspace) => ({ ...workspace, path: resolve(workspace.path) })),
-    ui: { theme: ARK_THEMES.includes(parsed.ui?.theme) ? parsed.ui.theme : "ark-dark" },
+    ui: { theme: ARK_THEMES.includes(parsed.ui?.theme) ? parsed.ui.theme : "ark-dark", hideReasoning: parsed.ui?.hideReasoning === true },
   };
 }
 
@@ -104,9 +104,10 @@ export async function loadUiSettings(): Promise<ArkUiSettings> {
   return (await loadConfig()).ui;
 }
 
-export async function saveGlobalArkSettings(theme: ArkTheme): Promise<ArkUiSettings> {
-  if (!ARK_THEMES.includes(theme)) throw Object.assign(new Error("Unknown theme"), { statusCode: 400 });
-  const next = await updateGlobalConfig((current) => ({ ...current, ui: { theme } }));
+export async function saveGlobalArkSettings(settings: ArkUiSettings): Promise<ArkUiSettings> {
+  if (!ARK_THEMES.includes(settings.theme)) throw Object.assign(new Error("Unknown theme"), { statusCode: 400 });
+  if (typeof settings.hideReasoning !== "boolean") throw Object.assign(new Error("Invalid reasoning visibility setting"), { statusCode: 400 });
+  const next = await updateGlobalConfig((current) => ({ ...current, ui: { theme: settings.theme, hideReasoning: settings.hideReasoning } }));
   return next.ui;
 }
 

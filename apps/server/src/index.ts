@@ -62,7 +62,7 @@ app.post("/api/auth/logout", async (request, reply) => {
 app.get("/api/auth/session", async () => ({ authenticated: true, username: config.auth.username }));
 
 app.get("/api/ui", async () => loadUiSettings());
-app.put<{ Body: ArkUiSettings }>("/api/ui", async (request) => saveGlobalArkSettings(request.body?.theme));
+app.put<{ Body: ArkUiSettings }>("/api/ui", async (request) => saveGlobalArkSettings(request.body));
 app.get("/api/workspaces", async () => ({ workspaces: workspaces.list() }));
 app.get<{ Querystring: { path: string } }>("/api/directories", async (request) => workspaces.suggestDirectories(request.query.path || ""));
 app.post<{ Body: { name?: string; path: string } }>("/api/workspaces", async (request, reply) => {

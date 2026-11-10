@@ -2,7 +2,7 @@ import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircl
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { applyTheme, themes } from "../theme";
-import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, Workspace, WorkspaceSettings } from "../types";
+import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, UiSettings, Workspace, WorkspaceSettings } from "../types";
 import { Select } from "./Select";
 import { SubscriptionLogin } from "./SubscriptionLogin";
 
@@ -27,7 +27,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (checked: b
   return <button type="button" role="switch" aria-checked={checked} className={`settings-toggle ${checked ? "enabled" : ""}`} onClick={() => onChange(!checked)}><span /></button>;
 }
 
-export function Settings({ workspace }: { workspace?: Workspace }) {
+export function Settings({ workspace, onUiSettingsChanged }: { workspace?: Workspace; onUiSettingsChanged: (settings: UiSettings) => void }) {
   const [tab, setTab] = useState<SettingsTab>("global");
   const [global, setGlobal] = useState<GlobalSettings | null>(null);
   const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceSettings | null>(null);
@@ -51,9 +51,11 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const globalSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const uiSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const modelSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const workspaceSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const globalSaveRevision = useRef(0);
+  const uiSaveRevision = useRef(0);
   const modelSaveRevision = useRef(0);
   const workspaceSaveRevision = useRef(0);
   const workspaceIdRef = useRef(workspace?.id);
@@ -104,6 +106,23 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
       }
     }).finally(() => { if (revision === globalSaveRevision.current) setSaving(false); });
     globalSaveQueue.current = task;
+    return task;
+  }
+
+  function persistUiSettings(next: GlobalSettings, success: string): Promise<void> {
+    const revision = ++uiSaveRevision.current;
+    setGlobal(next); applyTheme(next.theme); onUiSettingsChanged({ theme: next.theme, hideReasoning: next.hideReasoning }); setSaving(true); setNotice(null);
+    const task = uiSaveQueue.current.catch(() => undefined).then(async () => {
+      const saved = await api.saveUiSettings({ theme: next.theme, hideReasoning: next.hideReasoning });
+      if (revision === uiSaveRevision.current) { setGlobal((current) => current ? { ...current, ...saved } : current); onUiSettingsChanged(saved); setNotice({ kind: "success", text: success }); }
+    }).catch(async (reason) => {
+      if (revision === uiSaveRevision.current) {
+        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save interface setting" });
+        const restored = await api.uiSettings().catch(() => null);
+        if (restored) { setGlobal((current) => current ? { ...current, ...restored } : current); applyTheme(restored.theme); onUiSettingsChanged(restored); }
+      }
+    }).finally(() => { if (revision === uiSaveRevision.current) setSaving(false); });
+    uiSaveQueue.current = task;
     return task;
   }
 
@@ -288,12 +307,9 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
     return task;
   }
 
-  async function selectTheme(theme: ThemeId) {
+  function selectTheme(theme: ThemeId) {
     if (!global) return;
-    const previous = global.theme;
-    setGlobal({ ...global, theme }); applyTheme(theme); setNotice(null);
-    try { await api.saveUiSettings(theme); setNotice({ kind: "success", text: "Theme saved." }); }
-    catch (reason) { setGlobal({ ...global, theme: previous }); applyTheme(previous); setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save theme" }); }
+    void persistUiSettings({ ...global, theme }, "Theme saved.");
   }
 
   function toggleTool(tool: WorkspaceTool) {
@@ -325,8 +341,9 @@ export function Settings({ workspace }: { workspace?: Workspace }) {
         {tab === "global" && global && <>
           <div className="settings-category-title"><span>Interface</span><p>Visual preferences shared by this Pi-Ark service.</p></div>
           <section className="settings-section">
-            <div className="settings-section-title"><Palette size={17} /><div><h3>Appearance</h3><p>Theme shared by every workspace and device using this service.</p></div></div>
-            {(["dark", "light"] as const).map((group) => <div className="theme-group" key={group}><h4>{group === "dark" ? "Dark" : "Light"}</h4><div className="theme-options">{themes.filter((theme) => theme.group === group).map((theme) => <button type="button" className={global.theme === theme.id ? "selected" : ""} onClick={() => void selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><span><strong>{theme.name}</strong><small>{theme.description}</small></span>{global.theme === theme.id && <Check size={14} />}</button>)}</div></div>)}
+            <div className="settings-section-title"><Palette size={17} /><div><h3>Appearance</h3><p>Theme and conversation visibility shared by every workspace and device using this service.</p></div></div>
+            {(["dark", "light"] as const).map((group) => <div className="theme-group" key={group}><h4>{group === "dark" ? "Dark" : "Light"}</h4><div className="theme-options">{themes.filter((theme) => theme.group === group).map((theme) => <button type="button" className={global.theme === theme.id ? "selected" : ""} onClick={() => selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><span><strong>{theme.name}</strong><small>{theme.description}</small></span>{global.theme === theme.id && <Check size={14} />}</button>)}</div></div>)}
+            <div className="settings-rows"><div className="settings-row"><div><strong>Hide reasoning</strong><span>Hide reasoning content in every conversation while preserving it in Session history.</span></div><Toggle checked={global.hideReasoning} onChange={(checked) => void persistUiSettings({ ...global, hideReasoning: checked }, "Reasoning visibility saved.")} /></div></div>
           </section>
           <div className="settings-category-title"><span>AI runtime</span><p>Provider credentials and defaults for new sessions.</p></div>
           <section className="settings-section">

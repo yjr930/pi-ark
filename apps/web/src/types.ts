@@ -147,6 +147,11 @@ export interface ModelPreferences {
 
 export type ThemeId = "ark-dark" | "graphite" | "midnight" | "paper" | "snow";
 
+export interface UiSettings {
+  theme: ThemeId;
+  hideReasoning: boolean;
+}
+
 export interface ReleaseInfo {
   version: string;
   coreVersion: string;
@@ -167,8 +172,7 @@ export interface ReleaseInfo {
   commands: { update: string; rollback: string; status: string; logs: string; restart: string };
 }
 
-export interface GlobalSettings {
-  theme: ThemeId;
+export interface GlobalSettings extends UiSettings {
   provider: string;
   model: string;
   thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";

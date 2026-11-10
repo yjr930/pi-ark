@@ -31,7 +31,7 @@ const config = {
   tls: { keyPath, certPath },
   auth: { username, passwordHash: `scrypt$${salt}$${Buffer.from(digest).toString("hex")}` },
   workspaces: [{ id, name: args.name || id, path: workspacePath }],
-  ui: { theme: "ark-dark" },
+  ui: { theme: "ark-dark", hideReasoning: false },
 };
 await writeFile(join(home, "config.json"), JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
 console.log(`Pi-Ark configuration written to ${join(home, "config.json")}`);

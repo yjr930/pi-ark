@@ -13,6 +13,7 @@ export interface GlobalAgentDefaultsInput {
 
 export interface GlobalSettingsInput extends GlobalAgentDefaultsInput {
   theme: ArkTheme;
+  hideReasoning: boolean;
   provider: string;
   model: string;
   thinkingLevel: ModelThinkingLevel;
@@ -62,6 +63,7 @@ export class SettingsService {
     const configuredThinking = this.manager.getDefaultThinkingLevel() || "medium";
     return {
       theme: arkConfig.ui.theme,
+      hideReasoning: arkConfig.ui.hideReasoning,
       provider,
       model: modelId,
       thinkingLevel: model ? clampThinkingLevel(model, configuredThinking) : "off",
@@ -229,7 +231,7 @@ export class SettingsService {
     await this.manager.flush();
     const errors = this.manager.drainErrors();
     if (errors.length) throw new Error(errors.map(({ error }) => error.message).join("; "));
-    await saveGlobalArkSettings(input.theme);
+    await saveGlobalArkSettings({ theme: input.theme, hideReasoning: input.hideReasoning });
     return this.getGlobal();
   }
 }

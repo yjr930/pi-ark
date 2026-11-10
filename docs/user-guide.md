@@ -258,11 +258,11 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 每条 User message 在 turn 起点显示用户头像、`User` 标签、message number、内部链接和可用的 Rollback。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。角色头像只占用 header 行，后续内容继续使用 conversation 的完整宽度。普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。Reasoning 使用较小字号和与普通 text 一致的行高。
 
-AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。Running 默认展开，其中的 tool items 仍然默认关闭；AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。Running 默认展开，其中正在执行和已经完成的 tool items 都默认关闭；用户可以手动展开 tool item。AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
 
 每个 tool call 与 result 合并为一行工具项。工具 logo 位于折叠框内，后面显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。连续工具项使用紧凑间距。展开内容与折叠框左边界对齐；第一行显示 Call 与 Result 的全局 message number，并提供对应的 `pi-ark://` link copy 按钮。Arguments 按字段显示，每个 key 使用 heading 样式，下一行显示 value，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`；Result 显示文字或图片结果。
 
-Text item 直接显示普通文字、图片和 reasoning。已完成的 assistant text 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；流式 assistant text 显示 Info。点击 Info 后，信息栏显示 model、context、input/output token、source message number 与 `pi-ark://` link；流式输出期间的信息栏只显示当前可用的信息。User header 提供内部链接与 Rollback。
+Text item 直接显示普通文字、图片和 reasoning。含普通 text 或 image 的已完成 assistant item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；对应的流式 item 显示 Info。只包含 reasoning 和 toolCall 的 message 不显示这些操作。点击 Info 后，信息栏显示 model、context、input/output token、source message number 与 `pi-ark://` link；流式输出期间的信息栏只显示当前可用的信息。User header 提供内部链接与 Rollback。
 
 Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过折叠框查看。
 
@@ -284,7 +284,7 @@ Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follo
 
 ### Fork
 
-已完成的 assistant text item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info。Info 信息栏显示 model、Context 百分比、`I/input token`、`O/output token`、source message number 和内部链接。Fork session 从该 text 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
+含普通 text 或 image 的已完成 assistant item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；只包含 reasoning 和 toolCall 的 message 不显示操作行。Info 信息栏显示 model、Context 百分比、`I/input token`、`O/output token`、source message number 和内部链接。Fork session 从该 text 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
 
 ### Rollback 与 Restore
 
@@ -303,7 +303,7 @@ Assistant text 的 Info 信息栏和展开后的 tool item 可以复制 `pi-ark:
 
 ### 查看 Session information
 
-会话状态栏左侧依次显示标题、编辑标题按钮和状态，右侧显示 Context 百分比和信息按钮。Disconnected、Connection error 和其他错误状态使用红灯、红色系底色和边框。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
+会话状态栏左侧依次显示标题、编辑标题按钮和状态。标题根据实际文字长度占用空间，达到当前上限后截断；编辑按钮紧跟标题。右侧只显示 context 百分比数字和信息按钮。Disconnected、Connection error 和其他错误状态使用红灯、红色系底色和边框。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
 
 ## Files 页面
 
@@ -343,6 +343,8 @@ Settings 中的普通选择、开关和完成输入的数值会立即保存。�
 - Snow
 
 Theme 选择会立即预览，保存后对该 Pi-Ark 服务的浏览器生效。
+
+Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示。开启后，conversation 不显示 Reasoning 折叠项和内容；Session history 与模型使用的上下文继续保留原始 reasoning。该开关会立即保存，刷新页面后继续生效。
 
 ### Global → Provider and model
 
@@ -419,7 +421,7 @@ Show hidden files 控制普通 dotfile 是否进入 Files 列表，切换后立�
 - Conversation width。
 - 最近应用的 theme。
 
-移动端通过顶部菜单按钮打开 drawer sidebar。drawer 打开后，遮罩覆盖页面 header、composer 和 drawer 之外的其他应用内容；点击遮罩可以关闭 drawer。
+移动端通过顶部菜单按钮打开 drawer sidebar。drawer 打开后，遮罩覆盖页面 header、composer 和 drawer 之外的其他应用内容；点击遮罩可以关闭 drawer。Chat 主列限制在屏幕宽度内，状态栏、conversation、sticky User row、Running 和 composer 不会向屏幕右侧溢出。
 
 ## Service 管理与 release 更新
 

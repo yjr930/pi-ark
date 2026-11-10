@@ -311,6 +311,9 @@ try {
   const streamingLayout = await streamingText.evaluate((message) => { const body = message.querySelector(".feed-message-content").getBoundingClientRect(); const footer = message.querySelector(".feed-text-footer").getBoundingClientRect(); return { bodyX: body.x, footerX: footer.x, footerTop: footer.y, bodyBottom: body.bottom }; });
   assert.ok(Math.abs(streamingLayout.bodyX - streamingLayout.footerX) <= 1 && streamingLayout.footerTop >= streamingLayout.bodyBottom - 1);
   assert.equal(await activeRun.locator(".feed-ai-message .thinking").count(), 1);
+  const reasoningToolMessage = activeRun.locator(".feed-ai-message:has(.thinking)");
+  assert.equal(await reasoningToolMessage.locator(".feed-text-footer").count(), 0);
+  assert.equal(await reasoningToolMessage.locator(".feed-text-actions").count(), 0);
   const reasoningRhythm = await activeRun.evaluate((run) => ({ reasoning: Number.parseFloat(getComputedStyle(run.querySelector(".thinking > summary")).lineHeight), text: Number.parseFloat(getComputedStyle(run.querySelector(".message-markdown")).lineHeight) }));
   assert.ok(Math.abs(reasoningRhythm.reasoning - reasoningRhythm.text) <= 0.5);
   assert.equal(await activeRun.locator(".feed-tool-item").count(), 3);
@@ -429,6 +432,17 @@ try {
   await schedulingRow.getByText("Scheduling", { exact: true }).waitFor();
   assert.equal(await schedulingRow.getByRole("button").count(), 0);
   await activePage.waitForFunction(() => !document.querySelector(".queued-message.pending") && [...document.querySelectorAll(".queued-message:not(.pending) > strong")].some((element) => element.textContent === "Optimistic scheduling message"));
+  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "toolCall", id: "active-late-call", name: "bash", arguments: { command: "echo late tool" } }], timestamp: 5700, entryId: "active-late-call-message" }];
+  activeSnapshot.session.messages = activeMessages;
+  activeSocket.send(JSON.stringify(activeSnapshot));
+  const lateRunningTool = activeRun.locator(".feed-tool-details").filter({ hasText: "echo late tool" }).last();
+  await lateRunningTool.locator(":scope > summary").filter({ hasText: "echo late tool" }).waitFor();
+  assert.equal(await lateRunningTool.getAttribute("open"), null);
+  activeMessages = [...activeMessages, { role: "toolResult", toolCallId: "active-late-call", toolName: "bash", content: [{ type: "text", text: "Late tool completed" }], timestamp: 5800, entryId: "active-late-result" }];
+  activeSnapshot.session.messages = activeMessages;
+  activeSocket.send(JSON.stringify(activeSnapshot));
+  await lateRunningTool.locator(".feed-tool-status").filter({ hasText: "Completed" }).waitFor();
+  assert.equal(await lateRunningTool.getAttribute("open"), null);
   activeSnapshot.session.isStreaming = false;
   activeSnapshot.session.isIdle = true;
   activeSocket.send(JSON.stringify(activeSnapshot));
@@ -444,6 +458,33 @@ try {
   assert.notEqual(disconnectedStyle.background, "rgba(0, 0, 0, 0)");
   assert.equal(disconnectedStyle.light, disconnectedStyle.color);
   await activePage.close();
+  const hiddenReasoningPage = await page.context().newPage();
+  await hiddenReasoningPage.route("**/api/ui", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ theme: "ark-dark", hideReasoning: true }) }));
+  await hiddenReasoningPage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
+    const server = webSocket.connectToServer();
+    webSocket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      let payload;
+      try { payload = JSON.parse(String(message)); } catch { webSocket.send(message); return; }
+      if (payload.type !== "snapshot") { webSocket.send(message); return; }
+      payload.session.isStreaming = true;
+      payload.session.isIdle = false;
+      payload.session.messages = [
+        { role: "user", content: [{ type: "text", text: "Hide reasoning browser turn" }], timestamp: 1000, entryId: "hidden-reasoning-user" },
+        { role: "assistant", content: [{ type: "thinking", thinking: "This reasoning must stay hidden" }, { type: "toolCall", id: "hidden-reasoning-call", name: "bash", arguments: { command: "echo hidden reasoning" } }], timestamp: 2000, entryId: "hidden-reasoning-assistant" },
+      ];
+      webSocket.send(JSON.stringify(payload));
+    });
+  });
+  await hiddenReasoningPage.goto(page.url());
+  await hiddenReasoningPage.locator(".run-collapse.active").waitFor();
+  assert.equal(await hiddenReasoningPage.getByText("Reasoning", { exact: true }).count(), 0);
+  assert.equal(await hiddenReasoningPage.getByText("This reasoning must stay hidden", { exact: true }).count(), 0);
+  const hiddenReasoningTool = hiddenReasoningPage.locator(".feed-tool-details").filter({ hasText: "echo hidden reasoning" });
+  await hiddenReasoningTool.locator(".feed-tool-status").filter({ hasText: "Running" }).waitFor();
+  assert.equal(await hiddenReasoningTool.getAttribute("open"), null);
+  assert.equal(await hiddenReasoningPage.locator(".feed-text-footer").count(), 0);
+  await hiddenReasoningPage.close();
   const interruptedPage = await page.context().newPage();
   await interruptedPage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
     const server = webSocket.connectToServer();
@@ -583,9 +624,11 @@ try {
   assert.equal(new URL(page.url()).searchParams.get("page"), "agent");
   assert.equal(await page.locator(".chat-runtime-bar").count(), 0);
   assert.equal(await page.locator(".composer .composer-thinking .ark-select").count(), 1);
-  const headerOrder = await page.locator(".chat-header").evaluate((header) => { const title = header.querySelector(".chat-title h2").getBoundingClientRect(); const rename = header.querySelector('[title="Rename session"]').getBoundingClientRect(); const status = header.querySelector(".status-dot").getBoundingClientRect(); const context = header.querySelector(".chat-context-usage").getBoundingClientRect(); const info = header.querySelector('[title="Session information"]').getBoundingClientRect(); return { titleX: title.x, renameX: rename.x, statusX: status.x, contextX: context.x, infoX: info.x }; });
+  const headerOrder = await page.locator(".chat-header").evaluate((header) => { const title = header.querySelector(".chat-title h2").getBoundingClientRect(); const rename = header.querySelector('[title="Rename session"]').getBoundingClientRect(); const status = header.querySelector(".status-dot").getBoundingClientRect(); const context = header.querySelector(".chat-context-usage").getBoundingClientRect(); const info = header.querySelector('[title="Session information"]').getBoundingClientRect(); return { titleX: title.x, titleRight: title.right, renameX: rename.x, statusX: status.x, contextX: context.x, infoX: info.x }; });
   assert.ok(headerOrder.titleX < headerOrder.renameX && headerOrder.renameX < headerOrder.statusX);
+  assert.ok(headerOrder.renameX - headerOrder.titleRight >= 3 && headerOrder.renameX - headerOrder.titleRight <= 8, JSON.stringify(headerOrder));
   assert.ok(headerOrder.contextX < headerOrder.infoX);
+  assert.match((await page.locator(".chat-context-usage").textContent()) || "", /^(?:\d+(?:\.\d+)?%|—)$/);
   await page.getByText("Final browser answer", { exact: true }).waitFor();
   assert.equal(await page.locator(".message-markdown").filter({ hasText: "Final browser answer" }).count(), 1);
   const browserFinalMessage = page.locator(".feed-ai-message").filter({ hasText: "Final browser answer" });
@@ -799,6 +842,17 @@ try {
   await page.locator(".workspace-list-item").first().waitFor();
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
   await page.locator(".account-section").getByRole("button", { name: "Sign out" }).waitFor();
+  const appearanceSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Appearance", exact: true }) });
+  const hideReasoningSwitch = appearanceSection.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch");
+  assert.equal(await hideReasoningSwitch.getAttribute("aria-checked"), "false");
+  const hideReasoningSave = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
+  await hideReasoningSwitch.click();
+  assert.equal((await hideReasoningSave).ok(), true);
+  assert.equal(await hideReasoningSwitch.getAttribute("aria-checked"), "true");
+  assert.equal(await page.evaluate(async () => (await fetch("./api/ui")).json().then((settings) => settings.hideReasoning)), true);
+  const hideReasoningRestore = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
+  await hideReasoningSwitch.click();
+  assert.equal((await hideReasoningRestore).ok(), true);
   await page.getByLabel("Provider").click();
   await page.locator(".ark-select.open .ark-select-menu").getByText(/^OpenAI Codex/).click();
   await page.locator(".model-preferences").waitFor();
@@ -901,6 +955,8 @@ try {
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
   await page.locator(".composer-thinking .ark-select-trigger").waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
+  const mobileHorizontalOverflow = await page.evaluate(() => { const viewportWidth = document.documentElement.clientWidth; const selectors = [".app-shell", ".content-area", ".chat-page", ".chat-header", ".conversation", ".composer"]; return { viewportWidth, overflow: selectors.map((selector) => { const box = document.querySelector(selector)?.getBoundingClientRect(); return box ? { selector, left: Math.round(box.left * 10) / 10, right: Math.round(box.right * 10) / 10, width: Math.round(box.width * 10) / 10 } : null; }).filter((item) => item && (item.left < -0.5 || item.right > viewportWidth + 0.5)) }; });
+  assert.deepEqual(mobileHorizontalOverflow.overflow, [], `Mobile elements exceed the ${mobileHorizontalOverflow.viewportWidth}px viewport`);
   await page.locator(".composer-thinking .ark-select-trigger").click();
   const thinkingMenu = page.locator(".composer-thinking .ark-select-menu");
   await thinkingMenu.waitFor();

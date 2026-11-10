@@ -9,7 +9,7 @@ import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
 import { appLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
 import { applyTheme } from "./theme";
-import type { SessionInfo, Workspace } from "./types";
+import type { SessionInfo, UiSettings, Workspace } from "./types";
 
 const Files = lazy(() => import("./components/Files").then((module) => ({ default: module.Files })));
 const Terminal = lazy(() => import("./components/Terminal").then((module) => ({ default: module.Terminal })));
@@ -21,6 +21,7 @@ export default function App() {
   const pendingInternalTarget = useRef<InternalSessionTarget | undefined>(undefined);
   const [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [uiSettings, setUiSettings] = useState<UiSettings>({ theme: "ark-dark", hideReasoning: false });
   const [workspaceId, setWorkspaceId] = useState("");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionId, setSessionId] = useState("");
@@ -38,7 +39,7 @@ export default function App() {
 
   const loadWorkspaces = useCallback(async () => {
     const [workspaceResult, ui] = await Promise.all([api.workspaces(), api.uiSettings()]);
-    applyTheme(ui.theme);
+    applyTheme(ui.theme); setUiSettings(ui);
     setWorkspaces(workspaceResult.workspaces);
     setWorkspaceId((current) => workspaceResult.workspaces.some((item) => item.id === current) ? current : workspaceResult.workspaces.find((item) => item.id === initialPermalink.current.workspaceId)?.id || workspaceResult.workspaces[0]?.id || "");
   }, []);
@@ -196,11 +197,11 @@ export default function App() {
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
       {!workspace && page !== "settings" && <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>}
-      {workspace && page === "agent" && (selectedSession ? <Chat workspace={workspace} session={selectedSession} targetMessageNumber={targetMessageNumber} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
+      {workspace && page === "agent" && (selectedSession ? <Chat workspace={workspace} session={selectedSession} targetMessageNumber={targetMessageNumber} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "files" && <Files workspace={workspace} />}
         {workspace && page === "terminal" && <Terminal workspace={workspace} />}
-        {page === "settings" && <Settings workspace={workspace} />}
+        {page === "settings" && <Settings workspace={workspace} onUiSettingsChanged={(next) => { setUiSettings(next); applyTheme(next.theme); }} />}
       </Suspense>
     </main>
     {addWorkspaceOpen && <AddWorkspaceDialog onClose={() => setAddWorkspaceOpen(false)} onAdded={workspaceAdded} />}
