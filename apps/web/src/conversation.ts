@@ -44,12 +44,11 @@ export function buildConversationSegments(messages: AgentMessage[], active: bool
   const segments: ConversationSegment[] = [];
   let index = 0;
   while (index < messages.length) {
-    const message = messages[index];
-    if (message.role !== "user") { segments.push({ type: "message", message, key: `loose-${index}`, ...(message.role === "assistant" ? { aiStart: true } : {}) }); index += 1; continue; }
-    segments.push({ type: "message", message, key: `user-${index}` });
-    const responseStart = index + 1;
+    const turnStart = index;
+    if (messages[index].role === "user") { segments.push({ type: "message", message: messages[index], key: `user-${index}` }); index += 1; }
+    const responseStart = index;
     let responseEnd = responseStart;
-    while (responseEnd < messages.length && !isConversationBoundary(messages[responseEnd])) responseEnd += 1;
+    while (responseEnd < messages.length && messages[responseEnd].role !== "user") responseEnd += 1;
     const response = messages.slice(responseStart, responseEnd);
     const responseSegments: ConversationSegment[] = [];
     const currentTurn = active && responseEnd === messages.length;
@@ -59,17 +58,17 @@ export function buildConversationSegments(messages: AgentMessage[], active: bool
     if (currentTurn && lastTool >= 0) {
       const collapsed = response.slice(0, lastTool + 1);
       const lastMessage = collapsed[collapsed.length - 1];
-      responseSegments.push({ type: "collapsed", messages: collapsed, finalMessage: lastMessage, key: `run-${index}`, toolMessages: collapsed.filter(hasToolActivity).length, duration: durationLabel(collapsed, lastMessage), active: true });
-      response.slice(lastTool + 1).forEach((item, itemIndex) => responseSegments.push({ type: "message", message: item, key: `final-${index}-${itemIndex}` }));
+      responseSegments.push({ type: "collapsed", messages: collapsed, finalMessage: lastMessage, key: `run-${turnStart}`, toolMessages: collapsed.filter(hasToolActivity).length, duration: durationLabel(collapsed, lastMessage), active: true });
+      response.slice(lastTool + 1).forEach((item, itemIndex) => responseSegments.push({ type: "message", message: item, key: `final-${turnStart}-${itemIndex}` }));
     } else if (!currentTurn && lastTool >= 0 && finalOutput > 0) {
       const collapsed = response.slice(0, finalOutput);
-      responseSegments.push({ type: "collapsed", messages: collapsed, finalMessage: response[finalOutput], key: `run-${index}`, toolMessages: collapsed.filter(hasToolActivity).length, duration: durationLabel(collapsed, response[finalOutput]), active: false });
-      response.slice(finalOutput).forEach((item, itemIndex) => responseSegments.push({ type: "message", message: item, key: `final-${index}-${itemIndex}` }));
+      responseSegments.push({ type: "collapsed", messages: collapsed, finalMessage: response[finalOutput], key: `run-${turnStart}`, toolMessages: collapsed.filter(hasToolActivity).length, duration: durationLabel(collapsed, response[finalOutput]), active: false });
+      response.slice(finalOutput).forEach((item, itemIndex) => responseSegments.push({ type: "message", message: item, key: `final-${turnStart}-${itemIndex}` }));
     } else if (!currentTurn && lastTool >= 0 && response.length > 0) {
       const lastMessage = response[response.length - 1];
-      responseSegments.push({ type: "collapsed", messages: response, finalMessage: lastMessage, key: `run-${index}`, toolMessages: response.filter(hasToolActivity).length, duration: durationLabel(response, lastMessage), active: false });
-      responseSegments.push({ type: "warning", key: `warning-${index}`, title: "Response interrupted" });
-    } else response.forEach((item, itemIndex) => responseSegments.push({ type: "message", message: item, key: `response-${index}-${itemIndex}` }));
+      responseSegments.push({ type: "collapsed", messages: response, finalMessage: lastMessage, key: `run-${turnStart}`, toolMessages: response.filter(hasToolActivity).length, duration: durationLabel(response, lastMessage), active: false });
+      responseSegments.push({ type: "warning", key: `warning-${turnStart}`, title: "Response interrupted" });
+    } else response.forEach((item, itemIndex) => responseSegments.push({ type: "message", message: item, key: `response-${turnStart}-${itemIndex}` }));
     const firstResponseSegment = responseSegments.find((segment) => segment.type !== "warning");
     if (firstResponseSegment) firstResponseSegment.aiStart = true;
     segments.push(...responseSegments);

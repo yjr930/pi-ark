@@ -229,7 +229,7 @@ Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 e
 
 Web 默认显示最近约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。点击 Show earlier messages 后，Web 再增加一页 earlier messages；message number 始终按完整 display projection 计算，因此分页前后的 permalink 保持一致。
 
-`buildConversationSegments()` 以 user message 划分 turn，并将 compaction summary 与 branch summary 作为独立边界。每轮 response 的第一个 segment 带 `aiStart` 标记，Web 只在该位置显示一次 AI 头像。
+`buildConversationSegments()` 只以 user message 划分 turn；compaction summary、branch summary、assistant message 与 tool result 都保留在当前 AI response 中。每轮 response 的第一个 segment 带 `aiStart` 标记，Web 只在该位置显示一次 AI 头像和 `AI` 标签。分页内容从 response 中间开始时，当前页面中的 response 前缀共同使用一次 `aiStart`。User source message 保留独立的用户头像、`User` 标签、message number 与操作按钮。每条含 text 内容的 assistant source message 使用独立的小喇叭按钮控制 source information、metrics 和操作按钮的显示。
 
 - 没有 tool activity 的 turn 按 source message 和 content block 顺序展示为连续 feed。
 - Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output。

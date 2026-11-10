@@ -256,7 +256,7 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
-每轮 AI response 只在开头显示一次 AI 头像。后续的普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。
+每条 User message 在 turn 起点显示用户头像、`User` 标签、message number、内部链接和可用的 Rollback。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。后续的普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。每条含 text 内容的 assistant message 在左侧显示小喇叭；点击小喇叭可以展开或折叠该 source message 的信息栏。
 
 AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。AI 完成后，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
 
@@ -284,7 +284,7 @@ Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follo
 
 ### Fork
 
-已完成的 assistant text item 在 inline metadata 中显示 model、Context 百分比、`I/input token` 和 `O/output token`。Fork session 从该 text 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
+已完成的 assistant text item 在小喇叭控制的信息栏中显示 model、Context 百分比、`I/input token` 和 `O/output token`。Fork session 从该 text 对应的 session entry 创建分支。确认新 Session 名称后，应用会打开新分支；原 Session 保持原有分支。
 
 ### Rollback 与 Restore
 

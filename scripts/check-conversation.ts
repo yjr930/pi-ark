@@ -51,6 +51,19 @@ assert.equal(compactBoundary[1].type === "message" && compactBoundary[1].aiStart
 assert.equal(compactBoundary[2].type === "message" && compactBoundary[2].message.role, "compactionSummary");
 assert.equal(compactBoundary[2].type === "message" && compactBoundary[2].aiStart, undefined);
 assert.equal(compactBoundary[4].type === "message" && compactBoundary[4].aiStart, true);
+assert.equal(compactBoundary.filter((segment) => segment.aiStart).length, 2);
+const pageStartingInsideResponse = buildConversationSegments([
+  { role: "compactionSummary", summary: "Page boundary summary", timestamp: 1 },
+  { role: "assistant", content: [{ type: "text", text: "Continued response" }], timestamp: 2 },
+  { role: "assistant", content: [{ type: "text", text: "Same response" }], timestamp: 3 },
+  { role: "user", content: "Next turn", timestamp: 4 },
+  { role: "assistant", content: [{ type: "text", text: "Next response" }], timestamp: 5 },
+], false);
+assert.equal(pageStartingInsideResponse.filter((segment) => segment.aiStart).length, 2);
+assert.equal(pageStartingInsideResponse[0].type === "message" && pageStartingInsideResponse[0].aiStart, true);
+assert.equal(pageStartingInsideResponse[1].type === "message" && pageStartingInsideResponse[1].aiStart, undefined);
+assert.equal(pageStartingInsideResponse[2].type === "message" && pageStartingInsideResponse[2].aiStart, undefined);
+assert.equal(pageStartingInsideResponse[4].type === "message" && pageStartingInsideResponse[4].aiStart, true);
 const pagedMessages = Array.from({ length: 130 }, (_, index) => [{ role: "user", content: `Question ${index + 1}` }, { role: "assistant", content: [{ type: "text", text: `Answer ${index + 1}` }] }]).flat() as AgentMessage[];
 assert.equal(previousConversationPageStart(pagedMessages), 160);
 assert.equal(previousConversationPageStart(pagedMessages, 160), 60);
