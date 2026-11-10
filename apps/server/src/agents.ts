@@ -20,6 +20,7 @@ import { type SubagentTaskInput } from "./subagent-types.js";
 import { validLeafEntryId } from "./internal-links.js";
 export { buildSessionDisplayMessages, MAX_SESSION_MESSAGES, sessionMessageId } from "./session-display.js";
 
+const FILE_TOOLS = ["read", "bash", "edit", "write"] as const;
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
@@ -423,7 +424,7 @@ export class AgentService {
     const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
     const settingsManager = createGlobalSettingsManager(workspace.path);
     const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
-    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...preferences.agent.tools, READ_PI_ARK_LINK, SUBAGENT], customTools: [createReadPiArkLinkTool(this.sessionReader), this.subagentTool(workspace, "preview")], resourceLoader });
+    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...FILE_TOOLS, READ_PI_ARK_LINK, SUBAGENT], customTools: [createReadPiArkLinkTool(this.sessionReader), this.subagentTool(workspace, "preview")], resourceLoader });
     try { return { content: session.systemPrompt, systemPromptPath, appendSystemPromptPath }; }
     finally { session.dispose(); }
   }
@@ -449,7 +450,7 @@ export class AgentService {
     const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;
-    const tools = configuration?.tools ?? origin?.run.tools ?? [...preferences.agent.tools, READ_PI_ARK_LINK, SUBAGENT];
+    const tools = [...FILE_TOOLS, READ_PI_ARK_LINK, ...(!origin ? [SUBAGENT] : [])];
     const customTools = [createReadPiArkLinkTool(this.sessionReader), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : [])];
     const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader, model: configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model), thinkingLevel: configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels });
     const handle: AgentHandle = {

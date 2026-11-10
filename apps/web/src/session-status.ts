@@ -5,12 +5,13 @@ export type SessionStatusMap = Record<string, SessionStatusView>;
 export function mergeSessionStatuses(current: SessionStatusMap, incoming: SessionRuntimeStatus[], viewedSessionId?: string): SessionStatusMap {
   const next = { ...current };
   for (const status of incoming) {
-    const previous = current[status.id];
-    if (previous && status.statusRevision < previous.statusRevision) continue;
-    const hasNewUpdate = status.updateRevision > (previous?.updateRevision || 0);
+    const previous = next[status.id];
+    if (previous && (status.statusRevision < previous.statusRevision || (status.statusRevision === previous.statusRevision && status.updateRevision < previous.updateRevision))) continue;
+    const viewedUpdateRevision = status.id === viewedSessionId ? status.updateRevision : previous?.viewedUpdateRevision ?? 0;
     next[status.id] = {
       ...status,
-      unread: status.id === viewedSessionId ? false : Boolean(previous?.unread || (hasNewUpdate && status.state === "ready")),
+      viewedUpdateRevision,
+      unread: status.state === "ready" && status.updateRevision > viewedUpdateRevision,
     };
   }
   return next;
@@ -18,6 +19,6 @@ export function mergeSessionStatuses(current: SessionStatusMap, incoming: Sessio
 
 export function acknowledgeSessionStatus(current: SessionStatusMap, sessionId: string): SessionStatusMap {
   const status = current[sessionId];
-  if (!status?.unread) return current;
-  return { ...current, [sessionId]: { ...status, unread: false } };
+  if (!status || status.viewedUpdateRevision === status.updateRevision) return current;
+  return { ...current, [sessionId]: { ...status, viewedUpdateRevision: status.updateRevision, unread: false } };
 }

@@ -165,7 +165,7 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 创建 AgentSession 时，AgentService 加载以下输入：
 
 - Workspace cwd。
-- Global 启用的 tools，以及 Pi-Ark 自带的 `read_pi_ark_link` 和 `subagent`。
+- 统一启用的文件工具（`read`、`bash`、`edit` 和 `write`），以及父子 Session 自带的 `read_pi_ark_link`；父 Session 还启用 `subagent`。
 - Pi-Ark agent directory 中的 Global resources。
 - Global system prompt append。
 - 已有 SessionManager。
@@ -177,9 +177,9 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 
 普通 Session 通过 `subagent` 工具委派任务。输入为 `tasks` 数组，每个任务包含 `title`、`task`、`expectedResult`，以及可选的 `references`（`link`、`purpose` 和可选的 `leafEntryId`）。一次委派支持 1–8 个任务，每个父 Session 最多同时执行 4 个任务，服务实例最多同时执行 8 个任务。
 
-`SubagentService` 使用进程内 SDK 为每个任务创建独立的持久化 Session，并复用 `AgentService` 的 runtime registry。创建与恢复使用相同的进行中 Promise，网页打开子 Session 时复用同一个 runtime。子 Session 继承父 Session 当次委派的模型、thinking level、工具列表与 Global system prompt append，并追加任务角色说明。子 Session 使用独立的消息上下文，Workspace 文件目录由父子 Session 共享。子 Session 的工具列表保留 `read_pi_ark_link`；后续委派由父 Session 组织。
+`SubagentService` 使用进程内 SDK 为每个任务创建独立的持久化 Session，并复用 `AgentService` 的 runtime registry。创建与恢复使用相同的进行中 Promise，网页打开子 Session 时复用同一个 runtime。子 Session 继承父 Session 当次委派的配置（模型、thinking level 和 Global system prompt append），并追加任务角色说明。子 Session 使用独立的消息上下文，Workspace 文件目录由父子 Session 共享。父子 Session 在新建和恢复时统一启用文件工具（`read`、`bash`、`edit` 和 `write`）以及 `read_pi_ark_link`；父 Session 还启用 `subagent`，子 Session 的后续委派由父 Session 组织。
 
-委派记录保存到 `<workspace>/.pi-ark/subagent-runs/<run-id>.json`，包括父子关系、配置快照、工具调用标识、状态、引用、结果 entry、结果摘录与用量。记录按目标文件串行写入，使用临时文件与 rename 完成替换。相同父 Session 的相同 tool call 复用已有记录。子 Session 的消息继续使用原生 JSONL，并追加 `pi-ark.subagent-origin` custom entry。
+委派记录保存到 `<workspace>/.pi-ark/subagent-runs/<run-id>.json`，包括父子关系、配置快照、工具调用标识、状态、引用、结果 entry、结果摘录与用量。记录按目标文件串行写入，使用临时文件与 rename 完成替换。相同父 Session 的相同 tool call 复用已有记录。子 Session 的消息继续使用原生 JSONL，并追加 `pi-ark.subagent-origin` custom entry。配置快照中的 `tools` 字段作为当次委派的记录保留；恢复时的文件工具由统一启用的工具列表提供。
 
 状态包括 `queued`、`running`、`completed`、`failed`、`cancelled` 和 `interrupted`。浏览器断开后任务继续执行；父 Session 的 Stop 会停止本次仍在等待的子任务；子任务的 Stop 操作针对该任务。服务加载已有记录时，将遗留的 `queued` 与 `running` 改为 `interrupted`，用户可以再次委派任务。删除操作保留委派记录，并标记父或子 Session 已删除。
 
@@ -189,7 +189,7 @@ Server 自动附加父 Session 最近的 user message 作为来源，并保存�
 
 ### Pi-Ark link 读取工具
 
-`AgentService` 接收当前 `WorkspaceService` registry，并在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `read_pi_ark_link`。显式 `tools` 列表包含该名称，使工具始终与 Global 所选的文件工具一起可用。Global effective system prompt preview 使用同一份工具定义。工具提供 `description`、`promptSnippet` 和 `promptGuidelines`，引导 Agent 使用工具读取用户提供的内部链接。
+`AgentService` 接收当前 `WorkspaceService` registry，并在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `read_pi_ark_link`。显式 `tools` 列表在父子 Session 中均包含该名称，并统一启用文件工具（`read`、`bash`、`edit` 和 `write`）。Global effective system prompt preview 使用相同的文件工具和自带工具定义。工具提供 `description`、`promptSnippet` 和 `promptGuidelines`，引导 Agent 使用工具读取用户提供的内部链接。
 
 `internal-links.ts` 是独立于浏览器环境的链接模块，Web 的 `permalinks.ts` 直接复用该模块。工具支持 `pi-ark://workspace/<workspace-id>`、其后的 `/session/<session-id>`，以及 `/message/<message-id>`。Web 的 Session link 对话框继续接受 Session 和 Message link。短 Message ID 与旧数字目标共用 `session-display.ts` 的定位函数；数字目标按完整活动分支的 display position 解析，返回值中的链接使用短 Message ID。
 
@@ -243,7 +243,7 @@ AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 cli
 
 `agent_start` 将状态切换为 `running`。`agent_end` 只记录最终且不再 retry 的 assistant error；`agent_settled` 才将状态切换为 `ready` 或 `error`，因此单条 `message_end` 不会提前结束 spinner。Aborted run 返回 `ready`，但不递增 `updateRevision`。Prompt 在 Agent run 建立前直接失败时，Server 立即进入 `error` 并递增 completed update revision。
 
-Web 将最后收到的 revision 保存在当前页面内存中。较旧的 response 不覆盖较新的状态。Session 的 `updateRevision` 增加且进入 `ready` 时，Web 显示 unread output；首次收到已有 completed revision 的 Session 也会显示 unread output。浏览器在可见的 Agent 页面打开该 Session 后清除 unread 标记。Web 按 Workspace 保存这份内存状态，因此切换 Workspace 后返回仍可看到尚未查看的新输出。Error 由 Server runtime state 决定，打开 Session 不会清除 error；下一次 Agent run 会更新该状态。该查看状态不写入 localStorage，也不写入 Session JSONL。
+Web 的 `SessionStatusView` 使用 `viewedUpdateRevision` 保存当前浏览器已经查看的更新序号，并以 `state === "ready" && updateRevision > viewedUpdateRevision` 计算 unread output。首次收到已有 completed revision 且处于 Ready 的 Session 时，Web 也会显示尚未查看的输出。Running 和 Error 期间暂时隐藏 unread，未查看的更新序号继续保留，回到 Ready 后恢复对应的提示。浏览器在可见的 Agent 页面查看该 Session 时，将当时的 `updateRevision` 确认为已查看序号。Web 根据 `statusRevision` 和同一状态 revision 下的 `updateRevision` 筛选 response，较旧的响应会保留当前状态与查看进度。Web 按 Workspace 在当前页面内存中保存状态，因此切换 Workspace 后返回仍可看到尚未查看的新输出。Error 由 Server runtime state 决定，下一次 Agent run 会更新该状态。
 
 当前 Agent runtime 没有面向 Web 的显式 question lifecycle、question event 或 answer API。Sidebar Question indicator 作为计划能力保留；后续需要先定义 runtime question state 与 answer transport，再加入状态优先级和图标。
 
@@ -309,7 +309,7 @@ Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分�
 - 已完成 tool turn 将最后一条非工具 assistant output 之前的过程放入 run collapse；`RunCollapse` 观察 active→completed 转换并自动折叠并更新缓存状态。已完成的 permalink target 在没有已有用户状态时自动展开对应 details。
 - Idle 且缺少最后一条非工具 assistant output 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。每个 theme 分别提供 Run palette 与 Tool palette：Run group 使用该 theme 的 tint surface，Tool row 和 Reasoning 使用更中性的 surface，并具有独立的 open surface 与 border color。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；dark themes 和 Snow 使用对应 accent 倾向的外层 Run surface 与更亮的中性 Tool surface。Compact 与 branch summary 也使用 tool feed item。Compact 的收起高度为普通 tool row 的 3 倍，并展示压缩前后的用量、估算的上下文组成和压缩耗时。展开 tool item 后先显示 Call/Result 的消息 link 按钮，整段按钮包含 source Message ID 与复制图标；tooltip 使用 portal 到 document body 的 fixed 浮层。短 Message ID 在 User header、sticky User 与 source link 中统一使用斜体。其后显示 arguments、result 或 summary。`buildToolCallGroups()` 在已配对结果的基础上，按连续的 tool-only assistant messages 分组。正文、图片、Reasoning、Compact、branch summary 与独立结果会中断分组；包含正文的 message 中的 tool calls 保持原有显示。`ToolCallSequence` 按单个 call 计数，默认隐藏较早调用并保留最后 3 个，使用 `show more tool call` / `show less tool call` 切换。分组使用首个 source message 与 call 的稳定标识保存 disclosure；早期 message 或 result 的 permalink target 在首次访问时展开分组。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。每个 theme 分别提供 Run palette 与 Tool palette：Run group 使用该 theme 的 tint surface，Tool row 和 Reasoning 使用更中性的 surface，并具有独立的 open surface 与 border color。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；dark themes 和 Snow 使用对应 accent 倾向的外层 Run surface 与更亮的中性 Tool surface。Compact 与 branch summary 也使用 tool feed item。Compact 的收起高度为普通 tool row 的 3 倍，并展示压缩前后的用量、估算的上下文组成和压缩耗时。展开 tool item 后先显示 Call/Result 的消息 link 按钮，整段按钮包含 source Message ID 与复制图标；tooltip 使用 portal 到 document body 的 fixed 浮层。短 Message ID 在 User header、sticky User 与 source link 中统一使用斜体。其后显示 arguments、result 或 summary。`buildToolCallGroups()` 接收 `hideReasoning`，在已配对结果的基础上按可见内容对连续的工具调用分组。开启 Hide reasoning 后，隐藏的 thinking block 和独立的 thinking-only assistant message 会保留在原始消息序列中，其前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 与独立结果继续中断分组；包含正文或图片的 message 中的 tool calls 保持原有显示。`ToolCallSequence` 按单个 call 计数，默认隐藏较早调用并保留最后 3 个，使用 `show more tool call` / `show less tool call` 切换。分组使用首个 source message 与 call 的稳定标识保存 disclosure；早期 message 或 result 的 permalink target 在首次访问时展开分组。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
 
 每条持久化 source message 继续保留短 Message ID、entry ID 和 permalink anchor。配对的 tool result 不重复渲染，但 tool item 内保留 result anchor。浏览器 permalink 打开外层 run 并高亮对应 source message 或 tool item；`pi-ark://` 是 feed 中提供的 message link copy 格式。Warning segment 是前端显示状态，不写入 pi JSONL，也不分配 Message ID，不参与 Fork 或 Rollback。
 
@@ -334,7 +334,7 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
-- Theme、reasoning visibility、Workspace registry 和共享 `preferences`（Agent tools、Global prompt append 和 Files preferences）：`PI_ARK_HOME/config.json`。
+- Theme、reasoning visibility、Workspace registry 和共享 `preferences`（Global prompt append 和 Files preferences）：`PI_ARK_HOME/config.json`。
 - Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
@@ -370,7 +370,6 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
 {
   "preferences": {
     "agent": {
-      "tools": ["read", "bash", "edit", "write"],
       "systemPrompt": { "append": "" }
     },
     "files": { "showHiddenFiles": true, "maxPreviewSizeMb": 10 }
@@ -378,7 +377,7 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
 }
 ```
 
-缺少 preferences 的既有 Global config 使用以上默认值。所有 Workspace 使用同一份配置；历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得工具、提示词和文件偏好。`ensureWorkspaceState()` 创建 Session directory。Preferences PUT 更新 tools 与 files，system prompt PUT 更新 append；二者共享 Global config 的串行原子写入，并保留其他字段。
+缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。所有 Workspace 使用同一份配置；历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词和文件偏好。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append。两个写入入口共享 Global config 的串行原子写入，并保留彼此负责的字段。
 
 ### Settings 的页面缓存
 
@@ -474,7 +473,7 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 | DELETE | `/api/settings/providers/:providerId/credential` | 删除指定 Provider 的保存 credential |
 | GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |
 | GET/PUT | `/api/settings/system-prompt` | 读取 effective prompt preview，或保存 Global append |
-| GET/PUT | `/api/settings/preferences` | 共享 Agent tools 与 Files preferences |
+| GET/PUT | `/api/settings/preferences` | GET 返回归一化的共享 preferences；PUT 使用仅含 `files` 的 payload 更新 Files preferences |
 | GET | `/api/settings/release` | Pi-Ark、bundled pi core、安装状态、路径、命令和 latest release |
 | POST | `/api/settings/release/update` | 安装并切换到 latest Pi-Ark release |
 | POST | `/api/settings/release/rollback` | 切换到 previous Pi-Ark release |

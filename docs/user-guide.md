@@ -210,7 +210,7 @@ Delete 会影响 Session 数据。确认对话框会显示即将删除的 Sessio
 
 每个 Session row 使用单行布局，较长标题会省略。列表不直接显示更新时间；将鼠标停在 Session row 上时，浏览器 tooltip 按 `Last Updated: xxxx-xx-xx xx:xx:xx` 显示最近更新时间。
 
-Session row 会显示当前状态：旋转图标表示 Agent 正在运行；绿色圆点表示该 Session 已经产生尚未查看的新输出；感叹号表示最近一次 Agent run 发生错误。点击带绿色圆点的 Session 并打开 Agent 页面后，圆点消失。Error 图标会保留到下一次运行更新状态。Question 状态显示属于后续计划，当前 Agent runtime 尚未提供显式 question state。
+Session row 会显示当前状态：旋转图标表示 Agent 正在运行；绿色圆点表示该 Session 处于 Ready 且有尚未查看的新输出；感叹号表示最近一次 Agent run 发生错误。Running 和 Error 期间暂时隐藏绿色圆点，未查看的输出记录继续保留，回到 Ready 后恢复对应的提示。在可见的 Agent 页面查看该 Session 后，浏览器确认当时的更新序号，圆点随之消失。较旧的状态响应会保留已经确认的查看进度。这份查看记录保存在当前浏览器页面的内存中，切换 Workspace 后返回仍然保留，刷新页面后重新加载。Error 图标会保留到下一次运行更新状态。Question 状态显示属于后续计划，当前 Agent runtime 尚未提供显式 question state。
 
 ### 使用 Session group
 
@@ -266,6 +266,8 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
+父子 Session 新建和重新打开时统一启用文件工具（`read`、`bash`、`edit` 和 `write`）。
+
 每条 User message 在 turn 起点显示为全宽色带，其中包含用户头像、`User` 标签、短 Message ID、内部链接和可用的 Rollback。色带使用与 conversation 底色有区分的背景，只有上、下 separator，没有左右边框、圆角或阴影，并延伸到 conversation 内容列的左右边界。Separator 与上下内容之间保留更大的间距。色带内部的左侧和上侧留白略大于右侧和下侧。每个 theme 都使用与自身背景协调的 User 颜色，并与 AI 颜色保持区分；User 与 AI 的头像和名称都使用更大的尺寸。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。角色头像只占用 header 行，后续内容继续使用 conversation 的完整宽度。普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。Reasoning 使用较小字号和与普通 text 一致的行高。
 
 AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。没有已保存状态时，Running 默认展开，其中正在执行和已经完成的 tool items 都默认关闭；用户可以手动展开 tool item。AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。切换 Session 后再返回时，页面恢复用户后来手动调整的 Running、Tool、Reasoning、Compact 和 Message Info 状态。
@@ -276,7 +278,7 @@ Text item 直接显示普通文字、图片和 reasoning。含普通 text 或 im
 
 Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过折叠框查看。
 
-连续且只包含 tool call 的 messages 默认显示最后 3 个调用，点击 `show more tool call` 可显示较早的调用，点击 `show less tool call` 可恢复折叠。一个 message 中的多个调用分别计数。正文、图片或 Reasoning 会中断分组；包含这些内容的 message 按原样显示。Compact 独立展示，它上方与下方的连续调用分别分组。
+连续的工具调用按可见内容分组，默认显示最后 3 个调用，点击 `show more tool call` 可显示较早的调用，点击 `show less tool call` 可恢复折叠。一个 message 中的多个调用分别计数。开启 Hide reasoning 后，隐藏的 thinking block（包括只包含 thinking 的独立 message）前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，包含普通正文或图片的 message 按原样显示。分组保留原始消息及其 permalink，并随 Session UI cache 恢复展开状态；较早调用的 permalink 会在首次访问时展开对应分组。
 
 Compact 的收起高度为普通工具行的 3 倍，并显示压缩耗时、压缩前后的 token 用量，以及 System prompt、Summary 和 Retained 的 token 用量。`≈` 表示 pi SDK 的估算值。展开后可以查看触发原因、生成摘要的 token 用量、source Message ID、内部链接和 compact summary。后续压缩会记录实际耗时；历史字段按已有记录展示。compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
 
@@ -326,7 +328,7 @@ Message link 默认读取指定消息。需要前后文时，可以要求 Agent 
 
 工具返回消息的短 Message ID、source entry ID 和正文，并兼容旧数字 Message link。较长的正文会提供 `nextContentOffset`，Agent 可以使用同一个 Message link 和对应的 `offset` 继续读取。单次结果最多为 48 KiB。正文包含 reasoning 和工具过程，图片以 MIME type 说明表示。工具读取当前服务中已经注册的 Workspace，并保持目标 Session 的运行状态与活动分支。
 
-该工具随新建或重新打开的 Session 启用，Workspace 的 Agent tools 设置继续控制文件工具。
+父子 Session 新建和重新打开时均自带 `read_pi_ark_link`，并统一启用文件工具（`read`、`bash`、`edit` 和 `write`）。
 
 ### 使用 subagent
 
@@ -347,7 +349,7 @@ Agent 委派后，父 Session 的 Subagent tasks 面板显示各任务的进度�
 - 点击 Stop task，停止对应任务；在父 Session 中点击 Stop，停止该 Session 当前等待的子任务。
 - 任务结束或停止后，可以在子 Session 中继续对话。
 
-任务使用独立的会话上下文，并共享 Workspace 文件。并行修改任务应明确各任务负责的文件，父 Session 负责组织共同文件的修改与后续交付。任务面板分别显示子任务用量与汇总，父 Session 的 Session information 保留自身的用量。
+父 Session 自带 `subagent`，子 Session 的后续委派由父 Session 组织。任务使用独立的会话上下文，并共享 Workspace 文件。并行修改任务应明确各任务负责的文件，父 Session 负责组织共同文件的修改与后续交付。任务面板分别显示子任务用量与汇总，父 Session 的 Session information 保留自身的用量。
 
 任务结果与来源链接会保留当时的分支参数 `leafEntryId`。打开后，页面显示 Historical conversation branch，点击 Open current conversation 可以切换到当前对话。父 Session 或子 Session 后续发生 Rollback 时，这些历史链接继续指向原来的消息。
 
@@ -439,7 +441,7 @@ PI_ARK_AGENT_DIR/SYSTEM.md
 PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 ```
 
-在服务器编辑文件后点击 Refresh。Preview 还包含 pi 内置说明、tools、context files、skills 和当前 Workspace path。
+在服务器编辑文件后点击 Refresh。Preview 还包含 pi 内置说明、tools、context files、skills 和当前 Workspace path，其中的文件工具与 Session 一致（`read`、`bash`、`edit` 和 `write`）。
 
 ### Agent behavior → Agent defaults
 
@@ -449,10 +451,6 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 - Automatic retry：按 pi 默认行为重试临时 provider failure。
 
 以上选择和开关会立即保存。
-
-### Agent behavior → Agent tools
-
-可以选择 read、bash、edit 和 write。至少需要保留一个 tool。选择后立即保存，并在新建或重新打开 Session 时生效。
 
 ### Files
 
@@ -542,4 +540,4 @@ Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/a
 
 ### System prompt preview 未更新
 
-确认编辑的是页面显示的 `PI_ARK_AGENT_DIR` 文件路径，然后点击 Refresh。已经打开的 agent runtime 需要重新打开，才能使用新的 Global append 和 tools。
+确认编辑的是页面显示的 `PI_ARK_AGENT_DIR` 文件路径，然后点击 Refresh。已经打开的 agent runtime 需要重新打开，才能使用新的 Global append。

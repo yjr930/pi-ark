@@ -33,7 +33,7 @@ function GroupAssignmentDialog({ workspaceId, session, groups, onClose, onChange
 function SessionState({ status }: { status?: SessionStatusView }) {
   if (status?.state === "running") return <span className="session-state running" role="status" aria-label="Session is running" title="Running"><LoaderCircle size={13} /></span>;
   if (status?.state === "error") return <span className="session-state error" role="status" aria-label="Session has an error" title={status.errorMessage || "Session error"}><CircleAlert size={13} /></span>;
-  if (status?.unread) return <span className="session-state unread" role="status" aria-label="Session has new output" title="New output"><i /></span>;
+  if (status?.state === "ready" && status.unread) return <span className="session-state unread" role="status" aria-label="Session has new output" title="New output"><i /></span>;
   return null;
 }
 

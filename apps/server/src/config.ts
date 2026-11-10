@@ -21,10 +21,8 @@ export interface ArkConfig {
   preferences: GlobalPreferences;
 }
 
-export const AGENT_TOOLS = ["read", "bash", "edit", "write"] as const;
-export type AgentToolName = (typeof AGENT_TOOLS)[number];
 export interface GlobalPreferences {
-  agent: { tools: AgentToolName[]; systemPrompt: { append: string } };
+  agent: { systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
 }
 
@@ -108,9 +106,8 @@ export async function saveWorkspaceDefinitions(workspaces: WorkspaceDefinition[]
 }
 
 function normalizeGlobalPreferences(input?: Partial<GlobalPreferences>): GlobalPreferences {
-  const tools = input?.agent?.tools?.filter((tool) => AGENT_TOOLS.includes(tool));
   const size = input?.files?.maxPreviewSizeMb;
-  return { agent: { tools: tools?.length ? [...new Set(tools)] : [...AGENT_TOOLS], systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } }, files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 } };
+  return { agent: { systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } }, files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 } };
 }
 
 export async function ensureWorkspaceState(workspace: WorkspaceDefinition): Promise<string> {
@@ -123,15 +120,13 @@ export async function loadGlobalPreferences(): Promise<GlobalPreferences> {
   return (await loadConfig()).preferences;
 }
 
-export async function saveGlobalPreferences(input: { agent: { tools: AgentToolName[] }; files: GlobalPreferences["files"] }): Promise<GlobalPreferences> {
-  const tools = input.agent?.tools;
-  if (!Array.isArray(tools) || !tools.length || tools.some((tool) => !AGENT_TOOLS.includes(tool))) throw Object.assign(new Error("Select at least one valid agent tool"), { statusCode: 400 });
+export async function saveGlobalPreferences(input: { files: GlobalPreferences["files"] }): Promise<GlobalPreferences> {
   const size = input.files?.maxPreviewSizeMb;
   if (!Number.isInteger(size) || size < 1 || size > 100) throw Object.assign(new Error("File preview size must be an integer from 1 to 100 MB"), { statusCode: 400 });
   if (typeof input.files?.showHiddenFiles !== "boolean") throw Object.assign(new Error("Invalid hidden file setting"), { statusCode: 400 });
   const next = await updateGlobalConfig((current) => {
     const preferences = normalizeGlobalPreferences(current.preferences);
-    return { ...current, preferences: { agent: { ...preferences.agent, tools: [...new Set(tools)] }, files: { ...input.files } } };
+    return { ...current, preferences: { ...preferences, files: { ...input.files } } };
   });
   return next.preferences;
 }

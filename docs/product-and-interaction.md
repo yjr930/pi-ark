@@ -54,7 +54,7 @@ Registry 为空时，主内容区显示 No open workspace，并提供 Add worksp
 
 Session 标题优先使用用户设置的名称，其次使用首条 user message。每个 Session 使用单行 row，标题在可用宽度内省略；列表不直接显示日期，悬停 Session row 时通过原生 tooltip 显示 `Last Updated: xxxx-xx-xx xx:xx:xx`。置顶 Session 额外显示 Pin 图标。
 
-Session row 的右侧状态区域使用以下优先级：Agent 正在运行时显示 warning color spinner；最近一次 Agent run 以 error 结束时显示 danger color 感叹号；非当前 Agent page 的 Session 完成新输出时显示绿色 unread dot。打开对应 Session 后，当前浏览器清除 unread dot。Error 状态持续到下一次 Agent run 更新状态。状态和已查看记录只保存在当前 Server process 与浏览器页面内存中。
+Session row 的右侧状态区域使用以下优先级：Agent 正在运行时显示 warning color spinner；最近一次 Agent run 以 error 结束时显示 danger color 感叹号；Session 处于 Ready 且有尚未查看的输出时显示绿色 unread dot。Running 和 Error 期间暂时隐藏 unread dot，未查看的输出记录继续保留，回到 Ready 后恢复对应的提示。在可见的 Agent 页面查看对应 Session 后，当前浏览器确认当时的更新序号并清除 unread dot。较旧的状态响应会保留已经确认的查看进度。Error 状态持续到下一次 Agent run 更新状态。状态和已查看记录继续保存在当前 Server process 与浏览器页面内存中。
 
 当前 Web Agent runtime 没有显式 question lifecycle。Question indicator 是计划能力，后续在 runtime 提供 question state 和 answer API 后加入 Sidebar 状态优先级。
 
@@ -107,7 +107,7 @@ Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text 
 
 Tool item 在没有已保存 disclosure 状态时默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。切换 Session 后，页面恢复用户对 Tool、Reasoning、Compact 和 Message Info 的展开状态。已完成 tool item 的 message permalink target 在没有用户保存状态时自动展开对应 tool item。展开后第一行显示 Call/Result 的消息 link 按钮，整段文字与图标区域都可以复制对应的 `pi-ark://` link；tooltip 在页面浮层中显示，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。错误结果显示 Failed 状态和错误颜色。
 
-连续且只包含 tool call 的 assistant messages 默认保留最后 3 个 tool call；较早的调用通过 `show more tool call` 与 `show less tool call` 展开或折叠。一个 message 中的多个调用分别计数。含正文、图片或 Reasoning 的 message 保持原有显示，并中断连续调用的分组。Compact 与 branch summary 独立显示，其前后分别分组。分组的展开状态随 Session UI cache 保留，较早调用的 permalink target 会在首次访问时展开对应分组。
+连续的工具调用按可见内容分组，默认保留最后 3 个 tool call；较早的调用通过 `show more tool call` 与 `show less tool call` 展开或折叠。一个 message 中的多个调用分别计数。Hide reasoning 开启后，分组会跳过隐藏的 thinking block，包括只包含 thinking 的独立 message，因此这些内容前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，含普通正文或图片的 message 保持原有显示。分组保留原始 message 与 permalink，展开状态随 Session UI cache 保留，较早调用的 permalink target 会在首次访问时展开对应分组。
 
 Compact 的收起高度为普通 tool row 的 3 倍。收起时显示 Duration、Before、After、System prompt、Summary、Retained 和 Saved；After 与各组成的 token 用量使用 pi SDK 估算，并以 `≈` 标记。展开后显示 source Message ID、内部链接、压缩触发原因、生成摘要的 input/output token 用量，以及 pi 保存的 Markdown summary。耗时来自 Server 对后续压缩事件的记录。历史字段使用已有记录展示，空字段显示 `—`；System prompt 尚未记录时，After 显示已知部分并附加 `+ system`。compact 前的原始会话继续通过 earlier message 分页展示。
 
@@ -197,7 +197,7 @@ Settings 对所有 Workspace 使用同一份配置。桌面端的左侧按类别
 
 - Interface：Appearance，包含紧凑的主题色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）和 Hide reasoning。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
-- Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Agent tools、Steering、Follow-up、automatic compaction 和 automatic retry。
+- Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
 - Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及 status/logs/restart 等 service commands。
 - Account：Sign out。
@@ -210,7 +210,7 @@ Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本�
 
 ### 配置的生效方式
 
-Global system prompt append 在 pi 加载 Global prompt 资源后追加。Agent tools 可以选择 read、bash、edit 和 write，并至少保留一个文件工具；Pi-Ark 自带的 `read_pi_ark_link` 与 `subagent` 随普通 Session 启用。提示词与工具选择在新建或重新打开 Session 时进入 runtime。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。
+Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。
 
 ## 桌面与移动布局
 

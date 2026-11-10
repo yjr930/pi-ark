@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Star, Unplug, Wrench } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Star, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { applyTheme, themes } from "../theme";
@@ -9,19 +9,12 @@ import { SubscriptionLogin } from "./SubscriptionLogin";
 const categories = [
   { id: "interface", label: "Interface", description: "Appearance and conversation visibility.", icon: Palette },
   { id: "models", label: "Models & providers", description: "Credentials, available models, and defaults for new Sessions.", icon: Cpu },
-  { id: "agent", label: "Agent behavior", description: "Shared instructions, tools, and conversation defaults.", icon: SlidersHorizontal },
+  { id: "agent", label: "Agent behavior", description: "Shared instructions and conversation defaults.", icon: SlidersHorizontal },
   { id: "files", label: "Files", description: "File browsing and preview preferences.", icon: Eye },
   { id: "maintenance", label: "Maintenance", description: "Version, installation, and service management.", icon: PackageOpen },
   { id: "account", label: "Account", description: "Your current browser session.", icon: LogOut },
 ] as const;
 type SettingsCategory = (typeof categories)[number]["id"];
-type AgentTool = GlobalPreferences["agent"]["tools"][number];
-const toolOptions: Array<{ id: AgentTool; name: string; description: string }> = [
-  { id: "read", name: "Read", description: "Read files from the workspace" },
-  { id: "bash", name: "Bash", description: "Run shell commands in the workspace" },
-  { id: "edit", name: "Edit", description: "Apply precise changes to existing files" },
-  { id: "write", name: "Write", description: "Create or replace files" },
-];
 const thinkingOrder: GlobalSettings["thinkingLevel"][] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const queueOptions = [{ value: "one-at-a-time", label: "One at a time", description: "Process each queued message separately" }, { value: "all", label: "All queued", description: "Deliver all queued messages together" }];
 
@@ -66,7 +59,7 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
   const globalSaveRevision = useRef(0);
   const uiSaveRevision = useRef(0);
   const modelSaveRevision = useRef(0);
-  const preferencesSaveRevision = useRef(0);
+  const filesSaveRevision = useRef(0);
   const contentRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef<Partial<Record<SettingsCategory, number>>>({});
 
@@ -314,19 +307,19 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     finally { setSaving(false); }
   }
 
-  function persistPreferences(next: GlobalSettings, success: string): Promise<void> {
-    const revision = ++preferencesSaveRevision.current;
-    setGlobal(next); setSaving(true); setNotice(null);
+  function persistFileSettings(files: GlobalPreferences["files"], success: string): Promise<void> {
+    const revision = ++filesSaveRevision.current;
+    setGlobal((current) => current ? { ...current, files } : current); setSaving(true); setNotice(null);
     const task = preferencesSaveQueue.current.catch(() => undefined).then(async () => {
-      const saved = await api.saveGlobalPreferences({ agent: { tools: next.agent.tools }, files: next.files });
-      if (revision === preferencesSaveRevision.current) { setGlobal((current) => current ? { ...current, agent: { ...current.agent, tools: saved.agent.tools }, files: saved.files } : current); setNotice({ kind: "success", text: success }); }
+      const saved = await api.saveGlobalPreferences({ files });
+      if (revision === filesSaveRevision.current) { setGlobal((current) => current ? { ...current, files: saved.files } : current); setNotice({ kind: "success", text: success }); }
     }).catch(async (reason) => {
-      if (revision === preferencesSaveRevision.current) {
-        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save setting" });
+      if (revision === filesSaveRevision.current) {
+        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save file setting" });
         const restored = await api.globalPreferences().catch(() => null);
-        if (restored) setGlobal((current) => current ? { ...current, agent: { ...current.agent, tools: restored.agent.tools }, files: restored.files } : current);
+        if (restored && revision === filesSaveRevision.current) setGlobal((current) => current ? { ...current, files: restored.files } : current);
       }
-    }).finally(() => { if (revision === preferencesSaveRevision.current) setSaving(false); });
+    }).finally(() => { if (revision === filesSaveRevision.current) setSaving(false); });
     preferencesSaveQueue.current = task;
     return task;
   }
@@ -336,15 +329,8 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     void persistUiSettings({ ...global, theme }, "Theme saved.");
   }
 
-  function toggleTool(tool: AgentTool) {
-    if (!global) return;
-    const tools = global.agent.tools.includes(tool) ? global.agent.tools.filter((item) => item !== tool) : [...global.agent.tools, tool];
-    if (tools.length === 0) { setNotice({ kind: "error", text: "Select at least one agent tool" }); return; }
-    void persistPreferences({ ...global, agent: { ...global.agent, tools } }, "Agent tools saved. Newly opened sessions will use this selection.");
-  }
-
   function updateFileSettings(files: GlobalPreferences["files"], success: string) {
-    if (global) void persistPreferences({ ...global, files }, success);
+    if (global) void persistFileSettings(files, success);
   }
 
   if (loading) return <section className="settings-page"><div className="page-loading"><LoaderCircle size={20} />Loading settings</div></section>;
@@ -413,10 +399,6 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
               <div className="settings-row"><div><strong>Automatic compaction</strong><span>Summarize older context when the model context approaches its limit.</span></div><Toggle checked={global.compactionEnabled} onChange={(checked) => void persistAgentDefaults({ ...global, compactionEnabled: checked }, "Automatic compaction setting saved.")} /></div>
               <div className="settings-row"><div><strong>Automatic retry</strong><span>Retry transient provider failures with pi defaults.</span></div><Toggle checked={global.retryEnabled} onChange={(checked) => void persistAgentDefaults({ ...global, retryEnabled: checked }, "Automatic retry setting saved.")} /></div>
             </div>
-          </section>
-          <section className="settings-section">
-            <div className="settings-section-title"><Wrench size={17} /><div><h3>Agent tools</h3><p>File tools enabled in every workspace. Read Pi-Ark link is always available.</p></div></div>
-            <div className="tool-options">{toolOptions.map((tool) => <button type="button" aria-pressed={global.agent.tools.includes(tool.id)} className={global.agent.tools.includes(tool.id) ? "selected" : ""} onClick={() => toggleTool(tool.id)} key={tool.id}><span className="tool-check">{global.agent.tools.includes(tool.id) && <Check size={13} />}</span><div><strong>{tool.name}</strong><small>{tool.description}</small></div></button>)}</div>
           </section>
           </div>
           <div className="settings-category" hidden={category !== "account"}>

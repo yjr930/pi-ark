@@ -20,6 +20,15 @@ const navigation = () => page.getByRole("navigation", { name: "Settings categori
 const select = (name) => navigation().getByRole("button", { name, exact: true }).click();
 const appPage = (name) => page.locator(".sidebar-navigation").getByRole("button", { name, exact: true }).click();
 const snapshot = () => Object.fromEntries([...requests].filter(([path]) => path.startsWith("/api/settings/")));
+const filesWrites = [];
+await page.route("**/api/settings/preferences", async (route) => {
+  if (route.request().method() === "PUT") {
+    const input = route.request().postDataJSON();
+    assert.deepEqual(Object.keys(input), ["files"]);
+    filesWrites.push(input);
+  }
+  await route.continue();
+});
 
 try {
   await page.goto(url);
@@ -44,16 +53,41 @@ try {
   await page.screenshot({ path: join(screenshots, "settings-paper-desktop.png") });
 
   await select("Agent behavior");
+  assert.equal(await page.getByRole("heading", { name: "Agent tools", exact: true }).count(), 0);
+  assert.equal(await page.locator(".tool-options").count(), 0);
   const append = page.getByLabel("Global append content");
   await append.fill("Keep responses clear and practical. Explain important changes before editing files.");
   const content = await append.inputValue();
   await select("Files");
   await select("Agent behavior");
   assert.equal(await append.inputValue(), content);
+  let releasePrompt;
+  let promptStarted;
+  const promptHeld = new Promise((resolve) => { releasePrompt = resolve; });
+  const promptPending = new Promise((resolve) => { promptStarted = resolve; });
+  const holdPrompt = async (route) => {
+    if (route.request().method() === "PUT") { promptStarted(); await promptHeld; }
+    await route.continue();
+  };
+  await page.route("**/api/settings/system-prompt", holdPrompt);
+  const promptSaved = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/system-prompt");
   await page.getByRole("button", { name: "Save system prompt", exact: true }).click();
-  await page.getByText("Global system prompt saved.", { exact: false }).waitFor();
+  await promptPending;
+  await select("Files");
+  const concurrentHidden = page.locator(".settings-row").filter({ hasText: "Show hidden files" }).getByRole("switch");
+  const concurrentHiddenBefore = await concurrentHidden.getAttribute("aria-checked");
+  const concurrentFilesSaved = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/preferences");
+  await concurrentHidden.click();
+  assert.equal(filesWrites.length, 0);
+  releasePrompt();
+  assert.equal((await promptSaved).ok(), true);
+  assert.equal((await concurrentFilesSaved).ok(), true);
+  await page.unroute("**/api/settings/system-prompt", holdPrompt);
   const saved = await page.evaluate(async () => fetch("./api/settings/preferences").then((response) => response.json()));
-  assert.equal(saved.agent.systemPrompt.append, content);
+  assert.deepEqual(saved.agent, { systemPrompt: { append: content } });
+  assert.equal(saved.files.showHiddenFiles, concurrentHiddenBefore !== "true");
+  await select("Agent behavior");
+  assert.equal(await append.inputValue(), content);
   await page.locator(".settings-content").evaluate((element) => { element.scrollTop = 200; });
   await page.waitForTimeout(80);
   const scrollBefore = await page.locator(".settings-content").evaluate((element) => element.scrollTop);
@@ -89,6 +123,38 @@ try {
   const files = await page.evaluate(async () => fetch("./api/settings/preferences").then((response) => response.json()));
   assert.equal(files.files.showHiddenFiles, hiddenBefore !== "true");
   assert.equal(files.agent.systemPrompt.append, content);
+  let releaseFiles;
+  let filesStarted;
+  let heldFiles = false;
+  const filesHeld = new Promise((resolve) => { releaseFiles = resolve; });
+  const filesPending = new Promise((resolve) => { filesStarted = resolve; });
+  const holdFiles = async (route) => {
+    if (route.request().method() !== "PUT" || heldFiles) return route.fallback();
+    heldFiles = true;
+    const input = route.request().postDataJSON();
+    assert.deepEqual(Object.keys(input), ["files"]);
+    const response = await route.fetch();
+    filesStarted();
+    await filesHeld;
+    await route.fulfill({ response });
+  };
+  await page.route("**/api/settings/preferences", holdFiles);
+  const latestHidden = await hidden.getAttribute("aria-checked");
+  await hidden.click();
+  await filesPending;
+  await hidden.click();
+  const previewSize = page.getByLabel("Maximum preview size");
+  await previewSize.fill("23");
+  await previewSize.press("Tab");
+  releaseFiles();
+  await page.getByText("Preview size saved.", { exact: true }).waitFor();
+  await page.unroute("**/api/settings/preferences", holdFiles);
+  const latestFiles = await page.evaluate(async () => fetch("./api/settings/preferences").then((response) => response.json()));
+  assert.equal(latestFiles.files.showHiddenFiles, latestHidden === "true");
+  assert.equal(latestFiles.files.maxPreviewSizeMb, 23);
+  assert.equal(await hidden.getAttribute("aria-checked"), latestHidden);
+  assert.equal(await previewSize.inputValue(), "23");
+  assert.deepEqual(latestFiles.agent, { systemPrompt: { append: content } });
   await select("Interface");
   for (const theme of ["Ark Dark", "Graphite", "Midnight", "Snow", "Paper"]) {
     const response = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/ui");

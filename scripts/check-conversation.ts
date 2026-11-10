@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildConversationSegments, buildToolCallGroups } from "../apps/web/src/conversation.ts";
-import type { AgentMessage } from "../apps/web/src/types.ts";
+import type { AgentMessage, ContentBlock } from "../apps/web/src/types.ts";
 
 const messages: AgentMessage[] = [
   { role: "user", content: "Inspect", timestamp: 1000 },
@@ -82,4 +82,13 @@ assert.deepEqual(buildToolCallGroups([firstTools, orphanResult, secondTools], ne
 assert.deepEqual(buildToolCallGroups([firstTools, { role: "compactionSummary", summary: "Context" }, secondTools], new Set()).map((group) => group.type), ["tools", "message", "tools"]);
 assert.deepEqual(buildToolCallGroups([firstTools, { role: "user", content: "New turn" }, secondTools], new Set()).map((group) => group.type), ["tools", "message", "tools"]);
 assert.deepEqual(buildToolCallGroups([], new Set()), []);
+const hiddenReasoningOnly: AgentMessage = { role: "assistant", entryId: "hidden-reasoning", content: [{ type: "thinking", thinking: "Review the next operation" }, { type: "text", text: "  " }] };
+const withEmptyReasoning: AgentMessage = { ...pureTools("empty-thinking"), content: [{ type: "thinking", thinking: "  " }, ...pureTools("empty-thinking").content as ContentBlock[]] };
+assert.equal(buildToolCallGroups([firstTools, withEmptyReasoning, secondTools], new Set())[0].type, "tools");
+const hiddenGroups = buildToolCallGroups([withText, firstTools, pairedResult, withReasoning, hiddenReasoningOnly, secondTools], new Set([pairedResult]), true);
+assert.deepEqual(hiddenGroups.map((group) => group.type), ["message", "tools"]);
+assert.equal(hiddenGroups[1].type === "tools" && hiddenGroups[1].calls.length, 7);
+assert.equal(hiddenGroups[1].type === "tools" && hiddenGroups[1].messages.includes(hiddenReasoningOnly), true);
+assert.deepEqual(buildToolCallGroups([firstTools, hiddenReasoningOnly, secondTools], new Set(), false).map((group) => group.type), ["tools", "message", "tools"]);
+for (const boundary of [{ role: "assistant", content: [{ type: "image", data: "image", mimeType: "image/png" }] }, { role: "compactionSummary", summary: "Context" }, { role: "branchSummary", summary: "Branch" }, orphanResult, { role: "user", content: "Next turn" }] as AgentMessage[]) assert.deepEqual(buildToolCallGroups([firstTools, boundary, secondTools], new Set(), true).map((group) => group.type), ["tools", "message", "tools"]);
 console.log("conversation checks passed");

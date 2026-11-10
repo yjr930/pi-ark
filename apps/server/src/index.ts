@@ -7,7 +7,7 @@ import Fastify from "fastify";
 import { AgentService } from "./agents.js";
 import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, type ArkUiSettings, type GlobalPreferences, type AgentToolName } from "./config.js";
+import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, type ArkUiSettings, type GlobalPreferences } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { PiCoreService } from "./pi-core.js";
 import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput, type ModelPreferencesInput } from "./settings.js";
@@ -109,7 +109,7 @@ app.put<{ Body: GlobalAgentDefaultsInput }>("/api/settings/agent-defaults", asyn
 app.get("/api/settings/system-prompt", async () => agents.getGlobalSystemPrompt(workspaces.list()[0] || { id: "global-preview", name: "Global preview", path: process.cwd() }));
 app.put<{ Body: GlobalPreferences["agent"]["systemPrompt"] }>("/api/settings/system-prompt", async (request) => saveGlobalSystemPrompt(request.body));
 app.get("/api/settings/preferences", async () => loadGlobalPreferences());
-app.put<{ Body: { agent: { tools: AgentToolName[] }; files: GlobalPreferences["files"] } }>("/api/settings/preferences", async (request) => saveGlobalPreferences(request.body));
+app.put<{ Body: { files: GlobalPreferences["files"] } }>("/api/settings/preferences", async (request) => saveGlobalPreferences(request.body));
 app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/api/workspaces/:workspaceId/files", async (request) => {
   const workspace = workspaces.get(request.params.workspaceId);
   const preferences = await loadGlobalPreferences();

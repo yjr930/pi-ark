@@ -22,10 +22,10 @@ try {
   const { WorkspaceService } = await import("../apps/server/src/workspaces.ts");
   const defaults = await config.loadGlobalPreferences();
   assert.deepEqual(defaults.files, { showHiddenFiles: true, maxPreviewSizeMb: 10 });
-  const saved = await config.saveGlobalPreferences({ agent: defaults.agent, files: { showHiddenFiles: true, maxPreviewSizeMb: 24 } });
+  const saved = await config.saveGlobalPreferences({ files: { showHiddenFiles: true, maxPreviewSizeMb: 24 } });
   assert.equal(saved.files.maxPreviewSizeMb, 24);
   assert.equal(JSON.parse(await readFile(join(workspace.path, ".pi-ark", "config.json"), "utf8")).version, 4);
-  await assert.rejects(() => config.saveGlobalPreferences({ agent: defaults.agent, files: { showHiddenFiles: true, maxPreviewSizeMb: 0 } }), /1 to 100 MB/);
+  await assert.rejects(() => config.saveGlobalPreferences({ files: { showHiddenFiles: true, maxPreviewSizeMb: 0 } }), /1 to 100 MB/);
 
   const service = new WorkspaceService([workspace]);
   const text = await service.readFilePreview(workspace, "note.md", 1024);

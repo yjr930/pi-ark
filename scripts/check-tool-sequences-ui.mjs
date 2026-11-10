@@ -32,6 +32,14 @@ tools(["after-1", "after-2", "after-3", "after-4", "after-5"]);
 const mixedId = tools(["context-1", "context-2", "context-3", "context-4"], [{ type: "text", text: "The configuration review is complete. These checks have their own explanation." }]);
 for (let index = 1; index <= 4; index += 1) tools([`next-${index}`]);
 const reasoningId = tools(["reasoning-1", "reasoning-2", "reasoning-3", "reasoning-4"], [{ type: "thinking", thinking: "Keep calls with explanatory content outside the consecutive-call groups." }]);
+manager.appendMessage(assistant([{ type: "text", text: "Review consecutive calls with hidden reasoning." }], "stop"));
+let hiddenReasoningStart;
+let reasoningOnlyId;
+for (let index = 1; index <= 7; index += 1) {
+  const entryId = tools([`hidden-reasoning-${index}`], [{ type: "thinking", thinking: `Review operation ${index} before execution.` }]);
+  hiddenReasoningStart ||= entryId;
+  if (index === 3) reasoningOnlyId = manager.appendMessage(assistant([{ type: "thinking", thinking: "Review the next operation independently." }]));
+}
 manager.appendMessage(assistant([{ type: "text", text: "The review is complete. Global preferences and conversation controls are ready for inspection." }], "stop"));
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, ignoreHTTPSErrors: true, permissions: ["clipboard-read", "clipboard-write"] });
@@ -42,6 +50,9 @@ try {
   await page.getByLabel("Username").fill(process.env.PI_ARK_CHECK_USERNAME || "check");
   await page.getByLabel("Password").fill(process.env.PI_ARK_CHECK_PASSWORD || "check-password");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
+  const uiUrl = new URL("api/ui", url.endsWith("/") ? url : `${url}/`).toString();
+  const uiSettings = await (await context.request.get(uiUrl)).json();
+  if (uiSettings.hideReasoning) { assert.equal((await context.request.put(uiUrl, { data: { ...uiSettings, hideReasoning: false } })).ok(), true); await page.reload(); }
   const row = page.locator(".session-list-item").filter({ hasText: "Tool display preview" });
   await row.waitFor();
   await row.locator(".session-open").click();
@@ -85,6 +96,32 @@ try {
   assert.ok(copied.endsWith(await chip.locator(".message-short-id").textContent()));
   const italic = await page.locator(".message-short-id:visible").evaluateAll((elements) => elements.map((element) => getComputedStyle(element).fontStyle));
   assert.ok(italic.length >= 3 && italic.every((style) => style === "italic"));
+  const toggleReasoning = async () => {
+    await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
+    const saved = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
+    await page.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch").click();
+    assert.equal((await saved).ok(), true);
+    await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent", exact: true }).click();
+    await run.waitFor();
+    if (await run.getAttribute("open") === null) await run.locator(":scope > summary").click();
+  };
+  await toggleReasoning();
+  assert.equal(await page.locator(".thinking").count(), 0);
+  const reasoningGroup = page.locator(".feed-tool-sequence").filter({ has: page.locator(`[data-entry-id="${hiddenReasoningStart}"]`) });
+  assert.equal(await reasoningGroup.count(), 1);
+  assert.equal(await reasoningGroup.locator(".feed-tool-item:visible").count(), 3);
+  assert.equal(await reasoningGroup.locator(`[data-entry-id="${reasoningOnlyId}"]`).count(), 1);
+  assert.equal(await page.locator(`[data-entry-id="${mixedId}"] .feed-tool-item:visible`).count(), 4);
+  await reasoningGroup.getByRole("button", { name: "show more tool call", exact: true }).click();
+  assert.equal(await reasoningGroup.locator(".feed-tool-item:visible").count(), 7);
+  await reasoningGroup.getByRole("button", { name: "show less tool call", exact: true }).click();
+  assert.equal(await reasoningGroup.locator(".feed-tool-item:visible").count(), 3);
+  await page.screenshot({ path: join(screenshots, "tools-hidden-reasoning-desktop.png") });
+  await toggleReasoning();
+  assert.equal(await reasoningGroup.count(), 0);
+  assert.equal(await page.locator(`[data-entry-id="${hiddenReasoningStart}"] .thinking`).count(), 1);
+  assert.equal(await page.locator(`[data-entry-id="${reasoningId}"] .feed-tool-item:visible`).count(), 4);
   await page.screenshot({ path: join(screenshots, "tools-desktop.png") });
   await compact.locator(":scope > summary").click();
   await compact.getByText("Compaction details", { exact: true }).waitFor();

@@ -35,6 +35,7 @@ export interface SessionRuntimeStatus {
 }
 
 export interface SessionStatusView extends SessionRuntimeStatus {
+  viewedUpdateRevision: number;
   unread: boolean;
 }
 
@@ -230,6 +231,6 @@ export interface GlobalSettings extends UiSettings, GlobalPreferences {
 }
 
 export interface GlobalPreferences {
-  agent: { tools: Array<"read" | "bash" | "edit" | "write">; systemPrompt: { append: string } };
+  agent: { systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
 }

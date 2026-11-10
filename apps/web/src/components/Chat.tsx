@@ -217,7 +217,8 @@ function FeedMessage({ message, hiddenCalls, idByMessage, resultByCall, targetMe
   });
   if (isUser) return <article id={messageId ? `message-${messageId}` : undefined} data-message-id={messageId} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-user message-user ${target ? "permalink-target" : ""}`}><div className="feed-user-header"><div className="feed-user-identity"><div className="feed-user-avatar"><UserRound size={16} /></div><div className="feed-user-label">User {messageId && <span className="message-short-id">{messageId}</span>}</div></div><div className="feed-user-actions"><MessageLinkButton messageId={messageId} onCopyLink={onCopyLink} />{canRollback && rollbackTargetId && <button type="button" className="icon-tooltip" aria-label="Roll back latest message" data-tooltip="Roll back latest message" onClick={() => onRollback(rollbackTargetId)}><RotateCcw size={13} /></button>}</div></div><div className="feed-message-content">{contentBlocks}</div></article>;
   const content = hasText ? <div className="feed-ai-text-body"><div className="feed-message-content">{contentBlocks}</div>{showAssistantFooter && <FeedTextFooter message={message} messageId={messageId} infoOpen={textInfoOpen} onInfoToggle={() => onDisclosureChange(textInfoKey, !textInfoOpen)} onCopyLink={onCopyLink} onFork={onFork} />}</div> : <div className="feed-message-content">{contentBlocks}</div>;
-  const allCallsHidden = Boolean(hiddenCalls && blocks(message.content).length > 0 && blocks(message.content).every((block) => block.type !== "toolCall" || hiddenCalls.has(block)));
+  const calls = blocks(message.content).filter((block) => block.type === "toolCall");
+  const allCallsHidden = Boolean(hiddenCalls && calls.length > 0 && calls.every((block) => hiddenCalls.has(block)));
   return <article hidden={allCallsHidden} id={messageId ? `message-${messageId}` : undefined} data-message-id={messageId} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-ai-message message-agent ${target ? "permalink-target" : ""}`}>{content}</article>;
 }
 
@@ -257,7 +258,7 @@ function TurnMessages({ messages, active, targetMessageId, hideReasoning, rollba
   let latestUserMessage: AgentMessage | undefined;
   if (rollbackEntryId) for (let index = messages.length - 1; index >= 0; index -= 1) { const candidate = messages[index]; if (candidate.role === "user") { latestUserMessage = candidate; break; } }
   const renderMessage = (message: AgentMessage, key: string, hiddenCalls?: ReadonlySet<ContentBlock>) => pairedToolResults.has(message) ? null : <FeedMessage message={message} hiddenCalls={hiddenCalls} idByMessage={idByMessage} resultByCall={resultByCall} targetMessageId={targetMessageId} hideReasoning={hideReasoning} canRollback={message === latestUserMessage} rollbackTargetId={rollbackEntryId} disclosures={disclosures} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={onRollback} key={key} />;
-  const renderToolGroups = (items: AgentMessage[]) => buildToolCallGroups(items, pairedToolResults).map((group, groupIndex) => {
+  const renderToolGroups = (items: AgentMessage[]) => buildToolCallGroups(items, pairedToolResults, hideReasoning).map((group, groupIndex) => {
     if (group.type === "message") return renderMessage(group.message, `message-${groupIndex}`);
     const first = group.messages[0];
     const stateKey = `tool-sequence:${first.entryId || first.messageId || groupIndex}:${group.calls[0].id || 0}`;

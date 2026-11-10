@@ -17,7 +17,7 @@ try {
   await Promise.all([mkdir(arkHome, { recursive: true }), mkdir(legacyAgentDir, { recursive: true }), mkdir(join(workspace.path, ".pi"), { recursive: true }), mkdir(otherWorkspace.path)]);
   await writeFile(join(legacyAgentDir, "auth.json"), JSON.stringify({ provider: "development-copy" }));
   await writeFile(join(legacyAgentDir, "settings.json"), JSON.stringify({ defaultProvider: "check", steeringMode: "one-at-a-time" }));
-  await writeFile(join(arkHome, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace, otherWorkspace], ui: { theme: "ark-dark" } }));
+  await writeFile(join(arkHome, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace, otherWorkspace], ui: { theme: "ark-dark" }, preferences: { agent: { tools: ["read"], systemPrompt: { append: "" } } } }));
   await writeFile(join(workspace.path, ".pi", "settings.json"), JSON.stringify({ steeringMode: "all" }));
   await writeFile(join(workspace.path, ".pi", "SYSTEM.md"), "Project replacement");
   await writeFile(join(workspace.path, ".pi", "APPEND_SYSTEM.md"), "Project append");
@@ -38,23 +38,42 @@ try {
   await config.ensureWorkspaceState(otherWorkspace);
   assert.deepEqual(await readdir(join(otherWorkspace.path, ".pi-ark")), ["sessions"]);
   const defaults = await config.loadGlobalPreferences();
-  assert.deepEqual(defaults.agent.systemPrompt, { append: "" });
+  assert.deepEqual(defaults.agent, { systemPrompt: { append: "" } });
   assert.deepEqual(defaults.files, { showHiddenFiles: true, maxPreviewSizeMb: 10 });
   await Promise.all([
     config.saveGlobalArkSettings({ theme: "graphite", hideReasoning: true }),
     config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }, otherWorkspace]),
     config.saveGlobalSystemPrompt({ append: "Shared instructions" }),
-    config.saveGlobalPreferences({ agent: { tools: ["read"] }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } }),
+    config.saveGlobalPreferences({ files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } }),
   ]);
   const saved = await config.loadConfig();
   assert.deepEqual(saved.ui, { theme: "graphite", hideReasoning: true });
   assert.equal(saved.workspaces[0].name, "Queued workspace");
-  assert.deepEqual(saved.preferences, { agent: { tools: ["read"], systemPrompt: { append: "Shared instructions" } }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } });
+  assert.deepEqual(saved.preferences, { agent: { systemPrompt: { append: "Shared instructions" } }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } });
+  assert.deepEqual(JSON.parse(await readFile(config.configPath, "utf8")).preferences, saved.preferences);
+  await Promise.all([
+    config.saveGlobalPreferences({ files: { showHiddenFiles: true, maxPreviewSizeMb: 24 } }),
+    config.saveGlobalSystemPrompt({ append: "Latest shared instructions" }),
+  ]);
+  assert.deepEqual(await config.loadGlobalPreferences(), { agent: { systemPrompt: { append: "Latest shared instructions" } }, files: { showHiddenFiles: true, maxPreviewSizeMb: 24 } });
+  await config.saveGlobalSystemPrompt({ append: "Shared instructions" });
+  const legacyInput = { agent: { tools: [], systemPrompt: { append: "Stale client append" } }, files: { showHiddenFiles: false, maxPreviewSizeMb: 30 } };
+  assert.deepEqual(await config.saveGlobalPreferences(legacyInput), { agent: { systemPrompt: { append: "Shared instructions" } }, files: legacyInput.files });
   await assert.rejects(config.saveGlobalSystemPrompt({ append: "x".repeat(100001) }), /100000 characters/);
-  await assert.rejects(config.saveGlobalPreferences({ agent: { tools: [] }, files: defaults.files }), /agent tool/);
+  const service = new AgentService({} as never, new WorkspaceService([workspace, otherWorkspace]));
+  for (const tools of [["read"], [], ["obsolete-tool"]]) {
+    const current = JSON.parse(await readFile(config.configPath, "utf8"));
+    current.preferences.agent.tools = tools;
+    await writeFile(config.configPath, JSON.stringify(current));
+    assert.deepEqual((await config.loadGlobalPreferences()).agent, { systemPrompt: { append: "Shared instructions" } });
+    for (const target of [workspace, otherWorkspace]) {
+      const preview = await service.getGlobalSystemPrompt(target);
+      for (const tool of ["read", "bash", "edit", "write", "read_pi_ark_link", "subagent"]) assert.match(preview.content, new RegExp(`\\b${tool}\\b`));
+      assert.match(preview.content, /Shared instructions/);
+    }
+  }
   await writeFile(join(agentDir, "SYSTEM.md"), "Global replacement");
   await writeFile(join(agentDir, "APPEND_SYSTEM.md"), "Global append");
-  const service = new AgentService({} as never, new WorkspaceService([workspace, otherWorkspace]));
   const internal = service as unknown as { createResourceLoader(workspace: typeof workspace, append: string): Promise<{ getSystemPrompt(): string | undefined; getAppendSystemPrompt(): string[] }> };
   for (const target of [workspace, otherWorkspace]) {
     const loader = await internal.createResourceLoader(target, saved.preferences.agent.systemPrompt.append);

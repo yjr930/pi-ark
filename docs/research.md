@@ -10,7 +10,7 @@ Pi-Ark 不解析 pi CLI 文本，也不为每条 message 启动独立 pi process
 
 Pi-Ark 使用以下公开 API：
 
-- `createAgentSession(...)`：按 Workspace cwd、SessionManager、tools 和 ResourceLoader 创建 runtime，并通过 `customTools` 注册 Pi-Ark 自带的 `read_pi_ark_link`。
+- `createAgentSession(...)`：按 Workspace cwd、SessionManager、tools 和 ResourceLoader 创建 runtime，统一启用文件工具（`read`、`bash`、`edit` 和 `write`），并通过 `customTools` 为父子 Session 注册 `read_pi_ark_link`，为父 Session 注册 `subagent`。
 - `SessionManager.create(cwd, sessionDir)`：在 Workspace state directory 中创建持久化 Session。
 - `SessionManager.list(cwd, sessionDir)`：列出 Workspace Session。
 - `SessionManager.open(path, sessionDir)`：恢复 JSONL Session。
@@ -57,7 +57,7 @@ Pi-Ark 使用 `DefaultResourceLoader` 组合以下内容：
 - Skills 和其他 pi resources。
 - Global preferences 中的 system prompt append。
 
-Global preview 与实际 runtime 共用 ResourceLoader 创建流程，通过临时 AgentSession 的 `systemPrompt` 读取 complete effective prompt。Loader 显式选择 Global `SYSTEM.md` 与 `APPEND_SYSTEM.md`，并使用 `appendSystemPromptOverride` 在 Global append resources 后面追加共享内容。Workspace 的 AGENTS.md 保持为项目上下文。
+Global preview 与实际 runtime 共用 ResourceLoader 创建流程，并使用统一启用的文件工具（`read`、`bash`、`edit` 和 `write`），通过临时 AgentSession 的 `systemPrompt` 读取 complete effective prompt。Loader 显式选择 Global `SYSTEM.md` 与 `APPEND_SYSTEM.md`，并使用 `appendSystemPromptOverride` 在 Global append resources 后面追加共享内容。Workspace 的 AGENTS.md 保持为项目上下文。
 
 ## Compact 的统计信息
 
@@ -75,7 +75,7 @@ Web 和工具共用内部链接解析、完整活动分支的 display projection
 
 ## Subagent 的 SDK 集成
 
-Pi-Ark 通过 `defineTool()` 注册 `subagent`，并复用进程内的 `createAgentSession()` 为委派任务创建持久化的子 Session。任务使用独立的 SessionManager 与消息上下文，模型、thinking level、工具列表与 Global system prompt append 取自父 Session 的当次配置。进行中的创建与恢复共享同一个 Promise，WebSocket 打开子 Session 时复用已有 runtime。
+Pi-Ark 通过 `defineTool()` 注册 `subagent`，并复用进程内的 `createAgentSession()` 为委派任务创建持久化的子 Session。任务使用独立的 SessionManager 与消息上下文，模型、thinking level 和 Global system prompt append 取自父 Session 的当次配置。父子 Session 在新建和恢复时统一启用文件工具（`read`、`bash`、`edit` 和 `write`）以及 `read_pi_ark_link`；父 Session 还启用 `subagent`。委派快照保留当次配置的 `tools` 字段作为记录，恢复时使用统一启用的文件工具列表。进行中的创建与恢复共享同一个 Promise，WebSocket 打开子 Session 时复用已有 runtime。
 
 工具等待各任务的 `AgentSession.prompt()` 结束，通过工具的 `onUpdate` 回调发送进度，并在返回正文中提供结果摘录与来源链接。Server 同时发送独立的 `subagent-state` 消息，snapshot 保留完整的委派关系与状态，便于浏览器重连。AbortSignal 与 `AgentSession.abort()` 配合完成停止操作。
 

@@ -162,16 +162,18 @@ try {
 
   const { AgentService } = await import("../apps/server/src/agents.ts");
   const { SettingsService } = await import("../apps/server/src/settings.ts");
-  const { saveGlobalPreferences } = await import("../apps/server/src/config.ts");
   await mkdir(process.env.PI_ARK_HOME!, { recursive: true });
-  await writeFile(join(process.env.PI_ARK_HOME!, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace, otherWorkspace] }));
-  await saveGlobalPreferences({ agent: { tools: ["read"] }, files: { showHiddenFiles: true, maxPreviewSizeMb: 10 } });
+  await writeFile(join(process.env.PI_ARK_HOME!, "config.json"), JSON.stringify({ tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace, otherWorkspace], preferences: { agent: { tools: ["read"], systemPrompt: { append: "Legacy configuration append" } }, files: { showHiddenFiles: true, maxPreviewSizeMb: 10 } } }));
   const agents = new AgentService(await SettingsService.create(workspace.path), registry);
   try {
     const opened = await agents.create(workspace);
     const internals = agents as unknown as { handles: Map<string, { session: import("@earendil-works/pi-coding-agent").AgentSession }>; onEvent(handle: unknown, event: unknown): void };
     const handle = internals.handles.get(`${workspace.id}:${opened.id}`)!;
-    assert.deepEqual(handle.session.getActiveToolNames().sort(), ["read", READ_PI_ARK_LINK, "subagent"].sort());
+    const expectedTools = ["read", "bash", "edit", "write", READ_PI_ARK_LINK, "subagent"].sort();
+    assert.deepEqual(handle.session.getActiveToolNames().sort(), expectedTools);
+    assert.match(handle.session.systemPrompt, /Legacy configuration append/);
+    const other = await agents.create(otherWorkspace);
+    assert.deepEqual(internals.handles.get(`${otherWorkspace.id}:${other.id}`)!.session.getActiveToolNames().sort(), expectedTools);
     assert.match(handle.session.systemPrompt, /read_pi_ark_link/);
     assert.match(handle.session.systemPrompt, /Use read_pi_ark_link to read pi-ark:\/\/workspace/);
     const registered = handle.session.agent.state.tools.find((item) => item.name === READ_PI_ARK_LINK)!;
@@ -191,10 +193,29 @@ try {
     const socket = { readyState: 1, OPEN: 1, send: (_payload: string) => undefined };
     const disconnect = await agents.connect(workspace, manager.getSessionId(), socket as never);
     const restored = internals.handles.get(`${workspace.id}:${manager.getSessionId()}`)!;
-    assert.ok(restored.session.getActiveToolNames().includes(READ_PI_ARK_LINK));
+    assert.deepEqual(restored.session.getActiveToolNames().sort(), expectedTools);
+    assert.match(restored.session.systemPrompt, /Legacy configuration append/);
     disconnect();
     assert.match((await agents.getGlobalSystemPrompt(workspace)).content, /read_pi_ark_link/);
     internals.onEvent(handle, { type: "agent_settled", aborted: true });
+    const legacyManager = SessionManager.create(workspace.path, sessionDirectory);
+    legacyManager.appendMessage({ role: "user", content: "Historical child task", timestamp: 800 });
+    legacyManager.appendMessage(assistant([{ type: "text", text: "Historical child result" }]));
+    const legacyAgents = new AgentService(await SettingsService.create(workspace.path), registry);
+    try {
+      await legacyAgents.subagents.store.load(workspace);
+      const legacySnapshot = { model: { provider: "openai-codex", id: "gpt-5.6-sol" }, thinkingLevel: "off", tools: ["read"], systemPromptAppend: "Historical task append" };
+      const legacyRun: import("../apps/server/src/subagent-types.ts").SubagentRun = { version: 1, id: crypto.randomUUID(), parentSessionId: opened.id, parentLink: internalSessionLink(workspace.id, opened.id), toolCallId: "historical-tools", createdAt: new Date().toISOString(), revision: 0, ...legacySnapshot, systemPromptAppend: "Historical run append", tasks: [{ sessionId: legacyManager.getSessionId(), sessionLink: internalSessionLink(workspace.id, legacyManager.getSessionId()), title: "Historical task", task: "Preserve the historical configuration", expectedResult: "The historical configuration remains available", state: "completed", references: [] }] };
+      await legacyAgents.subagents.store.save(workspace, legacyRun);
+      const closeLegacy = await legacyAgents.connect(workspace, legacyManager.getSessionId(), socket as never);
+      const legacyHandle = (legacyAgents as unknown as typeof internals).handles.get(`${workspace.id}:${legacyManager.getSessionId()}`)!;
+      assert.deepEqual(legacyHandle.session.getActiveToolNames().sort(), ["read", "bash", "edit", "write", READ_PI_ARK_LINK].sort());
+      assert.match(legacyHandle.session.systemPrompt, /Historical run append/);
+      closeLegacy();
+      const recorded = JSON.parse(await readFile(join(workspace.path, ".pi-ark", "subagent-runs", `${legacyRun.id}.json`), "utf8"));
+      assert.deepEqual(recorded, legacyRun);
+      assert.deepEqual(recorded.tools, ["read"]);
+    } finally { await legacyAgents.dispose(); }
   } finally { await agents.dispose(); }
   const referenceSource = process.env.PI_ARK_CHECK_LINK_SESSION;
   if (referenceSource) {

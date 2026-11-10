@@ -19,14 +19,16 @@ function hasAssistantOutput(message: AgentMessage): boolean {
 
 export type ToolCallGroup = { type: "message"; message: AgentMessage } | { type: "tools"; messages: AgentMessage[]; calls: ContentBlock[] };
 
-export function buildToolCallGroups(messages: AgentMessage[], pairedResults: ReadonlySet<AgentMessage>): ToolCallGroup[] {
+export function buildToolCallGroups(messages: AgentMessage[], pairedResults: ReadonlySet<AgentMessage>, hideReasoning = false): ToolCallGroup[] {
   const groups: ToolCallGroup[] = [];
   let current: Extract<ToolCallGroup, { type: "tools" }> | undefined;
   for (const message of messages) {
     if (pairedResults.has(message)) continue;
     const content = blocks(message.content);
+    const hiddenReasoningOnly = hideReasoning && message.role === "assistant" && content.some((block) => block.type === "thinking") && content.every((block) => block.type === "thinking" || block.type === "text" && !block.text?.trim());
+    if (hiddenReasoningOnly) { if (current) current.messages.push(message); else groups.push({ type: "message", message }); continue; }
     const calls = content.filter((block) => block.type === "toolCall");
-    const toolOnly = message.role === "assistant" && calls.length > 0 && content.every((block) => block.type === "toolCall" || block.type === "text" && !block.text?.trim() || block.type === "thinking" && !block.thinking?.trim());
+    const toolOnly = message.role === "assistant" && calls.length > 0 && content.every((block) => block.type === "toolCall" || block.type === "text" && !block.text?.trim() || block.type === "thinking" && (hideReasoning || !block.thinking?.trim()));
     if (!toolOnly) { current = undefined; groups.push({ type: "message", message }); continue; }
     if (!current) { current = { type: "tools", messages: [], calls: [] }; groups.push(current); }
     current.messages.push(message);

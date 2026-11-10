@@ -29,7 +29,7 @@ const registry = new WorkspaceService([workspace]);
 const agents = new AgentService(settings as never, registry);
 const internal = agents as unknown as { handles: Map<string, { session: AgentSession }>; getOrOpen(workspace: typeof workspace, sessionId: string): Promise<{ session: AgentSession }> };
 const session = (id: string) => internal.handles.get(`${workspace.id}:${id}`)!.session;
-const configuration: SubagentConfiguration = { model, thinkingLevel: "off", tools: ["read", "read_pi_ark_link"], systemPromptAppend: "Shared subagent fixture instructions" };
+const configuration: SubagentConfiguration = { model, thinkingLevel: "off", tools: ["read", "bash", "edit", "write", "read_pi_ark_link"], systemPromptAppend: "Shared subagent fixture instructions" };
 const gates = new Map<string, () => void>();
 const seenImages = new Map<string, number>();
 const seenReferences = new Set<string>();
@@ -111,6 +111,7 @@ try {
   assert.deepEqual(session(child.sessionId).model, model);
   assert.equal(session(child.sessionId).thinkingLevel, configuration.thinkingLevel);
   assert.deepEqual(session(child.sessionId).getActiveToolNames().sort(), configuration.tools.slice().sort());
+  assert.deepEqual(parentSession.getActiveToolNames().sort(), [...configuration.tools, "subagent"].sort());
   assert.match(session(child.sessionId).systemPrompt, /Shared subagent fixture instructions/);
   assert.match(session(child.sessionId).systemPrompt, /First check that the delegated task is complete/);
   assert.equal(session(child.sessionId).getActiveToolNames().includes("subagent"), false);
@@ -202,6 +203,7 @@ try {
     const [firstHandle, secondHandle] = await Promise.all([firstOpen, secondOpen]);
     assert.equal(firstHandle.session, secondHandle.session); assert.equal(restoredInternal.handles.size, 1);
     assert.equal(restoredAgents.subagents.store.state(workspace, completed.tasks[1].sessionId).origin?.parentSessionId, parent.id);
+    assert.deepEqual(firstHandle.session.getActiveToolNames().sort(), configuration.tools.slice().sort());
   } finally { await restoredAgents.dispose(); }
 
   const recoveredStore = new SubagentStore();

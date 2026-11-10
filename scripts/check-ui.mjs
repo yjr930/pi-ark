@@ -177,10 +177,18 @@ try {
   mockedSessionStatuses = [{ id: sessionFixture.getSessionId(), state: "ready", statusRevision: 2, updateRevision: 1 }];
   await fixtureSessionRow.getByRole("status", { name: "Session has new output" }).waitFor({ timeout: 3000 });
   assert.notEqual(await fixtureSessionRow.locator(".session-state.unread i").evaluate((element) => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)");
+  mockedSessionStatuses = [{ id: sessionFixture.getSessionId(), state: "running", statusRevision: 3, updateRevision: 1 }];
+  await fixtureSessionRow.getByRole("status", { name: "Session is running" }).waitFor({ timeout: 3000 });
+  assert.equal(await fixtureSessionRow.locator(".session-state.unread").count(), 0);
+  mockedSessionStatuses = [{ id: sessionFixture.getSessionId(), state: "error", statusRevision: 4, updateRevision: 2, errorMessage: "Unviewed fixture error" }];
+  await fixtureSessionRow.getByRole("status", { name: "Session has an error" }).waitFor({ timeout: 3000 });
+  assert.equal(await fixtureSessionRow.locator(".session-state.unread").count(), 0);
+  mockedSessionStatuses = [{ id: sessionFixture.getSessionId(), state: "ready", statusRevision: 5, updateRevision: 2 }];
+  await fixtureSessionRow.getByRole("status", { name: "Session has new output" }).waitFor({ timeout: 3000 });
   await fixtureSessionRow.locator(".session-open").click();
   await page.locator(".composer").waitFor();
   await fixtureSessionRow.getByRole("status", { name: "Session has new output" }).waitFor({ state: "detached" });
-  mockedSessionStatuses = [{ id: compactedSessionFixture.getSessionId(), state: "error", statusRevision: 1, updateRevision: 1, errorMessage: "Fixture agent error" }, { id: sessionFixture.getSessionId(), state: "ready", statusRevision: 2, updateRevision: 1 }];
+  mockedSessionStatuses = [{ id: compactedSessionFixture.getSessionId(), state: "error", statusRevision: 1, updateRevision: 1, errorMessage: "Fixture agent error" }, { id: sessionFixture.getSessionId(), state: "ready", statusRevision: 5, updateRevision: 2 }];
   await compactedSessionRow.getByRole("status", { name: "Session has an error" }).waitFor({ timeout: 3000 });
   assert.equal(await compactedSessionRow.locator(".session-state.error").getAttribute("title"), "Fixture agent error");
 
@@ -725,7 +733,7 @@ try {
   await page.evaluate(async (workspaceId) => {
     const settingsUrl = new URL("api/settings/preferences", document.baseURI);
     const current = await fetch(settingsUrl).then((response) => response.json());
-    const response = await fetch(settingsUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent: current.agent, files: { ...current.files, maxPreviewSizeMb: 1 } }) });
+    const response = await fetch(settingsUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: { ...current.files, maxPreviewSizeMb: 1 } }) });
     if (!response.ok) throw new Error(`Cannot configure browser file fixture: ${response.status}`);
   }, linkedWorkspace);
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Files" }).click();
