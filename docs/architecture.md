@@ -185,11 +185,11 @@ WebSocket prompt 可以包含文字和 base64 attachments。Attachment service �
 
 Prompt 文字追加保存后的文件名和绝对路径。支持的图片同时作为 pi image content 发送；普通附件通过路径供 Agent tools 使用。
 
-Session idle 时调用 `session.prompt()`。Session streaming 时，Pi-Ark 将新 message 记录为 Follow-up queue item，并调用 `session.followUp()`。Web 在两种状态下都显示 Send 与 Stop；idle 状态的 Stop 为 disabled，streaming 状态的 Send 使用 Follow-up 语义。
+Session idle 时调用 `session.prompt()`。Session streaming 时，Pi-Ark 将新 message 记录为 Follow-up queue item，并调用 `session.followUp()`。Web 在两种状态下都显示 Send 与 Stop；idle 状态的 Stop 为 disabled，streaming 状态的 Send 使用 Follow-up 语义。Web 在发送 active prompt 前创建本地 Scheduling row；该 row 使用 match text 和预期 occurrence count 与后续 Server queue snapshot 对账，避免相同 Follow-up text 导致提前移除。
 
 ### Queue
 
-Runtime 启动时，Pi-Ark 从 pi 的 steering/follow-up queues 建立带随机 ID 的 UI metadata。Queue update event 会按 mode 和 text 复用已有 ID。
+Runtime 启动时，Pi-Ark 从 pi 的 steering/follow-up queues 建立带随机 ID 的 UI metadata。Queue update event 会按 mode 和 text 复用已有 ID。Web 的 Scheduling row 不写入 Server queue metadata；对应权威 item 出现在 snapshot 后，Web 移除本地 row。WebSocket send、Server error 或连接失败会将对应本地 row 标记为 Failed。
 
 重新排序、切换 mode、取回编辑或合并 Follow-up 时，AgentService 先修改 Pi-Ark queue metadata，然后执行以下步骤：
 
@@ -207,7 +207,7 @@ Fork 使用单独打开的 SessionManager，并调用 `createBranchedSession(ent
 
 ### Rollback 与 Restore
 
-可回退状态要求 Session idle、queue 为空，并且活动 leaf 不是已有 rollback marker。AgentService 在当前 branch 中查找最后一条 user entry，以及该 entry 后最后一个完成的 assistant output。
+可回退状态要求 Session idle、queue 为空，并且活动 leaf 不是已有 rollback marker。AgentService 在当前 branch 中查找最后一条 user entry，并优先使用该 entry 后最后一个完成的 assistant output 作为 rollback target；如果 response settled 后仍缺少最终 assistant output，则使用该 turn 最后的 assistant/tool message 作为 fallback target。
 
 Rollback 将 SessionManager 移动到 user entry 的 parent，并追加 `pi-ark.rollback` custom entry。Marker 保存以下数据：
 
@@ -232,15 +232,15 @@ Web 默认显示最近约 100 条 messages。分页起点向前对齐到 user、
 `buildConversationSegments()` 只以 user message 划分 turn；compaction summary、branch summary、assistant message 与 tool result 都保留在当前 AI response 中。每轮 response 的第一个 segment 带 `aiStart` 标记，Web 只在该位置显示一次 AI 头像和 `AI` 标签。分页内容从 response 中间开始时，当前页面中的 response 前缀共同使用一次 `aiStart`。User source message 保留独立的用户头像、`User` 标签、message number 与操作按钮。角色 header 与后续 feed 内容使用独立布局，因此头像不会缩进后续内容。每条含 text 内容的 assistant source message 在末尾渲染操作行：完成态显示 Copy Markdown、Fork session 和 Info，流式状态显示 Info；Info 控制 source information 与 metrics 的显示。
 
 - 没有 tool activity 的 turn 按 source message 和 content block 顺序展示为连续 feed。
-- Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output；`RunCollapse` 在 active 状态开始时默认展开。
+- Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output；`RunCollapse` 在 active 状态开始时默认展开，但其中的 tool details 保持默认关闭。
 - 已完成 tool turn 将最后一条非工具 assistant output 之前的过程放入 run collapse；`RunCollapse` 观察 active→completed 转换并自动折叠。
 - Idle 且缺少最后一条非工具 assistant output 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Compact 与 branch summary 也使用 tool feed item。展开 tool item 后先显示 call/result source message number 与 `pi-ark://` link copy 按钮，再显示 arguments、result 或 summary。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Compact 与 branch summary 也使用 tool feed item。展开 tool item 后先显示 call/result source message number 与 `pi-ark://` link copy 按钮，再显示 arguments、result 或 summary。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
 
 每条 source message 继续保留全局 message number、entry ID 和 permalink anchor。配对的 tool result 不重复渲染，但 tool item 内保留 result anchor。浏览器 permalink 打开外层 run 并高亮对应 source message 或 tool item；`pi-ark://` 是 feed 中提供的 message link copy 格式。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
 
-Chat header 左侧按 title、rename action、runtime status 排列，右侧按 context usage、Session information 排列。Session information panel 保存 Session URL copy 与 conversation width controls。Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Web 根据 user feed item top 与 scroll container top 的关系选择 sticky User bar，因此向上和向下滚动都会在 user item 越过顶部时切换。User bar 使用真实高度与等量负 margin 保持布局位置，并使用覆盖整条 bar 的 button 与不透明背景遮住下方内容；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
+Chat header 左侧按 title、rename action、runtime status 排列，右侧按 context usage、Session information 排列。Session information panel 保存 Session URL copy 与 conversation width controls。Web 将已知 lifecycle 和操作状态视为普通状态，其余错误文本使用 error status；error status 显示红灯、红色系背景与边框。Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Web 根据 user feed item top 与 scroll container top 的关系选择 sticky User bar，因此向上和向下滚动都会在 user item 越过顶部时切换。User bar 使用真实高度与等量负 margin 保持布局位置，并使用覆盖整条 bar 的 button 与不透明背景遮住下方内容；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
 
 ## Settings 与 pi resources
 

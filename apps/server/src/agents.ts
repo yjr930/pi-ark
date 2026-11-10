@@ -34,6 +34,17 @@ function isCompletedAssistantOutput(message: { role: string; content?: unknown; 
   return Array.isArray(message.content) && message.content.some((block) => block && typeof block === "object" && "type" in block && block.type === "text" && "text" in block && typeof block.text === "string" && Boolean(block.text.trim()));
 }
 
+function rollbackTargetEntryId(branch: ReturnType<SessionManager["getBranch"]>, latestUserIndex: number): string | undefined {
+  let latestMessageId: string | undefined;
+  for (let index = branch.length - 1; index > latestUserIndex; index -= 1) {
+    const entry = branch[index];
+    if (entry.type !== "message") continue;
+    latestMessageId ||= entry.id;
+    if (isCompletedAssistantOutput(entry.message)) return entry.id;
+  }
+  return latestMessageId;
+}
+
 function userMessageText(message: unknown): string {
   const content = typeof message === "object" && message !== null && "content" in message ? message.content : undefined;
   const text = typeof content === "string" ? content : Array.isArray(content) ? content.flatMap((block) => block && typeof block === "object" && "type" in block && block.type === "text" && "text" in block && typeof block.text === "string" ? [block.text] : []).join("\n\n") : "";
@@ -130,8 +141,7 @@ export class AgentService {
     const branch = manager.getBranch();
     let latestUserIndex = -1;
     for (let index = branch.length - 1; index >= 0; index -= 1) { const entry = branch[index]; if (entry.type === "message" && entry.message.role === "user") { latestUserIndex = index; break; } }
-    let latestAssistantId: string | undefined;
-    for (let index = branch.length - 1; index > latestUserIndex; index -= 1) { const entry = branch[index]; if (entry.type === "message" && isCompletedAssistantOutput(entry.message)) { latestAssistantId = entry.id; break; } }
+    const latestAssistantId = rollbackTargetEntryId(branch, latestUserIndex);
     if (!latestAssistantId || (requestedEntryId && latestAssistantId !== requestedEntryId)) throw Object.assign(new Error("Only the latest conversation message can be rolled back"), { statusCode: 409 });
     const latestUserEntry = branch[latestUserIndex];
     if (latestUserEntry.type !== "message") throw Object.assign(new Error("Latest user message is unavailable"), { statusCode: 409 });
@@ -365,8 +375,7 @@ export class AgentService {
     let latestUserIndex = -1;
     for (let index = branch.length - 1; index >= 0; index -= 1) { const entry = branch[index]; if (entry.type === "message" && entry.message.role === "user") { latestUserIndex = index; break; } }
     if (latestUserIndex < 0) return undefined;
-    for (let index = branch.length - 1; index > latestUserIndex; index -= 1) { const entry = branch[index]; if (entry.type === "message" && isCompletedAssistantOutput(entry.message)) return entry.id; }
-    return undefined;
+    return rollbackTargetEntryId(branch, latestUserIndex);
   }
 
   private snapshotMessages(handle: AgentHandle) {

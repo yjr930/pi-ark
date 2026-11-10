@@ -258,9 +258,9 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 每条 User message 在 turn 起点显示用户头像、`User` 标签、message number、内部链接和可用的 Rollback。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。角色头像只占用 header 行，后续内容继续使用 conversation 的完整宽度。普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。Reasoning 使用较小字号和与普通 text 一致的行高。
 
-AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。Running 默认展开；AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
+AI 运行期间，commentary、tool call 和 tool result 显示在带 Running 状态的 run collapse 中。Running 默认展开，其中的 tool items 仍然默认关闭；AI 完成后，该 run collapse 自动折叠，summary 显示用时和工具消息数量，最后一条非工具内容保持展开。展开 run 后，用时 summary 会以不透明背景固定显示在顶部 User bar 下方。
 
-每个 tool call 与 result 合并为一行工具项。工具 logo 位于折叠框内，后面显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。连续工具项使用紧凑间距。展开内容与折叠框左边界对齐；第一行显示 Call 与 Result 的全局 message number，并提供对应的 `pi-ark://` link copy 按钮，下面显示 Arguments 和 Result，空 arguments 显示 `{}`。
+每个 tool call 与 result 合并为一行工具项。工具 logo 位于折叠框内，后面显示工具名称、command/path/arguments 摘要和 Running、Completed、Failed 或 Result 状态。连续工具项使用紧凑间距。展开内容与折叠框左边界对齐；第一行显示 Call 与 Result 的全局 message number，并提供对应的 `pi-ark://` link copy 按钮。Arguments 按字段显示，每个 key 使用 heading 样式，下一行显示 value，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`；Result 显示文字或图片结果。
 
 Text item 直接显示普通文字、图片和 reasoning。已完成的 assistant text 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；流式 assistant text 显示 Info。点击 Info 后，信息栏显示 model、context、input/output token、source message number 与 `pi-ark://` link；流式输出期间的信息栏只显示当前可用的信息。User header 提供内部链接与 Rollback。
 
@@ -270,7 +270,7 @@ Compact 使用与工具相同的单行折叠项。该行显示 compact 前的 to
 
 ### Queue
 
-AI 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up queue。每个 queued message 标记为 Steering 或 Follow-up。Queue 使用紧凑的 message rows 和独立的滚动区域；queue 增高时 conversation 自动使用剩余高度。
+AI 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up queue。点击 Send follow-up 后，Queue 立即显示该 message 和 Scheduling；Server 确认 queue item 后，Scheduling row 自动替换为正式 row。提交或连接失败时，该 row 显示 Failed，并提供清除按钮。每个正式 queued message 标记为 Steering 或 Follow-up。Queue 使用紧凑的 message rows 和独立的滚动区域；queue 增高时 conversation 自动使用剩余高度。
 
 - Edit 将 queued message 从 queue 取回 composer。Composer 已有文字或 attachments 时，确认 Replace draft 才会覆盖；Cancel 会保留原 composer content 与 queue item。
 - Merge follow-ups 按照当前顺序使用空行拼接全部 Follow-up，并将它们替换为一条 Follow-up。
@@ -288,7 +288,7 @@ Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follo
 
 ### Rollback 与 Restore
 
-当前分支最后一条可回退的 user message 显示 Rollback 按钮。
+当前分支最后一条可回退的 user message 显示 Rollback 按钮。settled 后显示 Response interrupted 的 turn 也使用最后一条 assistant/tool message 作为 rollback target，因此该 turn 的 User message 可以回退。
 
 1. 点击 Rollback 并确认。
 2. Pi-Ark 移除该 user turn 及其后续 assistant/tool 输出。
@@ -303,7 +303,7 @@ Assistant text 的 Info 信息栏和展开后的 tool item 可以复制 `pi-ark:
 
 ### 查看 Session information
 
-会话状态栏左侧依次显示标题、编辑标题按钮和状态，右侧显示 Context 百分比和信息按钮。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
+会话状态栏左侧依次显示标题、编辑标题按钮和状态，右侧显示 Context 百分比和信息按钮。Disconnected、Connection error 和其他错误状态使用红灯、红色系底色和边框。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
 
 ## Files 页面
 

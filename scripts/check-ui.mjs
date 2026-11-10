@@ -251,7 +251,19 @@ try {
   await activePage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
     activeSocket = webSocket;
     const server = webSocket.connectToServer();
-    webSocket.onMessage((message) => server.send(message));
+    webSocket.onMessage((message) => {
+      let command;
+      try { command = JSON.parse(String(message)); } catch { server.send(message); return; }
+      if (command.type === "prompt") {
+        const queuedText = command.text?.trim() || "Review the attached files.";
+        setTimeout(() => {
+          activeQueue = [...activeQueue, { id: `scheduled-${activeQueue.length}`, mode: "followUp", text: queuedText }];
+          if (activeSnapshot && activeSocket) { activeSnapshot.session.queue = activeQueue; activeSocket.send(JSON.stringify(activeSnapshot)); }
+        }, 500);
+        return;
+      }
+      server.send(message);
+    });
     server.onMessage((message) => {
       let payload;
       try { payload = JSON.parse(String(message)); } catch { webSocket.send(message); return; }
@@ -268,6 +280,7 @@ try {
   const activeRun = activePage.locator(".run-collapse.active");
   await activeRun.locator(":scope > summary").filter({ hasText: "Running" }).waitFor();
   assert.notEqual(await activeRun.getAttribute("open"), null);
+  assert.equal(await activeRun.locator(".feed-tool-details[open]").count(), 0);
   const prefixRun = activePage.locator(".run-collapse:not(.active)").first();
   await prefixRun.locator(":scope > summary").waitFor();
   await prefixRun.locator(":scope > summary").click();
@@ -351,10 +364,16 @@ try {
   const firstExecution = toolRows.first().locator(".feed-tool-details");
   assert.equal(await activePage.getByText("Active tool result", { exact: true }).isVisible(), false);
   await firstExecution.locator(":scope > summary").click();
+  assert.deepEqual(await firstExecution.locator(".feed-tool-arguments h5").allTextContents(), ["path"]);
+  assert.equal(await firstExecution.locator(".feed-tool-arguments pre").textContent(), "README.md");
+  assert.equal(await firstExecution.locator(".feed-tool-arguments").getByText(/[{}\"]/, { exact: false }).count(), 0);
   await activePage.getByText("Active tool result", { exact: true }).waitFor();
   const secondExecution = toolRows.nth(1).locator(".feed-tool-details");
   await secondExecution.locator(":scope > summary").click();
   await activePage.getByText(/Active bash result/).waitFor();
+  const emptyArgumentsExecution = toolRows.nth(2).locator(".feed-tool-details");
+  await emptyArgumentsExecution.locator(":scope > summary").click();
+  await emptyArgumentsExecution.getByText("No arguments", { exact: true }).waitFor();
   await activeConversation.evaluate((element) => { const summary = element.querySelector(".run-collapse.active > summary"); const delta = summary.getBoundingClientRect().top - element.getBoundingClientRect().top + 80; element.scrollTop += delta; element.dispatchEvent(new Event("scroll")); });
   await activePage.waitForTimeout(100);
   const activeRunSummary = activeRun.locator(":scope > summary");
@@ -404,6 +423,12 @@ try {
   await activePage.getByRole("dialog", { name: "Replace composer draft?" }).getByRole("button", { name: "Replace draft" }).click();
   await activePage.waitForFunction(() => document.querySelectorAll(".queued-message").length === 0);
   assert.equal(await activeTextarea.inputValue(), "Edit this queued follow-up");
+  await activeTextarea.fill("Optimistic scheduling message");
+  await activePage.getByTitle("Send follow-up").click();
+  const schedulingRow = activePage.locator(".queued-message.pending").filter({ hasText: "Optimistic scheduling message" });
+  await schedulingRow.getByText("Scheduling", { exact: true }).waitFor();
+  assert.equal(await schedulingRow.getByRole("button").count(), 0);
+  await activePage.waitForFunction(() => !document.querySelector(".queued-message.pending") && [...document.querySelectorAll(".queued-message:not(.pending) > strong")].some((element) => element.textContent === "Optimistic scheduling message"));
   activeSnapshot.session.isStreaming = false;
   activeSnapshot.session.isIdle = true;
   activeSocket.send(JSON.stringify(activeSnapshot));
@@ -411,6 +436,13 @@ try {
   const settledActiveRun = activePage.locator(".run-collapse:not(.active)").last();
   await settledActiveRun.locator(":scope > summary").filter({ hasText: "用时" }).waitFor();
   assert.equal(await settledActiveRun.getAttribute("open"), null);
+  await activeSocket.close({ code: 1011, reason: "Browser disconnect fixture" });
+  const disconnectedStatus = activePage.locator(".status-dot.error").filter({ hasText: "Disconnected" });
+  await disconnectedStatus.waitFor();
+  const disconnectedStyle = await disconnectedStatus.evaluate((element) => ({ border: getComputedStyle(element).borderStyle, background: getComputedStyle(element).backgroundColor, color: getComputedStyle(element).color, light: getComputedStyle(element.querySelector("i")).backgroundColor }));
+  assert.equal(disconnectedStyle.border, "solid");
+  assert.notEqual(disconnectedStyle.background, "rgba(0, 0, 0, 0)");
+  assert.equal(disconnectedStyle.light, disconnectedStyle.color);
   await activePage.close();
   const interruptedPage = await page.context().newPage();
   await interruptedPage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
@@ -422,6 +454,7 @@ try {
       if (payload.type !== "snapshot") { webSocket.send(message); return; }
       payload.session.isStreaming = false;
       payload.session.isIdle = true;
+      payload.session.rollbackEntryId = "interrupted-result";
       payload.session.messages = [
         { role: "user", content: [{ type: "text", text: "Interrupted browser turn" }], timestamp: 1000, entryId: "interrupted-user" },
         { role: "assistant", content: [{ type: "text", text: "Reading a file" }, { type: "toolCall", id: "interrupted-read-call", name: "read", arguments: { path: "README.md" } }], timestamp: 2000, entryId: "interrupted-call" },
@@ -435,6 +468,8 @@ try {
   await interruptedWarning.waitFor();
   assert.equal((await interruptedWarning.textContent())?.trim(), "Response interrupted");
   assert.ok((await interruptedWarning.boundingBox()).height <= 34);
+  const interruptedUser = interruptedPage.locator(".feed-user").filter({ hasText: "Interrupted browser turn" });
+  assert.equal(await interruptedUser.getByRole("button", { name: "Roll back latest message" }).count(), 1);
   const interruptedRun = interruptedPage.locator(".run-collapse");
   assert.equal(await interruptedRun.count(), 1);
   assert.equal(await interruptedRun.getAttribute("open"), null);

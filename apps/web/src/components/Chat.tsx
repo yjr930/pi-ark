@@ -13,6 +13,7 @@ const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const SUPPORTED_IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 type ChatWidth = "compact" | "wide" | "full";
 interface PendingAttachment { id: string; file: File; preview?: string }
+interface PendingQueuedMessage { id: string; text: string; matchText: string; expectedMatchCount: number; status: "scheduling" | "failed"; error?: string }
 
 function blocks(content: AgentMessage["content"]): ContentBlock[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : content || [];
@@ -20,6 +21,10 @@ function blocks(content: AgentMessage["content"]): ContentBlock[] {
 
 function messageMarkdown(message: AgentMessage): string {
   return blocks(message.content).filter((block) => block.type === "text" && block.text).map((block) => block.text).join("\n\n");
+}
+
+function queuedTextMatches(queuedText: string, matchText: string): boolean {
+  return queuedText === matchText || queuedText.startsWith(`${matchText}\n\nAttached files:\n`);
 }
 
 function hasTextFeedContent(message: AgentMessage): boolean {
@@ -46,6 +51,19 @@ function toolResultPreview(message: AgentMessage): string {
   if (text) return text.trim().replace(/\s+/g, " ");
   if (blocks(message.content).some((block) => block.type === "image")) return "Image result";
   return "Empty result";
+}
+
+function formatToolArgumentValue(value: unknown, depth = 0): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  const indent = "  ".repeat(depth);
+  if (Array.isArray(value)) return value.length ? value.map((item) => typeof item === "object" && item !== null ? `${indent}-\n${formatToolArgumentValue(item, depth + 1)}` : `${indent}- ${formatToolArgumentValue(item, 0)}`).join("\n") : "No values";
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return entries.length ? entries.map(([key, item]) => typeof item === "object" && item !== null ? `${indent}${key}:\n${formatToolArgumentValue(item, depth + 1)}` : `${indent}${key}: ${formatToolArgumentValue(item, 0)}`).join("\n") : "No values";
+  }
+  return String(value);
 }
 
 function MessageLinkButton({ messageNumber, onCopyLink }: { messageNumber: number; onCopyLink: (messageNumber: number) => void }) {
@@ -80,7 +98,7 @@ function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessa
   const sources = [{ label: isSummary ? "Message" : call ? "Call" : "Result", messageNumber }, ...(resultMessageNumber ? [{ label: "Result", messageNumber: resultMessageNumber }] : [])];
   return <div className={`feed-tool-item ${target ? "permalink-target" : ""}`}>
     {resultMessageNumber && <span id={`message-${resultMessageNumber}`} data-message-number={resultMessageNumber} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
-    <details className={`feed-tool-details ${result?.isError ? "error" : ""}`} open={target || undefined}><summary><span className="feed-tool-logo">{isSummary ? <Archive size={15} /> : <Wrench size={15} />}</span><strong>{name}</strong><code title={preview}>{preview}</code><span className="feed-tool-status">{status}</span></summary><div className="feed-tool-content"><MessageSourceLinks sources={sources} onCopyLink={onCopyLink} />{call && <section><strong>Arguments</strong><pre>{JSON.stringify(call.arguments || {}, null, 2)}</pre></section>}{result && <section><strong>Result</strong><div>{blocks(result.content).map((block, index) => {
+    <details className={`feed-tool-details ${result?.isError ? "error" : ""}`} open={target || undefined}><summary><span className="feed-tool-logo">{isSummary ? <Archive size={15} /> : <Wrench size={15} />}</span><strong>{name}</strong><code title={preview}>{preview}</code><span className="feed-tool-status">{status}</span></summary><div className="feed-tool-content"><MessageSourceLinks sources={sources} onCopyLink={onCopyLink} />{call && <section><strong>Arguments</strong><div className="feed-tool-arguments">{Object.entries(call.arguments || {}).length > 0 ? Object.entries(call.arguments || {}).map(([key, value]) => <div key={key}><h5>{key}</h5><pre>{formatToolArgumentValue(value)}</pre></div>) : <p>No arguments</p>}</div></section>}{result && <section><strong>Result</strong><div>{blocks(result.content).map((block, index) => {
       if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
       if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool result image")} key={index}><img className="message-image" src={source} alt="Tool result" /></button>; }
       return null;
@@ -169,6 +187,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
   const [historyStartIndex, setHistoryStartIndex] = useState(0);
   const [queuedEditCandidate, setQueuedEditCandidate] = useState<{ id: string; text: string } | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
+  const [pendingQueuedMessages, setPendingQueuedMessages] = useState<PendingQueuedMessage[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(true);
@@ -197,12 +216,12 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
   useEffect(() => () => { for (const attachment of attachmentRef.current) if (attachment.preview) URL.revokeObjectURL(attachment.preview); }, []);
   useEffect(() => {
     for (const attachment of attachmentRef.current) if (attachment.preview) URL.revokeObjectURL(attachment.preview);
-    setAttachments([]); setDraft(""); setSnapshot(null); setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageNumber(undefined); setHistoryStartIndex(0); setQueuedEditCandidate(null); setQueueBusy(false); setStatus("Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; historyInitializedRef.current = false; followOutputRef.current = true;
+    setAttachments([]); setDraft(""); setSnapshot(null); setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageNumber(undefined); setHistoryStartIndex(0); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setStatus("Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; historyInitializedRef.current = false; followOutputRef.current = true;
     let active = true;
     const socket = new WebSocket(websocketUrl(`/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}`));
     socketRef.current = socket;
     socket.onopen = () => { if (active) setStatus("Loading conversation"); };
-    socket.onclose = () => { if (active) setStatus("Disconnected"); };
+    socket.onclose = () => { if (active) { setStatus("Disconnected"); setPendingQueuedMessages((current) => current.map((item) => item.status === "scheduling" ? { ...item, status: "failed", error: "Connection lost" } : item)); } };
     socket.onerror = () => { if (active) setStatus("Connection error"); };
     socket.onmessage = (event) => {
       if (!active) return;
@@ -218,6 +237,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
           setHistoryStartIndex(Math.min(defaultStart, targetStart));
           historyInitializedRef.current = true;
         }
+        setPendingQueuedMessages((current) => current.filter((item) => nextSnapshot.queue.filter((queued) => queued.mode === "followUp" && queuedTextMatches(queued.text, item.matchText)).length < item.expectedMatchCount));
         setSnapshot(nextSnapshot); setStatus(nextSnapshot.isStreaming ? "AI is working" : "Ready");
       }
       if (payload.type === "agent-event") {
@@ -238,7 +258,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
           });
         }
       }
-      if (payload.type === "error") setStatus(payload.message);
+      if (payload.type === "error") { setStatus(payload.message); setPendingQueuedMessages((current) => { let pendingIndex = -1; for (let index = current.length - 1; index >= 0; index -= 1) if (current[index].status === "scheduling") { pendingIndex = index; break; } return pendingIndex < 0 ? current : current.map((item, index) => index === pendingIndex ? { ...item, status: "failed", error: payload.message } : item); }); }
     };
     return () => { active = false; socket.close(); };
   }, [workspace.id, session.id, onSessionChanged]);
@@ -278,8 +298,9 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
   const thinkingLevels = snapshot?.availableThinkingLevels?.length ? snapshot.availableThinkingLevels : selectedSessionModel?.thinkingLevels || ["off"];
   const queuedFollowUpCount = snapshot?.queue.filter((item) => item.mode === "followUp").length || 0;
   const sessionContextPercent = snapshot?.stats?.contextUsage?.percent;
+  const statusIsError = !["Connecting session", "Loading conversation", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
 
-  function send(command: object) { if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify(command)); }
+  function send(command: object): boolean { if (socketRef.current?.readyState !== WebSocket.OPEN) return false; socketRef.current.send(JSON.stringify(command)); return true; }
   function selectWidth(width: ChatWidth) { setChatWidth(width); localStorage.setItem("pi-ark-chat-width", width); }
   function showEarlierMessages() {
     followOutputRef.current = false;
@@ -394,20 +415,32 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
     event.preventDefault();
     const text = draft.trim();
     if ((!text && attachments.length === 0) || socketRef.current?.readyState !== WebSocket.OPEN || preparingAttachments) return;
+    const pendingId = active ? crypto.randomUUID() : undefined;
+    const pendingMatchText = text || "Review the attached files.";
+    if (pendingId) {
+      const authoritativeMatches = snapshot?.queue.filter((item) => item.mode === "followUp" && queuedTextMatches(item.text, pendingMatchText)).length || 0;
+      const localMatches = pendingQueuedMessages.filter((item) => item.matchText === pendingMatchText).length;
+      const displayText = text || `Attachments: ${attachments.map((attachment) => attachment.file.name).join(", ")}`;
+      setPendingQueuedMessages((current) => [...current, { id: pendingId, text: displayText, matchText: pendingMatchText, expectedMatchCount: authoritativeMatches + localMatches + 1, status: "scheduling" }]);
+    }
     setPreparingAttachments(true);
     try {
       const encoded = await Promise.all(attachments.map(async (attachment) => ({ name: attachment.file.name, mimeType: attachment.file.type || "application/octet-stream", data: await fileData(attachment.file) })));
       followOutputRef.current = true;
-      send({ type: "prompt", text, attachments: encoded });
+      if (!send({ type: "prompt", text, attachments: encoded })) throw new Error("Connection is not ready");
       for (const attachment of attachments) if (attachment.preview) URL.revokeObjectURL(attachment.preview);
       rollbackDraftRef.current = ""; setSnapshot((current) => current ? { ...current, rollback: undefined } : current); setAttachments([]); setDraft("");
-    } catch (reason) { setStatus(reason instanceof Error ? reason.message : "Cannot read attachments"); }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "Cannot read attachments";
+      if (pendingId) setPendingQueuedMessages((current) => current.map((item) => item.id === pendingId ? { ...item, status: "failed", error: message } : item));
+      setStatus(message);
+    }
     finally { setPreparingAttachments(false); }
   }
 
   return <section className={`chat-page chat-width-${chatWidth}`} aria-busy={isLoading}>
     <header className="page-header chat-header">
-      <div className="chat-title"><h2>{title}</h2><button className="subtle-icon-button" title="Rename session" disabled={isLoading} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button><span className="status-dot"><i className={active || isLoading ? "working" : ""} />{status}</span></div>
+      <div className="chat-title"><h2>{title}</h2><button className="subtle-icon-button" title="Rename session" disabled={isLoading} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button><span className={`status-dot ${statusIsError ? "error" : ""}`}><i className={statusIsError ? "error" : active || isLoading ? "working" : ""} />{status}</span></div>
       <div className="chat-header-actions"><span className="chat-context-usage">Context {sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.stats?.totalMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
     </header>
     <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : visibleMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => updateConversationPosition(event.currentTarget)}>
@@ -415,7 +448,7 @@ export function Chat({ workspace, session, targetMessageNumber, onSessionChanged
     </div>
     {!isLoading && <form className="composer" onSubmit={(event) => void submit(event)}>
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}
-      {snapshot?.queue && snapshot.queue.length > 0 && <div className="message-queue"><div className="message-queue-title"><div><strong>Queue</strong><span>Steering runs before follow-up</span></div><button type="button" className="queue-merge-button" disabled={queueBusy || queuedFollowUpCount < 2} onClick={() => void mergeQueuedFollowUps()}>Merge follow-ups</button></div>{snapshot.queue.map((item) => { const sameMode = snapshot.queue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Edit queued message" aria-label="Edit queued message" disabled={queueBusy} onClick={() => editQueuedMessage(item)}><Pencil size={12} /></button><button type="button" title="Move queued message up" disabled={queueBusy || position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={queueBusy || position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" disabled={queueBusy} onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}</div>}
+      {((snapshot?.queue.length || 0) + pendingQueuedMessages.length > 0) && <div className="message-queue"><div className="message-queue-title"><div><strong>Queue</strong><span>Steering runs before follow-up</span></div><button type="button" className="queue-merge-button" disabled={queueBusy || queuedFollowUpCount < 2} onClick={() => void mergeQueuedFollowUps()}>Merge follow-ups</button></div>{snapshot?.queue.map((item) => { const sameMode = snapshot.queue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Edit queued message" aria-label="Edit queued message" disabled={queueBusy} onClick={() => editQueuedMessage(item)}><Pencil size={12} /></button><button type="button" title="Move queued message up" disabled={queueBusy || position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={queueBusy || position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" disabled={queueBusy} onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}{pendingQueuedMessages.map((item) => <div className={`queued-message pending ${item.status}`} key={item.id}><span className="queue-mode followUp">Follow-up</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div className="queue-pending-state" title={item.error}><span>{item.status === "scheduling" ? <LoaderCircle className="queue-pending-spinner" size={12} /> : <TriangleAlert size={12} />}{item.status === "scheduling" ? "Scheduling" : "Failed"}</span>{item.status === "failed" && <button type="button" title="Dismiss failed queued message" aria-label="Dismiss failed queued message" onClick={() => setPendingQueuedMessages((current) => current.filter((pending) => pending.id !== item.id))}><X size={12} /></button>}</div></div>)}</div>}
       {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <div className={`attachment-preview ${attachment.preview ? "image" : "file"}`} key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt={attachment.file.name} /> : <FileIcon size={18} />}<span><strong>{attachment.file.name}</strong><small>{number(attachment.file.size / 1024)} KB</small></span><button type="button" title={`Remove ${attachment.file.name}`} onClick={() => removeAttachment(attachment.id)}><Trash2 size={13} /></button></div>)}</div>}
       <textarea ref={composerTextareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onPaste={pasteAttachments} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Send message here" rows={1} />
       <div className="composer-toolbar"><button type="button" className="attach-button" title="Add attachments or images" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(event.target.files)} /><div className="composer-runtime composer-model"><Select ariaLabel="Session model" value={modelValue} placeholder={snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "Select…"} options={models.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name || model.id, description: model.id, status: model.provider }))} onChange={(value) => { const model = models.find((item) => `${item.provider}/${item.id}` === value); if (model) { setStatus("Changing model"); send({ type: "set-model", provider: model.provider, model: model.id }); } }} /></div><div className="composer-runtime composer-thinking"><Select ariaLabel="Session thinking level" value={snapshot?.thinkingLevel || ""} options={thinkingLevels.map((level) => ({ value: level, label: level }))} onChange={(level) => { setStatus("Changing thinking level"); send({ type: "set-thinking-level", level }); }} /></div><span className="composer-hint">Enter to send · Shift Enter for a new line</span><button className="send-button" title={active ? "Send follow-up" : "Send"} disabled={preparingAttachments || (!draft.trim() && attachments.length === 0)}><ArrowUp size={18} /></button><button type="button" className="stop-button" title="Stop" disabled={!active} onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>

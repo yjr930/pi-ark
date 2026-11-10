@@ -81,7 +81,7 @@ WebSocket 建立后，页面继续显示 Loading conversation。首个完整 sna
 
 ### 空 Session 与运行状态
 
-没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态，右侧显示 Context 百分比和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。
+没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态，右侧显示 Context 百分比和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。Disconnected、Connection error 和其他错误状态使用红灯，并增加红色系底色和边框。
 
 每个 turn 的 User 内容显示为一条 feed 起点，并保留用户头像、`User` 标签、message number、内部链接与 Rollback。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
 
@@ -95,7 +95,7 @@ Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text 
 
 每个 tool call 与对应 tool result 合并为一行 tool item。工具 logo 位于折叠框的 summary 内，后面依次显示工具名称、实际摘要和状态；展开内容与折叠框左边界对齐。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
 
-Tool item 默认关闭。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示格式化 arguments 与文字或图片结果；错误结果显示 Failed 状态和错误颜色。空 arguments 显示 `{}`。
+Tool item 默认关闭；active Running 默认展开时，其中的最新 tool item 也保持关闭。message permalink target 会自动展开对应 tool item。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。错误结果显示 Failed 状态和错误颜色。
 
 Compact 与 branch summary 使用相同的 tool item。Compact 行显示 compact 前的 token 数量和 Saved 状态，展开后显示 source message number、内部链接和 pi 保存的 Markdown summary。compact 前的原始会话继续通过 earlier message 分页展示。
 
@@ -117,7 +117,7 @@ Conversation 在用户位于底部附近时跟随新输出；用户向上滚动�
 
 ### Queue
 
-Session 正在运行时，新 message 默认进入 Follow-up queue。Queue 区分 Steering 和 Follow-up，并使用紧凑的 message rows 显示文本摘要。用户可以在相同模式中调整顺序、切换消息模式或点击 Edit 将 queued message 取回 composer。Composer 已有文字或 attachments 时，Edit 显示覆盖确认对话框；取消后保留原 composer content 与 queue item。Merge follow-ups 按当前顺序将全部 Follow-up text 拼接为一条 Follow-up。Global settings 决定每种 queue 的默认投递方式。Queue 使用独立的最大高度和滚动区域，并由 composer 所在的 Grid row 占用页面空间。
+Session 正在运行时，新 message 默认进入 Follow-up queue。Web 在提交后立即增加本地 Follow-up row 并显示 Scheduling；Server snapshot 出现对应 queue item 后，正式 row 替换本地 row。提交或连接失败时，本地 row 显示 Failed，并允许用户清除。Queue 区分 Steering 和 Follow-up，并使用紧凑的 message rows 显示文本摘要。用户可以在相同模式中调整顺序、切换消息模式或点击 Edit 将 queued message 取回 composer。Composer 已有文字或 attachments 时，Edit 显示覆盖确认对话框；取消后保留原 composer content 与 queue item。Merge follow-ups 按当前顺序将全部 Follow-up text 拼接为一条 Follow-up。Global settings 决定每种 queue 的默认投递方式。Queue 使用独立的最大高度和滚动区域，并由 composer 所在的 Grid row 占用页面空间。
 
 ### 附件与图片
 
@@ -135,7 +135,7 @@ Session 正在运行时，新 message 默认进入 Follow-up queue。Queue 区�
 
 ### Rollback 与 Restore
 
-Rollback 按钮显示在当前分支最后一条可回退的 user message 上。确认后，Pi-Ark 将当前分支移动到该 user turn 之前，将 user message 文本放回 composer，并显示 Restore message。
+Rollback 按钮显示在当前分支最后一条可回退的 user message 上。正常完成的 AI response 使用最后一条完成的 assistant output 作为 rollback target；settled 且显示 Response interrupted 的 response 使用该 turn 最后的 assistant/tool message 作为 fallback target，因此对应 User message 也可以 Rollback。确认后，Pi-Ark 将当前分支移动到该 user turn 之前，将 user message 文本放回 composer，并显示 Restore message。
 
 Rollback 只改变 conversation branch，不修改 Workspace 文件。用户可以恢复原分支，也可以编辑 composer 后发送替代 message；发送新 message 后，Restore message 消失。
 

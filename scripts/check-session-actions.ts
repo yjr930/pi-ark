@@ -87,6 +87,15 @@ try {
   const restoredFirstTurn = SessionManager.open(firstTurnManager.getSessionFile()!, sessionDirectory);
   assert.deepEqual(restoredFirstTurn.buildSessionProjection().messages.filter((message) => message.role === "user" || message.role === "assistant").map((message) => message.role === "user" ? message.content : message.content.find((block) => block.type === "text")?.text), ["Only turn", "Only answer"]);
 
+  const interruptedManager = SessionManager.create(directory, sessionDirectory);
+  interruptedManager.appendMessage({ role: "user", content: "Interrupted turn", timestamp: 6100 });
+  interruptedManager.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "interrupted-read", name: "read", arguments: { path: "README.md" } }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 4, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 6200 });
+  const interruptedResult = interruptedManager.appendMessage({ role: "toolResult", toolCallId: "interrupted-read", toolName: "read", content: [{ type: "text", text: "partial result" }], isError: false, timestamp: 6300 });
+  const interruptedRollback = await agents.rollbackLatest(workspace, interruptedManager.getSessionId(), interruptedResult);
+  assert.equal(interruptedRollback.draft, "Interrupted turn");
+  assert.equal(interruptedRollback.targetId, interruptedResult);
+  await agents.restoreRollback(workspace, interruptedManager.getSessionId());
+
   const snapshotSession = await agents.create(workspace);
   const snapshotHandle = service.handles.get(`${workspace.id}:${snapshotSession.id}`)!;
   const sent: string[] = [];
