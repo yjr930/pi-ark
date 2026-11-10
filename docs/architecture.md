@@ -86,6 +86,7 @@ docs/               产品、架构、使用和集成文档
 | Application shell | `apps/web/src/App.tsx` | Auth 状态、Workspace/Session 选择、页面导航、URL 和响应式侧栏 |
 | Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、message renderer、composer、queue、fork 和 rollback |
 | Session memory cache | `apps/web/src/session-cache.ts` | 最近五个 Session 的 snapshot 与 UI state 浏览器内存 LRU cache |
+| Session status projection | `apps/web/src/session-status.ts` | 合并 runtime revision、计算 unread output 和记录当前浏览器的查看状态 |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
 | Workspace list | `apps/web/src/components/WorkspaceList.tsx` | 选择、重命名和关闭 Workspace |
 | Session list | `apps/web/src/components/SessionList.tsx` | Session actions、groups 和 Archived 区域 |
@@ -142,6 +143,7 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 - Pi-Ark queue metadata、queue revision 和 rebuild version
 - 共享的 queue rebuild promise 与 rebuild 状态
 - 当前活动 branch 的 display projection cache
+- Sidebar 使用的 runtime state、status revision、completed update revision 和最后一次 error message
 
 多个浏览器连接共享同一个 Session runtime。浏览器断开不会中止 Agent；重新连接会收到当前 snapshot。Session message/tree 变化时，AgentService 清除 display projection cache；后续 snapshot 重新构建 projection。
 
@@ -162,13 +164,13 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 
 ### Snapshot
 
-连接成功后，Server 立即发送 snapshot。Snapshot message 来源是当前活动 branch 的 display projection；每条 message 附加 source entry ID，assistant message 还附加 model context window。普通连接从最新约 100 条 messages 所在的 turn boundary 开始发送。带 `message` query 的 permalink 连接从包含目标 message 的页面开始发送；带 `start` query 的缓存恢复连接从浏览器已经加载的全局 offset 开始发送。
+连接成功后，Server 立即发送 snapshot。Snapshot message 来源是当前活动 branch 的 display projection；每条持久化 message 附加短 Message ID 和 source entry ID，assistant message 还附加 model context window。普通连接从最新约 100 条 messages 所在的 turn boundary 开始发送。带 `message` query 的 permalink 连接从包含目标 Message ID 的页面开始发送；带 `start` query 的缓存恢复连接从浏览器已经加载的全局 offset 开始发送。
 
 Snapshot 包含以下状态：
 
 - Session ID 和名称。
 - 当前 client display window 的 messages。
-- `messageNumberOffset`、`totalDisplayMessages` 和 `hasEarlierMessages`。
+- `messageNumberOffset`、`totalDisplayMessages`、`targetMessageId` 和 `hasEarlierMessages`。
 - Streaming 和 idle 状态。
 - 当前 model 和 thinking level。
 - 可用 thinking levels。
@@ -183,6 +185,16 @@ Snapshot 包含以下状态：
 ### Streaming events
 
 AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled 和 queue update 后的权威 snapshot。该时序使 snapshot 包含刚完成持久化的 message。Server 为每个 client 保留 display window 起点，并只发送该起点到最新 message 的 projection slice；Agent runtime 继续使用 pi 的 compaction-aware Session projection 生成后续模型上下文。
+
+### Sidebar Session status
+
+`GET /api/workspaces/:workspaceId/session-statuses` 只读取当前 Server process 中已经打开的 AgentHandle，不扫描 Session JSONL。Web 每秒读取该轻量状态列表。每条状态包含 `ready`、`running` 或 `error`、单调递增的 `statusRevision`、完成态使用的 `updateRevision`，以及可选的 error message。
+
+`agent_start` 将状态切换为 `running`。`agent_end` 只记录最终且不再 retry 的 assistant error；`agent_settled` 才将状态切换为 `ready` 或 `error`，因此单条 `message_end` 不会提前结束 spinner。Aborted run 返回 `ready`，但不递增 `updateRevision`。Prompt 在 Agent run 建立前直接失败时，Server 立即进入 `error` 并递增 completed update revision。
+
+Web 将最后收到的 revision 保存在当前页面内存中。较旧的 response 不覆盖较新的状态。Session 的 `updateRevision` 增加且进入 `ready` 时，Web 显示 unread output；首次收到已有 completed revision 的 Session 也会显示 unread output。浏览器在可见的 Agent 页面打开该 Session 后清除 unread 标记。Web 按 Workspace 保存这份内存状态，因此切换 Workspace 后返回仍可看到尚未查看的新输出。Error 由 Server runtime state 决定，打开 Session 不会清除 error；下一次 Agent run 会更新该状态。该查看状态不写入 localStorage，也不写入 Session JSONL。
+
+当前 Agent runtime 没有面向 Web 的显式 question lifecycle、question event 或 answer API。Sidebar Question indicator 作为计划能力保留；后续需要先定义 runtime question state 与 answer transport，再加入状态优先级和图标。
 
 ### Prompt 与 attachments
 
@@ -235,18 +247,18 @@ Server shutdown 会依次清空所有 queue、中止 active Agent、释放 runti
 
 Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 entry path，并通过 `sessionEntryToContextMessages()` 转换可显示 entry。该 display projection 保留 compact 前的原始 user、assistant 和 tool messages，并将每个 compaction entry 转换为一条 `compactionSummary` message。System message 与 `display: false` 的 custom message 不进入 Web snapshot。AgentHandle 缓存该 display projection，Session message/tree 变化时清除 cache。pi JSONL 和 Agent runtime 的 compaction-aware context 保持原样。
 
-Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。Snapshot 使用 `messageNumberOffset` 保存当前 slice 之前的 message 数量，并使用 `totalDisplayMessages` 保存完整 projection 数量。点击 Show earlier messages 后，Web 发送 `load-earlier`；Server 将该 client 的 window 起点向前移动一页，并发送扩展后的权威 snapshot。message number 始终按 `messageNumberOffset + slice index` 计算，因此分页前后的 permalink、Fork 和 Rollback identity 保持一致。
+Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。Snapshot 使用 `messageNumberOffset` 保存当前 slice 之前的 message 数量，并使用 `totalDisplayMessages` 保存完整 projection 数量；这些 numeric fields 只服务于分页。每条持久化 projection message 还包含七字符短 `messageId`，格式为 `m` 加六位小写 base36。Server 使用 Session ID 生成 31-bit 奇数 multiplier 与 offset，再对 source entry 在 append-only Session entries 中的固定位置执行一一映射，因此同一 Session 中的 ID 不重复，并且新增 entry 不会改变已有 ID。Session source entry 上限是 10000000，达到上限后新的 prompt 返回错误。点击 Show earlier messages 后，Web 发送 `load-earlier`；Server 将该 client 的 window 起点向前移动一页，并发送扩展后的权威 snapshot。Permalink、sticky User、tool source link 和 target highlighting 使用 `messageId`；Fork 与 Rollback 继续使用 pi source entry ID。
 
-`buildConversationSegments()` 只以 user message 划分 turn；compaction summary、branch summary、assistant message 与 tool result 都保留在当前 AI response 中。每轮 response 的第一个 segment 带 `aiStart` 标记，Web 只在该位置显示一次 AI 头像和 `AI` 标签。分页内容从 response 中间开始时，当前页面中的 response 前缀共同使用一次 `aiStart`。User source message 保留独立的用户头像、`User` 标签、message number 与操作按钮。每条 User source message 使用包含 header 与 content 的全宽色带；每个 theme 分别提供协调后的 User background、上/下 separator colors 和 User accent color，并保持 User accent 与该 theme 的 AI accent 可区分。色带没有左右 border、圆角或阴影，并延伸到当前 conversation 内容列的左右边界。色带通过上下 separator 及其外侧留白区分相邻内容，并使用左侧、上侧较大的非对称内部 padding。User permalink target 调整上下 separator 与 background，不改变色带外部尺寸。User 与 AI 的 role avatar 和 label 使用更大的尺寸，User 使用独立于 AI accent 的颜色。角色 header 与后续 feed 内容使用独立布局，因此头像不会缩进后续内容。含普通 text 或 image 的 assistant source message 在末尾渲染操作行：完成态显示 Copy Markdown、Fork session 和 Info，流式状态显示 Info；只包含 reasoning 和 toolCall 的 source message 不渲染操作行。Info 控制 source information 与 metrics 的显示。
+`buildConversationSegments()` 只以 user message 划分 turn；compaction summary、branch summary、assistant message 与 tool result 都保留在当前 AI response 中。每轮 response 的第一个 segment 带 `aiStart` 标记，Web 只在该位置显示一次 AI 头像和 `AI` 标签。分页内容从 response 中间开始时，当前页面中的 response 前缀共同使用一次 `aiStart`。User source message 保留独立的用户头像、`User` 标签、短 Message ID 与操作按钮。每条 User source message 使用包含 header 与 content 的全宽色带；每个 theme 分别提供协调后的 User background、上/下 separator colors 和 User accent color，并保持 User accent 与该 theme 的 AI accent 可区分。色带没有左右 border、圆角或阴影，并延伸到当前 conversation 内容列的左右边界。色带通过上下 separator 及其外侧留白区分相邻内容，并使用左侧、上侧较大的非对称内部 padding。User permalink target 调整上下 separator 与 background，不改变色带外部尺寸。User 与 AI 的 role avatar 和 label 使用更大的尺寸，User 使用独立于 AI accent 的颜色。角色 header 与后续 feed 内容使用独立布局，因此头像不会缩进后续内容。含普通 text 或 image 的 assistant source message 在末尾渲染操作行：完成态显示 Copy Markdown、Fork session 和 Info，流式状态显示 Info；只包含 reasoning 和 toolCall 的 source message 不渲染操作行。Info 控制 source information 与 metrics 的显示。
 
 - 没有 tool activity 的 turn 按 source message 和 content block 顺序展示为连续 feed。
 - Active turn 将截至最新 tool activity 的连续过程放入带 Running 状态的 run collapse，并在外部保留后续的非工具 assistant output；没有保存状态时，`RunCollapse` 在 active 状态开始时默认展开，其中的 tool details 默认关闭。用户手动改变的 Run、Tool、Reasoning 和 Message Info disclosure 状态写入当前 Session 的 UI memory cache，并在切换 Session 后恢复。
 - 已完成 tool turn 将最后一条非工具 assistant output 之前的过程放入 run collapse；`RunCollapse` 观察 active→completed 转换并自动折叠并更新缓存状态。已完成的 permalink target 在没有已有用户状态时自动展开对应 details。
 - Idle 且缺少最后一条非工具 assistant output 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。每个 theme 分别提供 Run palette 与 Tool palette：Run group 使用该 theme 的 tint surface，Tool row 和 Reasoning 使用更中性的 surface，并具有独立的 open surface 与 border color。Paper 的 Run group 使用浅黄色，Tool row 使用浅白色；dark themes 和 Snow 使用对应 accent 倾向的外层 Run surface 与更亮的中性 Tool surface。Compact 与 branch summary 也使用 tool feed item。展开 tool item 后先显示 call/result source message number 与 `pi-ark://` link copy 按钮，再显示 arguments、result 或 summary。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。每个 theme 分别提供 Run palette 与 Tool palette：Run group 使用该 theme 的 tint surface，Tool row 和 Reasoning 使用更中性的 surface，并具有独立的 open surface 与 border color。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；dark themes 和 Snow 使用对应 accent 倾向的外层 Run surface 与更亮的中性 Tool surface。Compact 与 branch summary 也使用 tool feed item。展开 tool item 后先显示 call/result source Message ID 与 `pi-ark://` link copy 按钮，再显示 arguments、result 或 summary。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
 
-每条 source message 继续保留全局 message number、entry ID 和 permalink anchor。配对的 tool result 不重复渲染，但 tool item 内保留 result anchor。浏览器 permalink 打开外层 run 并高亮对应 source message 或 tool item；`pi-ark://` 是 feed 中提供的 message link copy 格式。Warning segment 是前端显示状态，不写入 pi JSONL，也不参与 message numbering、Fork 或 Rollback。
+每条持久化 source message 继续保留短 Message ID、entry ID 和 permalink anchor。配对的 tool result 不重复渲染，但 tool item 内保留 result anchor。浏览器 permalink 打开外层 run 并高亮对应 source message 或 tool item；`pi-ark://` 是 feed 中提供的 message link copy 格式。Warning segment 是前端显示状态，不写入 pi JSONL，也不分配 Message ID，不参与 Fork 或 Rollback。
 
 Chat header 左侧按 title、rename action、runtime status 排列；title group 不占用剩余宽度，title 使用内容宽度并受 max-width 限制，rename action 与 title 保持 5px 间距。右侧只渲染 context usage 百分比数字和 Session information。Session information panel 保存 Session URL copy 与 conversation width controls。Web 将已知 lifecycle 和操作状态视为普通状态，其余错误文本使用 error status；error status 显示红灯、红色系背景与边框。移动端仅对 status text span 应用省略，status box 保持 visible overflow，使红灯和 halo 不受裁切。移动端 App Grid 使用 `minmax(0, 1fr)`，使 Chat 主列可以缩小到 viewport 宽度，避免 composer toolbar 的 min-content width 扩大整个页面。Conversation 记录用户是否位于底部附近；底部用户继续跟随 event，向上阅读的用户保留当前 scroll position。Web 根据 user feed item top 与 scroll container top 的关系选择 sticky User bar，因此向上和向下滚动都会在 user item 越过顶部时切换。User bar 使用真实高度与等量负 margin 保持布局位置，并使用覆盖整条 bar 的 button 与不透明背景遮住下方内容；展开的 run summary 使用 sticky positioning 显示在该 bar 下方。Composer 和 queue 作为 Chat Grid 的底部行参与布局，conversation 使用剩余高度。
 
@@ -418,6 +430,7 @@ Global config、Workspace config 和 Session metadata 使用 temporary file 加 
 | Method | Path | 用途 |
 |---|---|---|
 | GET/POST | `/api/workspaces/:workspaceId/sessions` | List 或 create Session |
+| GET | `/api/workspaces/:workspaceId/session-statuses` | 已打开的 Session runtime 状态与 status/update revisions |
 | PATCH/DELETE | `/api/workspaces/:workspaceId/sessions/:sessionId` | Metadata/name update 或 delete |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/fork` | Fork |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback` | Rollback |
@@ -436,7 +449,7 @@ Path：`/ws/agent/:workspaceId/:sessionId`
 
 可选 query：
 
-- `message`：打开包含指定全局 message number 的 display window。
+- `message`：打开包含指定短 Message ID 的 display window；纯数字值按旧 display position 兼容解析。
 - `start`：从指定的全局 message offset 恢复已经加载的 display window。
 
 Browser commands：
@@ -450,7 +463,7 @@ Browser commands：
 
 Server messages：
 
-- `snapshot`，其中包含 `messageNumberOffset`、`totalDisplayMessages`、`hasEarlierMessages` 和 `queueRevision`
+- `snapshot`，其中 messages 包含 `messageId`，Session state 包含 `messageNumberOffset`、`totalDisplayMessages`、`targetMessageId`、`hasEarlierMessages` 和 `queueRevision`
 - `queue-state`，其中包含 Queue items、`queueRevision` 和可选的 `confirmedOperationId`
 - `agent-event`
 - `notice`

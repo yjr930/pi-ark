@@ -116,30 +116,33 @@ function formatToolArgumentValue(value: unknown, depth = 0): string {
   return String(value);
 }
 
-function MessageLinkButton({ messageNumber, onCopyLink }: { messageNumber: number; onCopyLink: (messageNumber: number) => void }) {
+function MessageLinkButton({ messageId, onCopyLink }: { messageId?: string; onCopyLink: (messageId: string) => void }) {
   const [copied, setCopied] = useState(false);
-  return <button type="button" className="icon-tooltip" aria-label={copied ? "Internal link copied" : `Copy internal link for message ${messageNumber}`} data-tooltip={copied ? "Link copied" : "Copy Pi-Ark link"} onClick={() => { onCopyLink(messageNumber); setCopied(true); window.setTimeout(() => setCopied(false), 1200); }}>{copied ? <Check size={12} /> : <Link2 size={12} />}</button>;
+  if (!messageId) return null;
+  return <button type="button" className="icon-tooltip" aria-label={copied ? "Internal link copied" : `Copy internal link for message ${messageId}`} data-tooltip={copied ? "Link copied" : "Copy Pi-Ark link"} onClick={() => { onCopyLink(messageId); setCopied(true); window.setTimeout(() => setCopied(false), 1200); }}>{copied ? <Check size={12} /> : <Link2 size={12} />}</button>;
 }
 
-function MessageSourceLinks({ sources, onCopyLink }: { sources: Array<{ label: string; messageNumber: number }>; onCopyLink: (messageNumber: number) => void }) {
-  return <div className="feed-source-links">{sources.map((source) => <span key={`${source.label}-${source.messageNumber}`}><code>{source.label} #{source.messageNumber}</code><MessageLinkButton messageNumber={source.messageNumber} onCopyLink={onCopyLink} /></span>)}</div>;
+function MessageSourceLinks({ sources, onCopyLink }: { sources: Array<{ label: string; messageId?: string }>; onCopyLink: (messageId: string) => void }) {
+  const availableSources = sources.filter((source): source is { label: string; messageId: string } => Boolean(source.messageId));
+  return availableSources.length ? <div className="feed-source-links">{availableSources.map((source) => <span key={`${source.label}-${source.messageId}`}><code>{source.label} {source.messageId}</code><MessageLinkButton messageId={source.messageId} onCopyLink={onCopyLink} /></span>)}</div> : null;
 }
 
-function FeedTextMeta({ message, messageNumber, onCopyLink }: { message: AgentMessage; messageNumber: number; onCopyLink: (messageNumber: number) => void }) {
+function FeedTextMeta({ message, messageId, onCopyLink }: { message: AgentMessage; messageId?: string; onCopyLink: (messageId: string) => void }) {
   const completed = message.role !== "assistant" || Boolean(message.stopReason && message.stopReason !== "pending");
   const contextTokens = message.usage?.totalTokens || (message.usage ? message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite : 0);
   const contextPercent = message.contextWindow && contextTokens ? contextTokens / message.contextWindow * 100 : undefined;
-  return <div className="feed-text-meta"><MessageSourceLinks sources={[{ label: "AI", messageNumber }]} onCopyLink={onCopyLink} />{completed && <div className="feed-text-metrics"><span>{message.responseModel || message.model || "Unknown model"}</span>{message.contextWindow && <span>Context {contextPercent?.toFixed(1) || "0.0"}%</span>}{message.usage && <span>I/{number(message.usage.input)} O/{number(message.usage.output)}</span>}</div>}</div>;
+  return <div className="feed-text-meta"><MessageSourceLinks sources={[{ label: "AI", messageId }]} onCopyLink={onCopyLink} />{completed && <div className="feed-text-metrics"><span>{message.responseModel || message.model || "Unknown model"}</span>{message.contextWindow && <span>Context {contextPercent?.toFixed(1) || "0.0"}%</span>}{message.usage && <span>I/{number(message.usage.input)} O/{number(message.usage.output)}</span>}</div>}</div>;
 }
 
-function FeedTextFooter({ message, messageNumber, infoOpen, onInfoToggle, onCopyLink, onFork }: { message: AgentMessage; messageNumber: number; infoOpen: boolean; onInfoToggle: () => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void }) {
+function FeedTextFooter({ message, messageId, infoOpen, onInfoToggle, onCopyLink, onFork }: { message: AgentMessage; messageId?: string; infoOpen: boolean; onInfoToggle: () => void; onCopyLink: (messageId: string) => void; onFork: (entryId: string) => void }) {
   const [markdownCopied, setMarkdownCopied] = useState(false);
   const completed = message.role !== "assistant" || Boolean(message.stopReason && message.stopReason !== "pending");
   const markdown = messageMarkdown(message);
-  return <div className="feed-text-footer">{infoOpen && <FeedTextMeta message={message} messageNumber={messageNumber} onCopyLink={onCopyLink} />}<div className="feed-text-actions">{completed && message.entryId && <><button type="button" className="icon-tooltip" aria-label={markdownCopied ? "Markdown copied" : "Copy Markdown"} data-tooltip={markdownCopied ? "Markdown copied" : "Copy Markdown"} disabled={!markdown} onClick={() => void navigator.clipboard.writeText(markdown).then(() => { setMarkdownCopied(true); window.setTimeout(() => setMarkdownCopied(false), 1200); })}>{markdownCopied ? <Check size={13} /> : <Copy size={13} />}</button><button type="button" className="icon-tooltip" aria-label="Fork session" data-tooltip="Fork session" onClick={() => onFork(message.entryId!)}><GitFork size={13} /></button></>}<button type="button" className="icon-tooltip" aria-label={infoOpen ? `Hide information for AI message ${messageNumber}` : `Show information for AI message ${messageNumber}`} aria-expanded={infoOpen} data-tooltip={infoOpen ? "Hide message information" : "Show message information"} onClick={onInfoToggle}><Info size={13} /></button></div></div>;
+  const informationLabel = messageId ? `AI message ${messageId}` : "streaming AI message";
+  return <div className="feed-text-footer">{infoOpen && <FeedTextMeta message={message} messageId={messageId} onCopyLink={onCopyLink} />}<div className="feed-text-actions">{completed && message.entryId && <><button type="button" className="icon-tooltip" aria-label={markdownCopied ? "Markdown copied" : "Copy Markdown"} data-tooltip={markdownCopied ? "Markdown copied" : "Copy Markdown"} disabled={!markdown} onClick={() => void navigator.clipboard.writeText(markdown).then(() => { setMarkdownCopied(true); window.setTimeout(() => setMarkdownCopied(false), 1200); })}>{markdownCopied ? <Check size={13} /> : <Copy size={13} />}</button><button type="button" className="icon-tooltip" aria-label="Fork session" data-tooltip="Fork session" onClick={() => onFork(message.entryId!)}><GitFork size={13} /></button></>}<button type="button" className="icon-tooltip" aria-label={infoOpen ? `Hide information for ${informationLabel}` : `Show information for ${informationLabel}`} aria-expanded={infoOpen} data-tooltip={infoOpen ? "Hide message information" : "Show message information"} onClick={onInfoToggle}><Info size={13} /></button></div></div>;
 }
 
-function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessageNumber, target, stateKey, disclosureOpen, onDisclosureChange, onImageOpen, onCopyLink }: { call?: ContentBlock; result?: AgentMessage; summaryMessage?: AgentMessage; messageNumber: number; resultMessageNumber?: number; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void }) {
+function ToolFeedItem({ call, result, summaryMessage, messageId, resultMessageId, target, stateKey, disclosureOpen, onDisclosureChange, onImageOpen, onCopyLink }: { call?: ContentBlock; result?: AgentMessage; summaryMessage?: AgentMessage; messageId?: string; resultMessageId?: string; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageId: string) => void }) {
   const previousRunningRef = useRef(Boolean(call && !result));
   const isSummary = Boolean(summaryMessage);
   const isCompaction = summaryMessage?.role === "compactionSummary";
@@ -148,7 +151,7 @@ function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessa
   const status = isSummary ? "Saved" : result?.isError ? "Failed" : call ? result ? "Completed" : "Running" : "Result";
   const statusClass = `status-${status.toLowerCase()}`;
   const running = Boolean(call && !result);
-  const sources = [{ label: isSummary ? "Message" : call ? "Call" : "Result", messageNumber }, ...(resultMessageNumber ? [{ label: "Result", messageNumber: resultMessageNumber }] : [])];
+  const sources = [{ label: isSummary ? "Message" : call ? "Call" : "Result", messageId }, ...(resultMessageId ? [{ label: "Result", messageId: resultMessageId }] : [])];
   useLayoutEffect(() => {
     if (running && !previousRunningRef.current) onDisclosureChange(stateKey, false);
     else if (target && !running && disclosureOpen === undefined) onDisclosureChange(stateKey, true);
@@ -156,7 +159,7 @@ function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessa
   }, [disclosureOpen, onDisclosureChange, running, stateKey, target]);
   const open = disclosureOpen ?? (target && !running);
   return <div className="feed-tool-item">
-    {resultMessageNumber && <span id={`message-${resultMessageNumber}`} data-message-number={resultMessageNumber} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
+    {resultMessageId && <span id={`message-${resultMessageId}`} data-message-id={resultMessageId} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
     <details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className={`feed-tool-details ${statusClass} ${target ? "permalink-target" : ""}`}><summary><span className="feed-tool-logo">{isSummary ? <Archive size={15} /> : <Wrench size={15} />}</span><strong>{name}</strong><code title={preview}>{preview}</code><span className="feed-tool-status">{status}</span></summary><div className="feed-tool-content"><MessageSourceLinks sources={sources} onCopyLink={onCopyLink} />{call && <section><strong>Arguments</strong><div className="feed-tool-arguments">{Object.entries(call.arguments || {}).length > 0 ? Object.entries(call.arguments || {}).map(([key, value]) => <div key={key}><h5>{key}</h5><pre>{formatToolArgumentValue(value)}</pre></div>) : <p>No arguments</p>}</div></section>}{result && <section><strong>Result</strong><div>{blocks(result.content).map((block, index) => {
       if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown" onImageOpen={onImageOpen} key={index} /> : null;
       if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool result image")} key={index}><img className="message-image" src={source} alt="Tool result" /></button>; }
@@ -165,13 +168,14 @@ function ToolFeedItem({ call, result, summaryMessage, messageNumber, resultMessa
   </div>;
 }
 
-function FeedMessage({ message, messageNumber, numberByMessage, resultByCall, targetMessageNumber, hideReasoning, canRollback, rollbackTargetId, disclosures, onDisclosureChange, onImageOpen, onCopyLink, onFork, onRollback }: { message: AgentMessage; messageNumber: number; numberByMessage: Map<AgentMessage, number>; resultByCall: Map<ContentBlock, AgentMessage>; targetMessageNumber?: number; hideReasoning: boolean; canRollback: boolean; rollbackTargetId?: string; disclosures: Record<string, boolean>; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
-  const target = messageNumber === targetMessageNumber;
-  const messageIdentity = message.entryId || `${message.role}-${messageNumber}`;
+function FeedMessage({ message, idByMessage, resultByCall, targetMessageId, hideReasoning, canRollback, rollbackTargetId, disclosures, onDisclosureChange, onImageOpen, onCopyLink, onFork, onRollback }: { message: AgentMessage; idByMessage: Map<AgentMessage, string | undefined>; resultByCall: Map<ContentBlock, AgentMessage>; targetMessageId?: string; hideReasoning: boolean; canRollback: boolean; rollbackTargetId?: string; disclosures: Record<string, boolean>; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageId: string) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
+  const messageId = idByMessage.get(message);
+  const target = Boolean(messageId && messageId === targetMessageId);
+  const messageIdentity = message.entryId || messageId || `${message.role}-${message.timestamp || "pending"}`;
   const textInfoKey = `info:${messageIdentity}`;
   const textInfoOpen = disclosures[textInfoKey] ?? false;
-  if (message.role === "compactionSummary" || message.role === "branchSummary") { const stateKey = `tool:${messageIdentity}`; return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem summaryMessage={message} messageNumber={messageNumber} target={target} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>; }
-  if (message.role === "toolResult") { const stateKey = `tool:${messageIdentity}`; return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem result={message} messageNumber={messageNumber} target={target} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>; }
+  if (message.role === "compactionSummary" || message.role === "branchSummary") { const stateKey = `tool:${messageIdentity}`; return <article id={messageId ? `message-${messageId}` : undefined} data-message-id={messageId} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem summaryMessage={message} messageId={messageId} target={target} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>; }
+  if (message.role === "toolResult") { const stateKey = `tool:${messageIdentity}`; return <article id={messageId ? `message-${messageId}` : undefined} data-message-id={messageId} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message ${target ? "permalink-target" : ""}`}><ToolFeedItem result={message} messageId={messageId} target={target} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} /></article>; }
   const isUser = message.role === "user";
   const hasText = hasTextFeedContent(message);
   const showAssistantFooter = hasAssistantFooterContent(message);
@@ -179,12 +183,12 @@ function FeedMessage({ message, messageNumber, numberByMessage, resultByCall, ta
     if (block.type === "text") return block.text ? <Markdown source={block.text} className="message-markdown feed-text-block" onImageOpen={onImageOpen} key={index} /> : null;
     if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button feed-text-block" onClick={() => onImageOpen(source, "Attached image")} key={index}><img className="message-image" src={source} alt="Attached image" /></button>; }
     if (block.type === "thinking") { const stateKey = `reasoning:${messageIdentity}:${index}`; const open = disclosures[stateKey] ?? false; return !hideReasoning && block.thinking ? <details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className="thinking feed-text-block" key={index}><summary>Reasoning</summary><Markdown source={block.thinking} className="message-markdown thinking-markdown" onImageOpen={onImageOpen} /></details> : null; }
-    if (block.type === "toolCall") { const result = resultByCall.get(block); const resultMessageNumber = result ? numberByMessage.get(result) : undefined; const stateKey = `tool:${block.id || `${messageIdentity}:${index}`}`; return <ToolFeedItem call={block} result={result} messageNumber={messageNumber} resultMessageNumber={resultMessageNumber} target={target || resultMessageNumber === targetMessageNumber} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={index} />; }
+    if (block.type === "toolCall") { const result = resultByCall.get(block); const resultMessageId = result ? idByMessage.get(result) : undefined; const stateKey = `tool:${block.id || `${messageIdentity}:${index}`}`; return <ToolFeedItem call={block} result={result} messageId={messageId} resultMessageId={resultMessageId} target={target || Boolean(resultMessageId && resultMessageId === targetMessageId)} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} key={index} />; }
     return null;
   });
-  if (isUser) return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-user message-user ${target ? "permalink-target" : ""}`}><div className="feed-user-header"><div className="feed-user-identity"><div className="feed-user-avatar"><UserRound size={16} /></div><div className="feed-user-label">User <span>#{messageNumber}</span></div></div><div className="feed-user-actions"><MessageLinkButton messageNumber={messageNumber} onCopyLink={onCopyLink} />{canRollback && rollbackTargetId && <button type="button" className="icon-tooltip" aria-label="Roll back latest message" data-tooltip="Roll back latest message" onClick={() => onRollback(rollbackTargetId)}><RotateCcw size={13} /></button>}</div></div><div className="feed-message-content">{contentBlocks}</div></article>;
-  const content = hasText ? <div className="feed-ai-text-body"><div className="feed-message-content">{contentBlocks}</div>{showAssistantFooter && <FeedTextFooter message={message} messageNumber={messageNumber} infoOpen={textInfoOpen} onInfoToggle={() => onDisclosureChange(textInfoKey, !textInfoOpen)} onCopyLink={onCopyLink} onFork={onFork} />}</div> : <div className="feed-message-content">{contentBlocks}</div>;
-  return <article id={`message-${messageNumber}`} data-message-number={messageNumber} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-ai-message message-agent ${target ? "permalink-target" : ""}`}>{content}</article>;
+  if (isUser) return <article id={messageId ? `message-${messageId}` : undefined} data-message-id={messageId} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-user message-user ${target ? "permalink-target" : ""}`}><div className="feed-user-header"><div className="feed-user-identity"><div className="feed-user-avatar"><UserRound size={16} /></div><div className="feed-user-label">User {messageId && <span>{messageId}</span>}</div></div><div className="feed-user-actions"><MessageLinkButton messageId={messageId} onCopyLink={onCopyLink} />{canRollback && rollbackTargetId && <button type="button" className="icon-tooltip" aria-label="Roll back latest message" data-tooltip="Roll back latest message" onClick={() => onRollback(rollbackTargetId)}><RotateCcw size={13} /></button>}</div></div><div className="feed-message-content">{contentBlocks}</div></article>;
+  const content = hasText ? <div className="feed-ai-text-body"><div className="feed-message-content">{contentBlocks}</div>{showAssistantFooter && <FeedTextFooter message={message} messageId={messageId} infoOpen={textInfoOpen} onInfoToggle={() => onDisclosureChange(textInfoKey, !textInfoOpen)} onCopyLink={onCopyLink} onFork={onFork} />}</div> : <div className="feed-message-content">{contentBlocks}</div>;
+  return <article id={messageId ? `message-${messageId}` : undefined} data-message-id={messageId} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-ai-message message-agent ${target ? "permalink-target" : ""}`}>{content}</article>;
 }
 
 function RunCollapse({ active, duration, toolMessages, target, stateKey, disclosureOpen, onDisclosureChange, children }: { active: boolean; duration: string; toolMessages: number; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; children: ReactNode }) {
@@ -198,8 +202,8 @@ function RunCollapse({ active, duration, toolMessages, target, stateKey, disclos
   return <details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className={`run-collapse ${active ? "active" : ""}`}><summary><Clock3 size={13} />{active ? "Running" : duration}<span>{toolMessages} tool messages</span></summary><div>{children}</div></details>;
 }
 
-function TurnMessages({ messages, messageNumberOffset, active, targetMessageNumber, hideReasoning, rollbackEntryId, disclosures, onDisclosureChange, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; messageNumberOffset: number; active: boolean; targetMessageNumber?: number; hideReasoning: boolean; rollbackEntryId?: string; disclosures: Record<string, boolean>; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageNumber: number) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
-  const numberByMessage = new Map(messages.map((message, index) => [message, messageNumberOffset + index + 1]));
+function TurnMessages({ messages, active, targetMessageId, hideReasoning, rollbackEntryId, disclosures, onDisclosureChange, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; active: boolean; targetMessageId?: string; hideReasoning: boolean; rollbackEntryId?: string; disclosures: Record<string, boolean>; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageId: string) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {
+  const idByMessage = new Map(messages.map((message) => [message, message.messageId]));
   const resultByToolCallId = new Map<string, AgentMessage>();
   for (const message of messages) if (message.role === "toolResult" && message.toolCallId) resultByToolCallId.set(message.toolCallId, message);
   const resultByCall = new Map<ContentBlock, AgentMessage>();
@@ -215,12 +219,12 @@ function TurnMessages({ messages, messageNumberOffset, active, targetMessageNumb
   }
   let latestUserMessage: AgentMessage | undefined;
   if (rollbackEntryId) for (let index = messages.length - 1; index >= 0; index -= 1) { const candidate = messages[index]; if (candidate.role === "user") { latestUserMessage = candidate; break; } }
-  const renderMessage = (message: AgentMessage, key: string) => pairedToolResults.has(message) ? null : <FeedMessage message={message} messageNumber={numberByMessage.get(message) || 0} numberByMessage={numberByMessage} resultByCall={resultByCall} targetMessageNumber={targetMessageNumber} hideReasoning={hideReasoning} canRollback={message === latestUserMessage} rollbackTargetId={rollbackEntryId} disclosures={disclosures} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={onRollback} key={key} />;
+  const renderMessage = (message: AgentMessage, key: string) => pairedToolResults.has(message) ? null : <FeedMessage message={message} idByMessage={idByMessage} resultByCall={resultByCall} targetMessageId={targetMessageId} hideReasoning={hideReasoning} canRollback={message === latestUserMessage} rollbackTargetId={rollbackEntryId} disclosures={disclosures} onDisclosureChange={onDisclosureChange} onImageOpen={onImageOpen} onCopyLink={onCopyLink} onFork={onFork} onRollback={onRollback} key={key} />;
   return <>{buildConversationSegments(messages, active).map((segment) => {
     if (segment.type === "message" && segment.message.role === "user") return renderMessage(segment.message, segment.key);
     const turnHeader = segment.type !== "warning" && segment.aiStart ? <div className="ai-turn-header" aria-label="AI response"><div className="ai-turn-avatar"><Sparkles size={15} /></div><div className="ai-turn-label">AI</div></div> : null;
     if (segment.type === "message") return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content">{renderMessage(segment.message, segment.key)}</div></div>;
-    if (segment.type === "collapsed") { const firstMessage = segment.messages[0]; const stateKey = `run:${firstMessage?.entryId || numberByMessage.get(firstMessage) || segment.key}`; return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content"><RunCollapse active={segment.active} duration={segment.duration} toolMessages={segment.toolMessages} target={segment.messages.some((message) => numberByMessage.get(message) === targetMessageNumber)} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange}>{segment.messages.map((message, index) => renderMessage(message, `${segment.key}-${index}`))}</RunCollapse></div></div>; }
+    if (segment.type === "collapsed") { const firstMessage = segment.messages[0]; const stateKey = `run:${firstMessage?.entryId || firstMessage?.messageId || segment.key}`; return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content"><RunCollapse active={segment.active} duration={segment.duration} toolMessages={segment.toolMessages} target={segment.messages.some((message) => message.messageId === targetMessageId)} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange}>{segment.messages.map((message, index) => renderMessage(message, `${segment.key}-${index}`))}</RunCollapse></div></div>; }
     return <div className="ai-feed-segment" key={segment.key}><div className="ai-feed-content"><div className="turn-warning" role="status"><TriangleAlert size={14} /><strong>{segment.title}</strong></div></div></div>;
   })}</>;
 }
@@ -228,12 +232,13 @@ function TurnMessages({ messages, messageNumberOffset, active, targetMessageNumb
 function number(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value); }
 function fileData(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.onerror = () => reject(reader.error || new Error("Cannot read attachment")); reader.readAsDataURL(file); }); }
 
-export function Chat({ workspace, session, targetMessageNumber, hideReasoning, onSessionChanged, onSessionForked }: { workspace: Workspace; session: SessionInfo; targetMessageNumber?: number; hideReasoning: boolean; onSessionChanged: () => void; onSessionForked: (sessionId: string) => void }) {
+export function Chat({ workspace, session, targetMessageId, hideReasoning, onSessionChanged, onSessionForked }: { workspace: Workspace; session: SessionInfo; targetMessageId?: string; hideReasoning: boolean; onSessionChanged: () => void; onSessionForked: (sessionId: string) => void }) {
   const cacheKey = sessionCacheKey(workspace.id, session.id);
   const [cachedSnapshot] = useState<AgentSnapshot | null>(() => {
     const cached = getCachedSessionSnapshot(cacheKey);
-    if (!cached || !targetMessageNumber) return cached || null;
-    return targetMessageNumber > cached.messageNumberOffset && targetMessageNumber <= cached.messageNumberOffset + cached.messages.length ? cached : null;
+    if (!cached || !targetMessageId) return cached || null;
+    if (/^[1-9]\d*$/.test(targetMessageId)) { const legacyNumber = Number(targetMessageId); return legacyNumber > cached.messageNumberOffset && legacyNumber <= cached.messageNumberOffset + cached.messages.length ? cached : null; }
+    return cached.messages.some((message) => message.messageId === targetMessageId) ? cached : null;
   });
   const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(cachedSnapshot);
   const [cachedUiState] = useState(() => getCachedSessionUiState(cacheKey));
@@ -251,7 +256,7 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   const [forkDialog, setForkDialog] = useState<{ entryId: string; defaultName: string } | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [sessionLinkCopied, setSessionLinkCopied] = useState(false);
-  const [stickyUserMessageNumber, setStickyUserMessageNumber] = useState<number>();
+  const [stickyUserMessageId, setStickyUserMessageId] = useState<string>();
   const [loadingEarlierMessages, setLoadingEarlierMessages] = useState(false);
   const [queuedEditCandidate, setQueuedEditCandidate] = useState<{ id: string; text: string } | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
@@ -283,10 +288,10 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
     textarea.style.overflowY = textarea.scrollHeight > maxHeight + 1 ? "auto" : "hidden";
   }, [draft]);
   useEffect(() => {
-    setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageNumber(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setOptimisticQueueOperations([]); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = true;
+    setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageId(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setOptimisticQueueOperations([]); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = true;
     let active = true;
     const connectionQuery = new URLSearchParams();
-    if (targetMessageNumber) connectionQuery.set("message", String(targetMessageNumber));
+    if (targetMessageId) connectionQuery.set("message", targetMessageId);
     else if (cachedSnapshot) connectionQuery.set("start", String(cachedSnapshot.messageNumberOffset || 0));
     const socket = new WebSocket(websocketUrl(`/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}${connectionQuery.size ? `?${connectionQuery}` : ""}`));
     socketRef.current = socket;
@@ -338,23 +343,24 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   useLayoutEffect(() => {
     const conversation = conversationRef.current;
     if (!conversation) return;
-    if (!targetMessageNumber && followOutputRef.current) conversation.scrollTop = conversation.scrollHeight;
+    if (!targetMessageId && followOutputRef.current) conversation.scrollTop = conversation.scrollHeight;
     updateConversationPosition(conversation);
-  }, [snapshot?.messages, snapshot?.isStreaming, targetMessageNumber]);
+  }, [snapshot?.messages, snapshot?.isStreaming, targetMessageId]);
+  const resolvedTargetMessageId = targetMessageId ? snapshot?.targetMessageId || (/^m[0-9a-z]{6}$/.test(targetMessageId) ? targetMessageId : undefined) : undefined;
   useEffect(() => {
-    if (!targetMessageNumber || !snapshot) return;
-    const key = `${session.id}:${targetMessageNumber}`;
+    if (!resolvedTargetMessageId || !snapshot) return;
+    const key = `${session.id}:${resolvedTargetMessageId}`;
     if (scrolledPermalinkRef.current === key) return;
-    const element = document.getElementById(`message-${targetMessageNumber}`);
+    const element = document.getElementById(`message-${resolvedTargetMessageId}`);
     if (!element) return;
     scrolledPermalinkRef.current = key;
     window.requestAnimationFrame(() => element.scrollIntoView({ behavior: "smooth", block: "center" }));
-  }, [session.id, snapshot, targetMessageNumber]);
+  }, [resolvedTargetMessageId, session.id, snapshot]);
   const isLoading = snapshot === null;
   const active = Boolean(snapshot && !snapshot.isIdle);
   const allMessages = useMemo(() => snapshot?.messages.filter((message) => message.role !== "system") || [], [snapshot]);
   const messageNumberOffset = snapshot?.messageNumberOffset || 0;
-  const stickyUserMessage = stickyUserMessageNumber ? allMessages[stickyUserMessageNumber - messageNumberOffset - 1] : undefined;
+  const stickyUserMessage = stickyUserMessageId ? allMessages.find((message) => message.messageId === stickyUserMessageId) : undefined;
   const stickyUserText = stickyUserMessage?.role === "user" ? messageMarkdown(stickyUserMessage).trim().split("\n", 1)[0] || "User message" : "";
   const title = snapshot?.name || session.name || session.firstMessage || "New session";
   const modelValue = snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "";
@@ -376,23 +382,23 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
   function showEarlierMessages() {
     if (!snapshot?.hasEarlierMessages || loadingEarlierMessages) return;
     followOutputRef.current = false;
-    setStickyUserMessageNumber(undefined);
+    setStickyUserMessageId(undefined);
     setLoadingEarlierMessages(true);
     if (!send({ type: "load-earlier" })) setLoadingEarlierMessages(false);
   }
   function updateConversationPosition(element: HTMLDivElement) {
     followOutputRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 96;
     const containerTop = element.getBoundingClientRect().top;
-    let nextUserMessageNumber: number | undefined;
-    for (const userMessage of element.querySelectorAll<HTMLElement>(".message-user[data-message-number]")) {
+    let nextUserMessageId: string | undefined;
+    for (const userMessage of element.querySelectorAll<HTMLElement>(".message-user[data-message-id]")) {
       if (userMessage.getBoundingClientRect().top > containerTop + 1) break;
-      nextUserMessageNumber = Number(userMessage.dataset.messageNumber);
+      nextUserMessageId = userMessage.dataset.messageId;
     }
-    setStickyUserMessageNumber((current) => current === nextUserMessageNumber ? current : nextUserMessageNumber);
+    setStickyUserMessageId((current) => current === nextUserMessageId ? current : nextUserMessageId);
   }
-  function locateMessage(messageNumber: number) {
+  function locateMessage(messageId: string) {
     const conversation = conversationRef.current;
-    const message = document.getElementById(`message-${messageNumber}`);
+    const message = document.getElementById(`message-${messageId}`);
     if (!conversation || !message) return;
     followOutputRef.current = false;
     const conversationTop = conversation.getBoundingClientRect().top;
@@ -524,7 +530,7 @@ export function Chat({ workspace, session, targetMessageNumber, hideReasoning, o
       <div className="chat-header-actions"><span className="chat-context-usage" aria-label={sessionContextPercent == null ? "Context usage unavailable" : `Context usage ${sessionContextPercent.toFixed(1)}%`}>{sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.totalDisplayMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
     </header>
     <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : allMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => updateConversationPosition(event.currentTarget)}>
-      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : allMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageNumber && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageNumber}`} onClick={() => locateMessage(stickyUserMessageNumber)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>#{stickyUserMessageNumber}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{snapshot?.hasEarlierMessages && <div className="conversation-history-page"><button type="button" disabled={loadingEarlierMessages} onClick={showEarlierMessages}>{loadingEarlierMessages ? "Loading earlier messages" : "Show earlier messages"}</button><span>{number(messageNumberOffset)} earlier messages</span></div>}<TurnMessages messages={allMessages} messageNumberOffset={messageNumberOffset} active={active} targetMessageNumber={targetMessageNumber} hideReasoning={hideReasoning} rollbackEntryId={snapshot?.rollbackEntryId} disclosures={disclosures} onDisclosureChange={changeDisclosure} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageNumber) => void navigator.clipboard.writeText(internalMessageLink(workspace.id, session.id, messageNumber))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
+      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : allMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>What are we building?</h1><p>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageId && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to User message ${stickyUserMessageId}`} onClick={() => locateMessage(stickyUserMessageId)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">User <span>{stickyUserMessageId}</span></span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{snapshot?.hasEarlierMessages && <div className="conversation-history-page"><button type="button" disabled={loadingEarlierMessages} onClick={showEarlierMessages}>{loadingEarlierMessages ? "Loading earlier messages" : "Show earlier messages"}</button><span>{number(messageNumberOffset)} earlier messages</span></div>}<TurnMessages messages={allMessages} active={active} targetMessageId={resolvedTargetMessageId} hideReasoning={hideReasoning} rollbackEntryId={snapshot?.rollbackEntryId} disclosures={disclosures} onDisclosureChange={changeDisclosure} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageId) => void navigator.clipboard.writeText(internalMessageLink(workspace.id, session.id, messageId))} onFork={(entryId) => { if (!actionBusy) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
     </div>
     {!isLoading && <form className="composer" onSubmit={(event) => void submit(event)}>
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}

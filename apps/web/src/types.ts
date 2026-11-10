@@ -22,6 +22,18 @@ export interface SessionGroup {
   name: string;
 }
 
+export interface SessionRuntimeStatus {
+  id: string;
+  state: "ready" | "running" | "error";
+  statusRevision: number;
+  updateRevision: number;
+  errorMessage?: string;
+}
+
+export interface SessionStatusView extends SessionRuntimeStatus {
+  unread: boolean;
+}
+
 export interface ContentBlock {
   type: string;
   text?: string;
@@ -42,6 +54,7 @@ export interface AgentMessage {
   isError?: boolean;
   stopReason?: string;
   entryId?: string;
+  messageId?: string;
   provider?: string;
   model?: string;
   responseModel?: string;
@@ -72,6 +85,7 @@ export interface AgentSnapshot {
   messages: AgentMessage[];
   messageNumberOffset: number;
   totalDisplayMessages: number;
+  targetMessageId?: string;
   hasEarlierMessages: boolean;
   isStreaming: boolean;
   isIdle: boolean;

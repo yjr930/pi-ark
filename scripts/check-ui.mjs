@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -19,6 +19,18 @@ await writeFile(join(filesFixtureDirectory, "oversized.bin"), Buffer.alloc(2 * 1
 await writeFile(join(filesFixtureDirectory, "报告 (final).txt"), "Unicode download fixture.\n");
 const sessionFixtureDirectory = join(workspacePath, ".pi-ark", "sessions");
 await mkdir(sessionFixtureDirectory, { recursive: true });
+const legacySessionSource = process.env.PI_ARK_CHECK_LEGACY_SESSION;
+let legacySessionId;
+if (legacySessionSource) {
+  const source = await readFile(legacySessionSource, "utf8");
+  const lines = source.trimEnd().split("\n");
+  const header = JSON.parse(lines[0]);
+  header.cwd = workspacePath;
+  delete header.parentSession;
+  lines[0] = JSON.stringify(header);
+  legacySessionId = header.id;
+  await writeFile(join(sessionFixtureDirectory, legacySessionSource.split("/").at(-1)), `${lines.join("\n")}\n`);
+}
 const sessionFixture = SessionManager.create(workspacePath, sessionFixtureDirectory);
 sessionFixture.appendSessionInfo("Browser UI fixture");
 sessionFixture.appendMessage({ role: "user", content: [{ type: "text", text: "Browser folding check" }], timestamp: Date.now() - 4000 });
@@ -43,6 +55,7 @@ const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });
 const page = await context.newPage();
 let mockedSubscriptionFlow = null;
+let mockedSessionStatuses = [];
 let mockedModelPreferences = {
   models: [
     { provider: "openai-codex", providerName: "OpenAI Codex (legacy)", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", reasoning: true, contextWindow: 200000, thinkingLevels: ["low", "medium", "high"], enabled: true },
@@ -53,6 +66,9 @@ let mockedModelPreferences = {
   defaultModel: "gpt-5.6-sol",
   thinkingLevel: "high",
 };
+function fixtureMessageId(index) { return `m${index.toString(36).padStart(6, "0")}`; }
+function withFixtureMessageIds(messages, start = 0) { return messages.map((message, index) => ({ ...message, messageId: fixtureMessageId(start + index) })); }
+
 async function assertDialogChrome(dialog, { input = false } = {}) {
   const metrics = await dialog.evaluate((card) => { const style = getComputedStyle(card); const title = card.querySelector("h2"); const buttons = [...card.querySelectorAll(".dialog-actions > button")]; return { padding: style.padding, gap: style.gap, radius: Number.parseFloat(style.borderRadius), titleSize: title ? Number.parseFloat(getComputedStyle(title).fontSize) : 0, buttonHeights: buttons.map((button) => button.getBoundingClientRect().height) }; });
   assert.equal(metrics.padding, "16px");
@@ -63,6 +79,9 @@ async function assertDialogChrome(dialog, { input = false } = {}) {
   if (input) assert.equal((await dialog.locator("input").first().boundingBox()).height, 36);
 }
 
+await page.route("**/api/workspaces/*/session-statuses", async (route) => {
+  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ statuses: mockedSessionStatuses }) });
+});
 await page.route("**/api/settings/release?latest=true", async (route) => {
   const response = await route.fetch();
   const info = await response.json();
@@ -100,6 +119,24 @@ try {
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByText("Workspaces", { exact: true }).waitFor();
+  if (legacySessionId) {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseOrigin });
+    await page.waitForFunction(() => Boolean(new URL(window.location.href).searchParams.get("workspace")));
+    const workspaceId = new URL(page.url()).searchParams.get("workspace");
+    assert.ok(workspaceId);
+    const legacyLink = `pi-ark://workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(legacySessionId)}/message/2294`;
+    await page.getByTitle("Open Pi-Ark session link").click();
+    const linkDialog = page.getByRole("dialog", { name: "Open session link" });
+    await linkDialog.getByLabel("Pi-Ark session link").fill(legacyLink);
+    await linkDialog.getByRole("button", { name: "Open session" }).click();
+    const legacyTarget = page.locator(".feed-source-message.permalink-target").filter({ hasText: "用户可见的递增 Message number" });
+    await legacyTarget.waitFor({ timeout: 10000 });
+    const resolvedLegacyMessageId = await legacyTarget.getAttribute("data-message-id");
+    assert.match(resolvedLegacyMessageId, /^m[0-9a-z]{6}$/);
+    await legacyTarget.getByRole("button", { name: `Show information for AI message ${resolvedLegacyMessageId}` }).click();
+    await legacyTarget.getByRole("button", { name: `Copy internal link for message ${resolvedLegacyMessageId}` }).click();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), `pi-ark://workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(legacySessionId)}/message/${resolvedLegacyMessageId}`);
+  }
   const compactedSessionRow = page.locator(".session-list-item").filter({ hasText: "Compacted history fixture" });
   await compactedSessionRow.waitFor();
   await compactedSessionRow.locator(".session-open").click();
@@ -111,7 +148,7 @@ try {
   earlierPermalinkUrl.searchParams.set("message", "1");
   const earlierPermalinkPage = await page.context().newPage();
   await earlierPermalinkPage.goto(earlierPermalinkUrl.toString());
-  await earlierPermalinkPage.locator('.feed-source-message.permalink-target[data-message-number="1"]').filter({ hasText: "Old history question 1" }).waitFor();
+  await earlierPermalinkPage.locator(".feed-source-message.permalink-target").filter({ hasText: "Old history question 1" }).waitFor();
   await earlierPermalinkPage.close();
   const compactMessage = page.locator('.feed-source-message[data-message-role="compactionSummary"]');
   await compactMessage.waitFor();
@@ -122,7 +159,7 @@ try {
   assert.equal(await compactDetails.getAttribute("open"), null);
   assert.equal(await page.getByText("Older compacted context remains available.", { exact: true }).isVisible(), false);
   await compactDetails.locator(":scope > summary").click();
-  assert.match(await compactDetails.locator(".feed-source-links").textContent(), /Message #121/);
+  assert.match(await compactDetails.locator(".feed-source-links").textContent(), /Message m[0-9a-z]{6}/);
   await page.getByText("Older compacted context remains available.", { exact: true }).waitFor();
   await historyPageButton.click();
   await page.getByText("Old history question 1", { exact: true }).waitFor();
@@ -130,8 +167,20 @@ try {
 
   const fixtureSessionRow = page.locator(".session-list-item").filter({ hasText: "Browser UI fixture" });
   await fixtureSessionRow.waitFor();
+  mockedSessionStatuses = [{ id: sessionFixture.getSessionId(), state: "running", statusRevision: 1, updateRevision: 0 }];
+  await fixtureSessionRow.getByRole("status", { name: "Session is running" }).waitFor({ timeout: 3000 });
+  const runningStateMetrics = await fixtureSessionRow.locator(".session-state.running").evaluate((element) => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height, animation: getComputedStyle(element.querySelector("svg")).animationName, color: getComputedStyle(element).color }));
+  assert.deepEqual({ width: runningStateMetrics.width, height: runningStateMetrics.height }, { width: 18, height: 18 });
+  assert.notEqual(runningStateMetrics.animation, "none");
+  mockedSessionStatuses = [{ id: sessionFixture.getSessionId(), state: "ready", statusRevision: 2, updateRevision: 1 }];
+  await fixtureSessionRow.getByRole("status", { name: "Session has new output" }).waitFor({ timeout: 3000 });
+  assert.notEqual(await fixtureSessionRow.locator(".session-state.unread i").evaluate((element) => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)");
   await fixtureSessionRow.locator(".session-open").click();
   await page.locator(".composer").waitFor();
+  await fixtureSessionRow.getByRole("status", { name: "Session has new output" }).waitFor({ state: "detached" });
+  mockedSessionStatuses = [{ id: compactedSessionFixture.getSessionId(), state: "error", statusRevision: 1, updateRevision: 1, errorMessage: "Fixture agent error" }, { id: sessionFixture.getSessionId(), state: "ready", statusRevision: 2, updateRevision: 1 }];
+  await compactedSessionRow.getByRole("status", { name: "Session has an error" }).waitFor({ timeout: 3000 });
+  assert.equal(await compactedSessionRow.locator(".session-state.error").getAttribute("title"), "Fixture agent error");
 
   let delayedSessionConnections = 0;
   await page.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
@@ -164,8 +213,9 @@ try {
   await restoredTool.locator(":scope > summary").click();
   const restoredReasoning = restoredRun.locator(".thinking");
   await restoredReasoning.locator(":scope > summary").click();
-  const sessionStateFinalMessage = page.locator('.feed-source-message[data-message-number="4"]');
-  await sessionStateFinalMessage.getByRole("button", { name: "Show information for AI message 4" }).click();
+  const sessionStateFinalMessage = page.locator(".feed-source-message").filter({ hasText: "Final browser answer" });
+  const sessionStateFinalMessageId = await sessionStateFinalMessage.getAttribute("data-message-id");
+  await sessionStateFinalMessage.getByRole("button", { name: `Show information for AI message ${sessionStateFinalMessageId}` }).click();
   const restoredComposer = page.locator(".composer textarea");
   await restoredComposer.fill("Session-specific draft");
   await page.locator('.composer input[type="file"]').setInputFiles(join(filesFixtureDirectory, "preview.png"));
@@ -180,7 +230,7 @@ try {
   assert.notEqual(await page.locator(".run-collapse").last().getAttribute("open"), null);
   assert.notEqual(await page.locator(".run-collapse").last().locator(".feed-tool-details").getAttribute("open"), null);
   assert.notEqual(await page.locator(".run-collapse").last().locator(".thinking").getAttribute("open"), null);
-  assert.equal(await page.locator('.feed-source-message[data-message-number="4"]').getByRole("button", { name: "Hide information for AI message 4" }).getAttribute("aria-expanded"), "true");
+  assert.equal(await page.locator(".feed-source-message").filter({ hasText: "Final browser answer" }).getByRole("button", { name: `Hide information for AI message ${sessionStateFinalMessageId}` }).getAttribute("aria-expanded"), "true");
   const foldColors = await page.locator(".run-collapse").last().evaluate((run) => ({ conversation: getComputedStyle(run.closest(".conversation")).backgroundColor, run: getComputedStyle(run.querySelector(":scope > summary")).backgroundColor, tool: getComputedStyle(run.querySelector(".feed-tool-details")).backgroundColor, reasoning: getComputedStyle(run.querySelector(".thinking > summary")).backgroundColor, toolBorder: getComputedStyle(run.querySelector(".feed-tool-details")).borderTopColor }));
   assert.notEqual(foldColors.run, foldColors.conversation);
   assert.notEqual(foldColors.tool, foldColors.conversation);
@@ -274,7 +324,7 @@ try {
   let activeSnapshot;
   let activeQueue = Array.from({ length: 6 }, (_, index) => ({ id: `active-queue-${index}`, mode: "followUp", text: `Queued follow-up ${index + 1}` }));
   let activeQueueRevision = 0;
-  let activeMessages = [
+  let activeMessages = withFixtureMessageIds([
     { role: "assistant", content: [{ type: "toolCall", id: "loose-bash-call", name: "bash", arguments: { command: "echo loose tool call" } }], timestamp: 500, entryId: "loose-bash" },
     { role: "toolResult", toolCallId: "loose-bash-call", toolName: "bash", content: [{ type: "text", text: "Loose tool result" }], timestamp: 600, entryId: "loose-bash-result" },
     { role: "assistant", content: [{ type: "toolCall", id: "compact-read-call", name: "read", arguments: { path: "README.md" } }, { type: "toolCall", id: "compact-refresh-call", name: "refresh", arguments: {} }], timestamp: 700, entryId: "compact-multi-tool-call" },
@@ -294,7 +344,7 @@ try {
     { role: "toolResult", toolCallId: "active-bash-call", toolName: "bash", content: [{ type: "text", text: ["Active bash result", ...Array.from({ length: 80 }, (_, index) => `status line ${index + 1}`)].join("\n") }], timestamp: 5400, entryId: "active-bash-result" },
     { role: "assistant", content: [{ type: "toolCall", id: "active-refresh-call", name: "refresh", arguments: {} }], timestamp: 5500, entryId: "active-refresh" },
     { role: "toolResult", toolCallId: "active-refresh-call", toolName: "refresh", content: [{ type: "text", text: "Active refresh result" }], timestamp: 5600, entryId: "active-refresh-result" },
-  ];
+  ]);
   await activePage.route("**/api/workspaces/*/sessions/*/queue/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -395,8 +445,9 @@ try {
   await multiToolMessage.getByText("Parallel tool preface remains visible", { exact: true }).waitFor();
   assert.deepEqual(await multiToolMessage.locator(".feed-tool-details > summary code").allTextContents(), ["README.md", "{}"]);
   assert.equal(await multiToolMessage.locator(".feed-text-meta").count(), 0);
-  await multiToolMessage.getByRole("button", { name: "Show information for AI message 6" }).click();
-  assert.equal(await multiToolMessage.locator('.feed-text-meta .feed-source-links code').filter({ hasText: "AI #6" }).count(), 1);
+  const multiToolMessageId = await multiToolMessage.getAttribute("data-message-id");
+  await multiToolMessage.getByRole("button", { name: `Show information for AI message ${multiToolMessageId}` }).click();
+  assert.equal(await multiToolMessage.locator('.feed-text-meta .feed-source-links code').filter({ hasText: `AI ${multiToolMessageId}` }).count(), 1);
   assert.equal(await activePage.getByRole("button", { name: /Copy URL for message/ }).count(), 0);
   assert.equal(await activeRun.getByText("Reading a file", { exact: true }).count(), 1);
   const streamingText = activeRun.locator(".feed-ai-message").filter({ hasText: "Reading a file" });
@@ -440,18 +491,18 @@ try {
   assert.notEqual(await stickyUser.evaluate((element) => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)");
   assert.equal(await activePage.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest(".conversation-sticky-user")), { x: stickyUserBox.x + stickyUserBox.width / 2, y: stickyUserBox.y + stickyUserBox.height / 2 }), true);
   const stickyUserContent = await stickyUser.textContent();
-  const stickyUserMatch = /User\s+#(\d+).+/.exec(stickyUserContent || "");
+  const stickyUserMatch = /User\s+(m[0-9a-z]{6}).+/.exec(stickyUserContent || "");
   assert.ok(stickyUserMatch);
-  const stickyUserNumber = Number(stickyUserMatch[1]);
+  const stickyUserMessageId = stickyUserMatch[1];
   const bottomScroll = await activeConversation.evaluate((element) => element.scrollTop);
   await stickyUser.locator(".sticky-user-text").click();
   await activePage.waitForTimeout(500);
-  const locatedUser = activePage.locator(`.message-user[data-message-number="${stickyUserNumber}"]`);
+  const locatedUser = activePage.locator(`.message-user[data-message-id="${stickyUserMessageId}"]`);
   const locatedUserBox = await locatedUser.boundingBox();
   const locatedConversationBox = await activeConversation.boundingBox();
   assert.ok(locatedUserBox && locatedConversationBox && locatedUserBox.y >= locatedConversationBox.y - 1 && locatedUserBox.y < locatedConversationBox.y + locatedConversationBox.height);
   assert.ok(await activeConversation.evaluate((element) => element.scrollTop) < bottomScroll);
-  await activePage.waitForFunction((currentNumber) => { const match = /#(\d+)/.exec(document.querySelector(".sticky-user-label")?.textContent || ""); return Boolean(match && Number(match[1]) < currentNumber); }, stickyUserNumber);
+  await activePage.waitForFunction((currentMessageId) => { const match = /(m[0-9a-z]{6})/.exec(document.querySelector(".sticky-user-label")?.textContent || ""); return Boolean(match && match[1] !== currentMessageId); }, stickyUserMessageId);
   await activeConversation.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event("scroll")); });
   await activeRun.getByText("Reading a file", { exact: true }).waitFor();
   const toolRows = activeRun.locator(".feed-tool-item");
@@ -487,14 +538,14 @@ try {
   assert.notEqual(await activeRunSummary.evaluate((element) => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)");
   assert.equal(await activePage.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest(".run-collapse > summary")), { x: activeRunSummaryBox.x + activeRunSummaryBox.width / 2, y: activeRunSummaryBox.y + activeRunSummaryBox.height / 2 }), true);
   await activeConversation.evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")); });
-  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "text", text: "Live output while reading history" }], timestamp: 5500, entryId: "active-output-one" }];
+  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "text", text: "Live output while reading history" }], timestamp: 5500, entryId: "active-output-one", messageId: fixtureMessageId(activeMessages.length) }];
   activeSnapshot.session.messages = activeMessages;
   activeSocket.send(JSON.stringify(activeSnapshot));
   await activePage.getByText("Live output while reading history", { exact: true }).waitFor();
   await activePage.waitForTimeout(100);
   assert.ok(await activeConversation.evaluate((element) => element.scrollTop <= 1));
   await activeConversation.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event("scroll")); });
-  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "text", text: "Live output at the bottom" }], timestamp: 5600, entryId: "active-output-two" }];
+  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "text", text: "Live output at the bottom" }], timestamp: 5600, entryId: "active-output-two", messageId: fixtureMessageId(activeMessages.length) }];
   activeSnapshot.session.messages = activeMessages;
   activeSocket.send(JSON.stringify(activeSnapshot));
   await activePage.getByText("Live output at the bottom", { exact: true }).waitFor();
@@ -541,7 +592,7 @@ try {
   await schedulingRow.getByText("Scheduling", { exact: true }).waitFor();
   assert.equal(await schedulingRow.getByRole("button").count(), 0);
   await activePage.waitForFunction(() => !document.querySelector(".queued-message.pending") && [...document.querySelectorAll(".queued-message:not(.pending) > strong")].some((element) => element.textContent === "Optimistic scheduling message"));
-  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "toolCall", id: "active-late-call", name: "bash", arguments: { command: "echo late tool" } }], timestamp: 5700, entryId: "active-late-call-message" }];
+  activeMessages = [...activeMessages, { role: "assistant", content: [{ type: "toolCall", id: "active-late-call", name: "bash", arguments: { command: "echo late tool" } }], timestamp: 5700, entryId: "active-late-call-message", messageId: fixtureMessageId(activeMessages.length) }];
   activeSnapshot.session.messages = activeMessages;
   activeSocket.send(JSON.stringify(activeSnapshot));
   const lateRunningTool = activeRun.locator(".feed-tool-details").filter({ hasText: "echo late tool" }).last();
@@ -561,7 +612,7 @@ try {
   assert.equal(runningToolStyle.itemBackground, "rgba(0, 0, 0, 0)");
   assert.equal(runningToolStyle.itemPadding, "0px");
   assert.equal(runningToolStyle.itemShadow, "none");
-  activeMessages = [...activeMessages, { role: "toolResult", toolCallId: "active-late-call", toolName: "bash", content: [{ type: "text", text: "Late tool completed" }], timestamp: 5800, entryId: "active-late-result" }];
+  activeMessages = [...activeMessages, { role: "toolResult", toolCallId: "active-late-call", toolName: "bash", content: [{ type: "text", text: "Late tool completed" }], timestamp: 5800, entryId: "active-late-result", messageId: fixtureMessageId(activeMessages.length) }];
   activeSnapshot.session.messages = activeMessages;
   activeSocket.send(JSON.stringify(activeSnapshot));
   await lateRunningTool.locator(".feed-tool-status").filter({ hasText: "Completed" }).waitFor();
@@ -599,11 +650,11 @@ try {
       if (payload.type !== "snapshot") { webSocket.send(message); return; }
       payload.session.isStreaming = true;
       payload.session.isIdle = false;
-      payload.session.messages = [
+      payload.session.messages = withFixtureMessageIds([
         { role: "user", content: [{ type: "text", text: "Hide reasoning browser turn" }], timestamp: 1000, entryId: "hidden-reasoning-user" },
         { role: "assistant", content: [{ type: "thinking", thinking: "This reasoning must stay hidden" }, { type: "toolCall", id: "hidden-reasoning-call", name: "bash", arguments: { command: "echo hidden reasoning" } }], timestamp: 2000, entryId: "hidden-reasoning-assistant" },
         { role: "toolResult", toolCallId: "orphan-result-call", toolName: "lookup", content: [{ type: "text", text: "Standalone result" }], timestamp: 2100, entryId: "hidden-standalone-result" },
-      ];
+      ]);
       webSocket.send(JSON.stringify(payload));
     });
   });
@@ -630,11 +681,11 @@ try {
       payload.session.isStreaming = false;
       payload.session.isIdle = true;
       payload.session.rollbackEntryId = "interrupted-result";
-      payload.session.messages = [
+      payload.session.messages = withFixtureMessageIds([
         { role: "user", content: [{ type: "text", text: "Interrupted browser turn" }], timestamp: 1000, entryId: "interrupted-user" },
         { role: "assistant", content: [{ type: "text", text: "Reading a file" }, { type: "toolCall", id: "interrupted-read-call", name: "read", arguments: { path: "README.md" } }], timestamp: 2000, entryId: "interrupted-call" },
         { role: "toolResult", toolCallId: "interrupted-read-call", toolName: "read", content: [{ type: "text", text: "Hidden until the result frame opens" }], isError: true, timestamp: 3000, entryId: "interrupted-result" },
-      ];
+      ]);
       webSocket.send(JSON.stringify(payload));
     });
   });
@@ -661,7 +712,7 @@ try {
   assert.equal(await interruptedExecution.locator(":scope > summary code").textContent(), "README.md");
   assert.equal(await interruptedResultContent.isVisible(), false);
   await interruptedExecution.locator(":scope > summary").click();
-  assert.match(await interruptedExecution.locator(".feed-source-links").textContent(), /Call #2.*Result #3/);
+  assert.match(await interruptedExecution.locator(".feed-source-links").textContent(), /Call m[0-9a-z]{6}.*Result m[0-9a-z]{6}/);
   await interruptedResultContent.waitFor();
   await interruptedPage.close();
   let currentUrl = new URL(page.url());
@@ -755,7 +806,9 @@ try {
   assert.equal(new URL(page.url()).searchParams.get("page"), "files");
   const persistedFileBrowser = await page.locator(".file-browser").boundingBox();
   assert.ok(persistedFileBrowser && Math.abs(persistedFileBrowser.width - savedFileBrowserWidth) <= 1);
+  await page.locator(".session-list-item.active").waitFor();
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
+  await page.waitForFunction(() => new URL(window.location.href).searchParams.get("page") === "agent");
   await page.locator(".composer .composer-model .ark-select").waitFor();
   assert.equal(new URL(page.url()).searchParams.get("page"), "agent");
   assert.equal(await page.locator(".chat-runtime-bar").count(), 0);
@@ -768,8 +821,10 @@ try {
   await page.getByText("Final browser answer", { exact: true }).waitFor();
   assert.equal(await page.locator(".message-markdown").filter({ hasText: "Final browser answer" }).count(), 1);
   const browserFinalMessage = page.locator(".feed-ai-message").filter({ hasText: "Final browser answer" });
+  const browserFinalMessageId = await browserFinalMessage.getAttribute("data-message-id");
+  assert.match(browserFinalMessageId, /^m[0-9a-z]{6}$/);
   const firstUserMessage = page.locator(".message-user").first();
-  assert.match(await firstUserMessage.locator(".feed-user-label").textContent(), /^User #1$/);
+  assert.match(await firstUserMessage.locator(".feed-user-label").textContent(), /^User m[0-9a-z]{6}$/);
   const feedAlignment = await page.locator(".conversation-content").evaluate((conversation) => { const user = conversation.querySelector(".message-user").getBoundingClientRect(); const userHeader = conversation.querySelector(".message-user > .feed-user-header").getBoundingClientRect(); const userContent = conversation.querySelector(".message-user > .feed-message-content").getBoundingClientRect(); const aiHeader = conversation.querySelector(".ai-turn-header").getBoundingClientRect(); const aiContent = conversation.querySelector(".ai-feed-segment.start > .ai-feed-content").getBoundingClientRect(); return { userX: user.x, userHeaderX: userHeader.x, userContentX: userContent.x, aiHeaderX: aiHeader.x, aiContentX: aiContent.x }; });
   assert.ok(Math.abs(feedAlignment.userHeaderX - feedAlignment.userContentX) <= 1);
   assert.ok(feedAlignment.userContentX - feedAlignment.userX >= 22);
@@ -777,7 +832,7 @@ try {
   assert.equal(await browserFinalMessage.locator(".feed-text-meta").count(), 0);
   assert.equal(await browserFinalMessage.getByRole("button", { name: "Copy Markdown" }).count(), 1);
   assert.equal(await browserFinalMessage.getByRole("button", { name: "Fork session" }).count(), 1);
-  assert.equal(await browserFinalMessage.getByRole("button", { name: "Show information for AI message 4" }).count(), 1);
+  assert.equal(await browserFinalMessage.getByRole("button", { name: `Show information for AI message ${browserFinalMessageId}` }).count(), 1);
   assert.equal(await browserFinalMessage.getByRole("button", { name: /Copy internal link/ }).count(), 0);
   const finalAiSegment = browserFinalMessage.locator("xpath=ancestor::div[contains(@class,'ai-feed-segment')]");
   assert.equal(await finalAiSegment.locator(":scope > .ai-turn-header").count(), 0);
@@ -791,11 +846,12 @@ try {
   assert.notEqual(await foldedToolTurn.getAttribute("open"), null);
   const browserToolRows = foldedToolTurn.locator(".feed-tool-item");
   assert.equal(await browserToolRows.count(), 1);
-  const browserToolAssistant = foldedToolTurn.locator('.feed-source-message[data-message-number="2"]');
+  const browserToolAssistant = foldedToolTurn.locator(".feed-source-message").filter({ hasText: "Checking the browser fixture" });
   await browserToolAssistant.getByText("Checking the browser fixture", { exact: true }).waitFor();
+  const browserToolAssistantId = await browserToolAssistant.getAttribute("data-message-id");
   assert.equal(await browserToolAssistant.locator(".feed-text-meta").count(), 0);
-  await browserToolAssistant.getByRole("button", { name: "Show information for AI message 2" }).click();
-  assert.equal(await browserToolAssistant.locator(".feed-text-meta > .feed-source-links").textContent(), "AI #2");
+  await browserToolAssistant.getByRole("button", { name: `Show information for AI message ${browserToolAssistantId}` }).click();
+  assert.equal(await browserToolAssistant.locator(".feed-text-meta > .feed-source-links").textContent(), `AI ${browserToolAssistantId}`);
   const browserToolResult = browserToolRows.first();
   const browserToolExecution = browserToolResult.locator(".feed-tool-details");
   assert.match(await browserToolExecution.locator(":scope > summary").textContent(), /read.*README\.md.*Completed/);
@@ -803,10 +859,15 @@ try {
   const browserToolResultContent = browserToolResult.getByText("Browser fixture tool result", { exact: true });
   assert.equal(await browserToolResultContent.isVisible(), false);
   await browserToolExecution.locator(":scope > summary").click();
-  assert.match(await browserToolExecution.locator(".feed-source-links").textContent(), /Call #2.*Result #3/);
+  const browserToolSource = browserToolExecution.locator("xpath=ancestor::article[1]");
+  const browserToolMessageId = await browserToolSource.getAttribute("data-message-id");
+  const browserToolResultId = await browserToolSource.locator(".message-inline-anchor").getAttribute("data-message-id");
+  assert.match(browserToolMessageId, /^m[0-9a-z]{6}$/);
+  assert.match(browserToolResultId, /^m[0-9a-z]{6}$/);
+  assert.match(await browserToolExecution.locator(".feed-source-links").textContent(), new RegExp(`Call ${browserToolMessageId}.*Result ${browserToolResultId}`));
   await browserToolResultContent.waitFor();
   await foldedToolTurn.locator(":scope > summary").click();
-  await browserFinalMessage.getByRole("button", { name: "Show information for AI message 4" }).click();
+  await browserFinalMessage.getByRole("button", { name: `Show information for AI message ${browserFinalMessageId}` }).click();
   const finalFooter = browserFinalMessage.locator(".feed-text-meta");
   await finalFooter.getByText("gpt-5.6-sol", { exact: true }).waitFor();
   const finalMetrics = await finalFooter.locator(".feed-text-metrics span").allTextContents();
@@ -900,8 +961,18 @@ try {
   const paperFoldPalette = themeFoldPalettes.find((palette) => palette.theme === "paper");
   const paperRunChannels = colorChannels(paperFoldPalette.run);
   const paperToolChannels = colorChannels(paperFoldPalette.tool);
-  assert.ok(paperRunChannels[0] >= paperRunChannels[1] && paperRunChannels[1] > paperRunChannels[2]);
+  assert.ok(paperRunChannels[1] > paperRunChannels[0] && paperRunChannels[0] > paperRunChannels[2]);
   assert.ok(paperToolChannels.every((channel, index) => channel > paperRunChannels[index]));
+  if (process.env.PI_ARK_CHECK_PAPER_SCREENSHOT) {
+    const originalTheme = await page.evaluate(() => document.documentElement.dataset.theme);
+    const wasOpen = await foldedToolTurn.getAttribute("open") !== null;
+    await page.evaluate(() => { document.documentElement.dataset.theme = "paper"; });
+    if (!wasOpen) await foldedToolTurn.locator(":scope > summary").click();
+    await foldedToolTurn.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: process.env.PI_ARK_CHECK_PAPER_SCREENSHOT });
+    if (!wasOpen) await foldedToolTurn.locator(":scope > summary").click();
+    await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, originalTheme);
+  }
   const rollbackButtonCount = await page.getByRole("button", { name: "Roll back latest message" }).count();
   assert.equal(rollbackButtonCount, 1);
   const rollbackButton = latestUserMessage.getByRole("button", { name: "Roll back latest message" });
@@ -914,16 +985,15 @@ try {
   assert.equal(await internalLinkButton.count(), 1);
   assert.equal(await internalLinkButton.textContent(), "");
   await internalLinkButton.click();
-  const copiedMessageNumber = 4;
-  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), `pi-ark://workspace/${encodeURIComponent(linkedWorkspace)}/session/${encodeURIComponent(linkedSession)}/message/${copiedMessageNumber}`);
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), `pi-ark://workspace/${encodeURIComponent(linkedWorkspace)}/session/${encodeURIComponent(linkedSession)}/message/${browserFinalMessageId}`);
   const copiedMessageUrl = new URL(page.url());
-  copiedMessageUrl.searchParams.set("message", String(copiedMessageNumber));
+  copiedMessageUrl.searchParams.set("message", browserFinalMessageId);
   const permalinkPage = await page.context().newPage();
   await permalinkPage.goto(copiedMessageUrl.toString());
   await permalinkPage.locator(".feed-source-message.permalink-target").filter({ hasText: "Final browser answer" }).waitFor();
   await permalinkPage.close();
   const toolPermalinkUrl = new URL(page.url());
-  toolPermalinkUrl.searchParams.set("message", "2");
+  toolPermalinkUrl.searchParams.set("message", browserToolMessageId);
   const toolPermalinkPage = await page.context().newPage();
   await toolPermalinkPage.goto(toolPermalinkUrl.toString());
   const targetedToolDetails = toolPermalinkPage.locator(".feed-tool-details.permalink-target");

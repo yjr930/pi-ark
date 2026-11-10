@@ -1,0 +1,24 @@
+import assert from "node:assert/strict";
+import { acknowledgeSessionStatus, mergeSessionStatuses } from "../apps/web/src/session-status.ts";
+
+let statuses = mergeSessionStatuses({}, [{ id: "session-a", state: "ready", statusRevision: 0, updateRevision: 0 }]);
+assert.equal(statuses["session-a"].unread, false);
+assert.equal(mergeSessionStatuses({}, [{ id: "session-short-run", state: "ready", statusRevision: 2, updateRevision: 1 }])["session-short-run"].unread, true);
+statuses = mergeSessionStatuses(statuses, [{ id: "session-a", state: "running", statusRevision: 1, updateRevision: 0 }]);
+assert.equal(statuses["session-a"].state, "running");
+assert.equal(statuses["session-a"].unread, false);
+statuses = mergeSessionStatuses(statuses, [{ id: "session-a", state: "ready", statusRevision: 2, updateRevision: 1 }]);
+assert.equal(statuses["session-a"].unread, true);
+statuses = acknowledgeSessionStatus(statuses, "session-a");
+assert.equal(statuses["session-a"].unread, false);
+const acknowledged = statuses;
+statuses = mergeSessionStatuses(statuses, [{ id: "session-a", state: "running", statusRevision: 1, updateRevision: 0 }]);
+assert.deepEqual(statuses, acknowledged);
+statuses = mergeSessionStatuses(statuses, [{ id: "session-a", state: "running", statusRevision: 3, updateRevision: 1 }]);
+statuses = mergeSessionStatuses(statuses, [{ id: "session-a", state: "ready", statusRevision: 4, updateRevision: 2 }], "session-a");
+assert.equal(statuses["session-a"].unread, false);
+statuses = mergeSessionStatuses(statuses, [{ id: "session-a", state: "error", statusRevision: 5, updateRevision: 3, errorMessage: "Model request failed" }]);
+assert.equal(statuses["session-a"].state, "error");
+assert.equal(statuses["session-a"].errorMessage, "Model request failed");
+assert.equal(statuses["session-a"].unread, false);
+console.log("session status checks passed");

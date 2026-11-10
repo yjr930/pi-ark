@@ -13,7 +13,7 @@ Pi-Ark 是面向个人或受控团队环境的 pi coding agent Web UI。服务�
 - Session 可以覆盖当前对话使用的 model 和 thinking level，同时保留 Global default。
 - 破坏性操作使用确认对话框，并明确说明将保留或删除的数据。
 - 长内容和工具执行过程逐层折叠，最终回答与重要状态保持可见。
-- URL 保存当前页面、Workspace、Session 和目标 message，使浏览器刷新和分享链接可以恢复位置。
+- URL 保存当前页面、Workspace、Session 和目标 Message ID，使浏览器刷新和分享链接可以恢复位置。
 - 同一个 hostname 可以通过不同的 base path 提供多个实例；每个实例拥有独立的 Global settings、provider credentials 和登录状态。
 - 多个实例可以共享 Workspace `.pi-ark` state；用户在同一时刻从一个实例操作指定的 Session。
 - 所有列表、选择器、对话框和确认操作使用 Pi-Ark 组件，并保持一致的紧凑尺寸。
@@ -54,6 +54,10 @@ Registry 为空时，主内容区显示 No open workspace，并提供 Add worksp
 
 Session 标题优先使用用户设置的名称，其次使用首条 user message。列表显示最近修改日期；置顶 Session 额外显示 Pin 图标。
 
+Session row 的右侧状态区域使用以下优先级：Agent 正在运行时显示 warning color spinner；最近一次 Agent run 以 error 结束时显示 danger color 感叹号；非当前 Agent page 的 Session 完成新输出时显示绿色 unread dot。打开对应 Session 后，当前浏览器清除 unread dot。Error 状态持续到下一次 Agent run 更新状态。状态和已查看记录只保存在当前 Server process 与浏览器页面内存中。
+
+当前 Web Agent runtime 没有显式 question lifecycle。Question indicator 是计划能力，后续在 runtime 提供 question state 和 answer API 后加入 Sidebar 状态优先级。
+
 每个 Session 提供以下操作：
 
 - Rename：修改 Session 标题。
@@ -85,7 +89,7 @@ Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完�
 
 没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态；标题组不占用剩余空间；标题使用实际文字宽度并受当前 max-width 限制，编辑按钮紧跟标题。右侧只显示 context 百分比数字和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。Disconnected、Connection error 和其他错误状态使用完整红灯，并增加红色系底色和边框；移动端只省略过长的状态文字，不裁切红灯。移动端 Chat 主列始终限制在 viewport 内，header、conversation、sticky User row、Running 和 composer 不产生页面横向溢出。
 
-每个 turn 的 User 内容显示为一条独立的全宽色带，并保留用户头像、`User` 标签、message number、内部链接与 Rollback。User 色带使用与 conversation 和 AI feed 有区分的 theme background，只有上、下 separator，没有左右 border、圆角或阴影；色带延伸到当前 conversation 内容列的左右边界。上下 separator 的外侧保留更大的垂直间距。色带内部使用非对称 padding，其中左侧和上侧的留白大于右侧和下侧。Ark Dark、Graphite、Midnight、Paper 和 Snow 分别使用与自身背景和 AI accent 协调的 User palette；User accent 与 AI accent 保持可区分。User 与 AI 的头像和名称都使用更大的尺寸。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
+每个 turn 的 User 内容显示为一条独立的全宽色带，并保留用户头像、`User` 标签、短 Message ID、内部链接与 Rollback。User 色带使用与 conversation 和 AI feed 有区分的 theme background，只有上、下 separator，没有左右 border、圆角或阴影；色带延伸到当前 conversation 内容列的左右边界。上下 separator 的外侧保留更大的垂直间距。色带内部使用非对称 padding，其中左侧和上侧的留白大于右侧和下侧。Ark Dark、Graphite、Midnight、Paper 和 Snow 分别使用与自身背景和 AI accent 协调的 User palette；User accent 与 AI accent 保持可区分。User 与 AI 的头像和名称都使用更大的尺寸。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
 
 正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse。没有该 Session 的已保存 disclosure 状态时，Running 默认展开，最新的非工具 assistant output 保持可见。Agent settled 后，该 run collapse 自动折叠并显示用时和工具消息数量，最后一条非工具内容保持展开。用户随后手动改变的折叠状态在 Session 切换后恢复。
 
@@ -93,19 +97,19 @@ Agent settled 且缺少最后一条非工具内容的历史 turn 在 run collaps
 
 ### 工具展示
 
-Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text item 包含普通文字、图片和 reasoning，并直接显示在连续 feed 中；reasoning 使用较小字号和与普通 text 一致的行高。Global Hide reasoning 启用后，conversation 隐藏 reasoning disclosure 和内容，同时保留 Session history 中的原始 reasoning。含普通 text 或 image 的 assistant source message 在末尾显示操作行：已完成的 message 默认显示 Copy Markdown、Fork session 和 Info，流式 message 显示 Info。只包含 reasoning 和 toolCall 的 message 不显示该操作行。Info 控制的信息栏默认折叠，展开后显示 source message number、内部链接、model、context 和 input/output token；流式 message 只显示当前可用的信息。
+Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text item 包含普通文字、图片和 reasoning，并直接显示在连续 feed 中；reasoning 使用较小字号和与普通 text 一致的行高。Global Hide reasoning 启用后，conversation 隐藏 reasoning disclosure 和内容，同时保留 Session history 中的原始 reasoning。含普通 text 或 image 的 assistant source message 在末尾显示操作行：已完成的 message 默认显示 Copy Markdown、Fork session 和 Info，流式 message 显示 Info。只包含 reasoning 和 toolCall 的 message 不显示该操作行。Info 控制的信息栏默认折叠，展开后显示 source Message ID、内部链接、model、context 和 input/output token；流式 message 只显示当前可用的信息。
 
-每个 tool call 与对应 tool result 合并为一行 tool item。工具 logo 位于折叠框的 summary 内，后面依次显示工具名称、实际摘要和状态；展开内容与折叠框左边界对齐。Completed 使用中性色；Running 使用 warning color，Failed 使用 danger color，Result 使用 info color，Saved 使用 saved color。状态颜色作用于同一层折叠框的 border、logo 和状态文字，Running 不增加外层背景或包围框。Tool permalink target 使用折叠框内侧的 accent 标识，不改变 row 的外部尺寸。所有 themes 都将大 Run group 与内部 Tool row 分成两层 palette：Run group 使用 theme tint，Tool row 和 Reasoning 使用更亮、更中性的 surface。Paper 的 Run group 是与页面背景有区分的浅黄色，Tool row 是浅白色；其他 themes 使用相同的外层 tint、内层 neutral 逻辑。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
+每个 tool call 与对应 tool result 合并为一行 tool item。工具 logo 位于折叠框的 summary 内，后面依次显示工具名称、实际摘要和状态；展开内容与折叠框左边界对齐。Completed 使用中性色；Running 使用 warning color，Failed 使用 danger color，Result 使用 info color，Saved 使用 saved color。状态颜色作用于同一层折叠框的 border、logo 和状态文字，Running 不增加外层背景或包围框。Tool permalink target 使用折叠框内侧的 accent 标识，不改变 row 的外部尺寸。所有 themes 都将大 Run group 与内部 Tool row 分成两层 palette：Run group 使用 theme tint，Tool row 和 Reasoning 使用更亮、更中性的 surface。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；其他 themes 使用相同的外层 tint、内层 neutral 逻辑。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
 
-Tool item 在没有已保存 disclosure 状态时默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。切换 Session 后，页面恢复用户对 Tool、Reasoning、Compact 和 Message Info 的展开状态。已完成 tool item 的 message permalink target 在没有用户保存状态时自动展开对应 tool item。展开后第一行显示 call/result 的全局 message number 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。错误结果显示 Failed 状态和错误颜色。
+Tool item 在没有已保存 disclosure 状态时默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。切换 Session 后，页面恢复用户对 Tool、Reasoning、Compact 和 Message Info 的展开状态。已完成 tool item 的 message permalink target 在没有用户保存状态时自动展开对应 tool item。展开后第一行显示 call/result 的短 Message ID 与 `pi-ark://` link copy 按钮，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。错误结果显示 Failed 状态和错误颜色。
 
-Compact 与 branch summary 使用相同的 tool item。Compact 行显示 compact 前的 token 数量和 Saved 状态，展开后显示 source message number、内部链接和 pi 保存的 Markdown summary。compact 前的原始会话继续通过 earlier message 分页展示。
+Compact 与 branch summary 使用相同的 tool item。Compact 行显示 compact 前的 token 数量和 Saved 状态，展开后显示 source Message ID、内部链接和 pi 保存的 Markdown summary。compact 前的原始会话继续通过 earlier message 分页展示。
 
-Tool call message 与 tool result message 继续保留各自的 message number、source entry ID 和 permalink anchor。Permalink 指向其中任一 source message 时，外层 run collapse 和对应 tool item 自动展开。
+Tool call message 与 tool result message 继续保留各自的短 Message ID、source entry ID 和 permalink anchor。Permalink 指向其中任一 source message 时，外层 run collapse 和对应 tool item 自动展开。
 
 ### Message 标识与链接
 
-每条 snapshot message 按当前 projection 顺序编号。User header、assistant text 的 Info 信息栏与 tool item 的展开内容只提供 `pi-ark://` message link copy 按钮，不提供绝对浏览器 URL copy 按钮。内部链接可以通过侧栏的 Open Pi-Ark session link 对话框打开；带 message query 的浏览器 URL 仍可以定位并高亮目标 source message。
+每条持久化 snapshot message 使用 Session 内唯一的七字符短 Message ID，格式为 `m` 加六位小写 base36，例如 `m04k9z2`。Server 根据 Session ID 与 source entry 在 append-only Session entries 中的固定位置，通过 31-bit 一一映射生成 ID；ID 不写回 pi JSONL。单个 Session 最多支持 10000000 个 source entries，达到上限后 Server 拒绝新的 prompt。User header、assistant text 的 Info 信息栏与 tool item 的展开内容只提供 `pi-ark://` message link copy 按钮，不提供绝对浏览器 URL copy 按钮。内部链接可以通过侧栏的 Open Pi-Ark session link 对话框打开；带 Message ID query 的浏览器 URL 可以定位并高亮目标 source message。旧的纯数字 message target 继续按原 display position 解析，并由 Server 返回对应的短 Message ID。
 
 ### Composer
 
@@ -131,7 +135,7 @@ Session 正在运行时，新 message 默认进入 Follow-up queue。Web 在提�
 
 ### Assistant response actions
 
-含普通 text 或 image 的已完成 assistant item 在内容末尾默认提供以下操作；只包含 reasoning 和 toolCall 的 message 不显示操作行。Info 展开的信息栏显示 model、context 使用百分比、`I/input token`、`O/output token`、source message number 和内部链接：
+含普通 text 或 image 的已完成 assistant item 在内容末尾默认提供以下操作；只包含 reasoning 和 toolCall 的 message 不显示操作行。Info 展开的信息栏显示 model、context 使用百分比、`I/input token`、`O/output token`、source Message ID 和内部链接：
 
 - Copy Markdown：复制 assistant response 的文字 Markdown。
 - Fork session：从该 response 对应的 session entry 创建新分支，并要求输入新 Session 名称。AI working 时，已经完成并持久化的旧 assistant response 仍可 Fork；原 Session 继续运行。

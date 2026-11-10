@@ -9,6 +9,7 @@ import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
 import { appLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
 import { deleteCachedSessionSnapshot, sessionCacheKey } from "./session-cache";
+import { acknowledgeSessionStatus, mergeSessionStatuses, type SessionStatusMap } from "./session-status";
 import { applyTheme } from "./theme";
 import type { SessionInfo, UiSettings, Workspace } from "./types";
 
@@ -25,8 +26,10 @@ export default function App() {
   const [uiSettings, setUiSettings] = useState<UiSettings>({ theme: "ark-dark", hideReasoning: false });
   const [workspaceId, setWorkspaceId] = useState("");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [statusesByWorkspace, setStatusesByWorkspace] = useState<Record<string, SessionStatusMap>>({});
+  const sessionStatuses = statusesByWorkspace[workspaceId] || {};
   const [sessionId, setSessionId] = useState("");
-  const [targetMessageNumber, setTargetMessageNumber] = useState(initialPermalink.current.messageNumber);
+  const [targetMessageId, setTargetMessageId] = useState(initialPermalink.current.messageId);
   const [page, setPage] = useState<Page>(initialPermalink.current.page);
   const [sidebar, setSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("pi-ark-sidebar-collapsed") === "true");
@@ -57,14 +60,27 @@ export default function App() {
       const selectedId = result.sessions.find((session) => session.id === linkedSessionId)?.id || result.sessions.find((session) => !session.archived)?.id || "";
       setSessions(result.sessions); setSessionId(selectedId);
       if (pendingTarget && selectedId === pendingTarget.sessionId) {
-        setTargetMessageNumber(pendingTarget.messageNumber); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageNumber));
+        setTargetMessageId(pendingTarget.messageId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageId));
       } else {
-        if (!linkedSessionId || selectedId !== linkedSessionId) setTargetMessageNumber(undefined);
-        if (!initialTarget.messageNumber || selectedId !== linkedSessionId) window.history.replaceState(null, "", appLocation(initialTarget.page, workspaceId, selectedId));
+        if (!linkedSessionId || selectedId !== linkedSessionId) setTargetMessageId(undefined);
+        if (!initialTarget.messageId || selectedId !== linkedSessionId) window.history.replaceState(null, "", appLocation(initialTarget.page, workspaceId, selectedId));
       }
       pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" };
     }).catch((reason) => setError(reason.message));
   }, [workspaceId, auth]);
+
+  useEffect(() => {
+    if (auth !== "in" || !workspaceId) return;
+    let current = true;
+    const refresh = () => { void api.sessionStatuses(workspaceId).then((result) => { if (current) setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: mergeSessionStatuses(workspaces[workspaceId] || {}, result.statuses, page === "agent" && document.visibilityState === "visible" ? sessionId : undefined) })); }).catch(() => undefined); };
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    return () => { current = false; window.clearInterval(timer); };
+  }, [auth, page, sessionId, workspaceId]);
+
+  useEffect(() => {
+    if (page === "agent" && sessionId && document.visibilityState === "visible") setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, sessionId) }));
+  }, [page, sessionId, workspaceId]);
 
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const selectedSession = sessions.find((item) => item.id === sessionId) || (workspace && sessionId ? { id: sessionId, cwd: workspace.path, created: new Date().toISOString(), modified: new Date().toISOString(), messageCount: 0, firstMessage: "", pinned: false, archived: false, groups: [] } : undefined);
@@ -115,18 +131,18 @@ export default function App() {
     try {
       const created = await api.createSession(workspace.id);
       setSessions(await api.sessions(workspace.id).then((result) => result.sessions));
-      setSessionId(created.id); setTargetMessageNumber(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, created.id));
+      setSessionId(created.id); setTargetMessageId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, created.id));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Cannot create session"); }
   }
 
   async function openCreatedSession(createdSessionId: string) {
     if (!workspaceId) return;
     setSessions(await api.sessions(workspaceId).then((result) => result.sessions));
-    setSessionId(createdSessionId); setTargetMessageNumber(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, createdSessionId));
+    setSessionId(createdSessionId); setTargetMessageId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, createdSessionId));
   }
 
   function selectWorkspace(id: string) {
-    setWorkspaceId(id); setTargetMessageNumber(undefined); setPage("agent"); window.history.replaceState(null, "", workspaceLocation(id));
+    setWorkspaceId(id); setTargetMessageId(undefined); setPage("agent"); window.history.replaceState(null, "", workspaceLocation(id));
   }
 
   function selectPage(nextPage: Page) {
@@ -134,7 +150,8 @@ export default function App() {
   }
 
   function selectSession(id: string) {
-    setSessionId(id); setTargetMessageNumber(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, id));
+    setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, id) }));
+    setSessionId(id); setTargetMessageId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, id));
   }
 
   async function openInternalSessionLink(value: string) {
@@ -145,7 +162,7 @@ export default function App() {
     if (!result.sessions.some((item) => item.id === target.sessionId)) throw new Error("The linked session does not exist");
     setSessionLinkOpen(false); setShowArchivedSessions(false); setSidebar(false);
     if (target.workspaceId === workspaceId) {
-      setSessions(result.sessions); setSessionId(target.sessionId); setTargetMessageNumber(target.messageNumber); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(target.workspaceId, target.sessionId, target.messageNumber));
+      setSessions(result.sessions); setSessionId(target.sessionId); setTargetMessageId(target.messageId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(target.workspaceId, target.sessionId, target.messageId));
     } else {
       pendingInternalTarget.current = target; setWorkspaceId(target.workspaceId);
     }
@@ -153,7 +170,7 @@ export default function App() {
 
   function workspaceAdded(added: Workspace) {
     setWorkspaces((current) => [...current, added]);
-    setWorkspaceId(added.id); setTargetMessageNumber(undefined); setPage("agent"); setAddWorkspaceOpen(false); setSidebar(false); window.history.replaceState(null, "", workspaceLocation(added.id));
+    setWorkspaceId(added.id); setTargetMessageId(undefined); setPage("agent"); setAddWorkspaceOpen(false); setSidebar(false); window.history.replaceState(null, "", workspaceLocation(added.id));
   }
 
   function workspaceRenamed(updated: Workspace) {
@@ -191,7 +208,7 @@ export default function App() {
       </nav>
       <section className="sidebar-section sessions-section">
         <div className="sidebar-section-header"><span>Sessions</span><div className="sidebar-header-actions"><button className="icon-button" title="Open Pi-Ark session link" aria-label="Open Pi-Ark session link" onClick={() => setSessionLinkOpen(true)}><Link2 size={14} /></button><button className={`icon-button ${showArchivedSessions ? "active" : ""}`} title={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-label={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchivedSessions} onClick={() => setShowArchivedSessions((current) => !current)}><Archive size={14} /></button><button className="icon-button" title="New session" onClick={() => void createSession()}><Plus size={15} /></button></div></div>
-        {workspace && <SessionList workspaceId={workspace.id} sessions={sessions} activeSessionId={sessionId} showArchived={showArchivedSessions} onSelect={selectSession} onChanged={refreshSessions} />}
+        {workspace && <SessionList workspaceId={workspace.id} sessions={sessions} statuses={sessionStatuses} activeSessionId={sessionId} showArchived={showArchivedSessions} onSelect={selectSession} onChanged={refreshSessions} />}
       </section>
     </aside>
     <div className="sidebar-resizer desktop-only" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={beginSidebarResize}><button title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onPointerDown={(event) => event.stopPropagation()} onClick={toggleSidebar}>{sidebarCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}</button></div>
@@ -199,7 +216,7 @@ export default function App() {
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
       {!workspace && page !== "settings" && <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>}
-      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageNumber || "latest"}`} workspace={workspace} session={selectedSession} targetMessageNumber={targetMessageNumber} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
+      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}`} workspace={workspace} session={selectedSession} targetMessageId={targetMessageId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "files" && <Files workspace={workspace} />}
         {workspace && page === "terminal" && <Terminal workspace={workspace} />}

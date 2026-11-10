@@ -16,9 +16,11 @@ type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 type QueueItemMode = "steering" | "followUp";
 interface QueueItem { id: string; mode: QueueItemMode; text: string; images: Array<NonNullable<SavedAttachment["image"]>> }
 interface RollbackMarkerData { targetId: string; restoreEntryId: string; draft: string }
+interface AgentClientState { start: number; targetMessageId?: string }
+type SessionRuntimeState = "ready" | "running" | "error";
 interface AgentHandle {
   session: AgentSession;
-  clients: Map<WebSocket, { start: number }>;
+  clients: Map<WebSocket, AgentClientState>;
   unsubscribe: () => void;
   queue: QueueItem[];
   rebuildingQueue: boolean;
@@ -26,6 +28,11 @@ interface AgentHandle {
   queueRevision: number;
   queueRebuildPromise?: Promise<void>;
   displayMessages?: ReturnType<typeof buildSessionDisplayMessages>;
+  runtimeState: SessionRuntimeState;
+  statusRevision: number;
+  updateRevision: number;
+  pendingError?: string;
+  errorMessage?: string;
 }
 
 function send(socket: WebSocket, payload: unknown): void {
@@ -59,10 +66,38 @@ function isRollbackMarkerData(data: unknown): data is RollbackMarkerData {
   return typeof data === "object" && data !== null && "targetId" in data && typeof data.targetId === "string" && "restoreEntryId" in data && typeof data.restoreEntryId === "string" && "draft" in data && typeof data.draft === "string";
 }
 
+export const MAX_SESSION_MESSAGES = 10_000_000;
+const MESSAGE_ID_SPACE = 0x80000000;
+const MESSAGE_ID_MASK = MESSAGE_ID_SPACE - 1;
+const MESSAGE_ID_MULTIPLIER_MASK = 0x3ffffffe;
+const MESSAGE_ID_MULTIPLIER_HIGH_BIT = 0x40000001;
+const MESSAGE_ID_WIDTH = 6;
+
+function hashMessageIdSeed(value: string, seed: number): number {
+  let hash = seed >>> 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash;
+}
+
+export function sessionMessageId(sessionId: string, entryIndex: number): string {
+  if (!Number.isInteger(entryIndex) || entryIndex < 0 || entryIndex >= MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
+  const multiplier = (hashMessageIdSeed(sessionId, 2166136261) & MESSAGE_ID_MULTIPLIER_MASK) | MESSAGE_ID_MULTIPLIER_HIGH_BIT;
+  const offset = hashMessageIdSeed(sessionId, 2246822519) & MESSAGE_ID_MASK;
+  const value = (Math.imul(multiplier, entryIndex) + offset) & MESSAGE_ID_MASK;
+  return `m${value.toString(36).padStart(MESSAGE_ID_WIDTH, "0")}`;
+}
+
 export function buildSessionDisplayMessages(manager: SessionManager, getContextWindow: (provider: string, model: string) => number | undefined = () => undefined) {
+  const entries = manager.getEntries();
+  if (entries.length > MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
+  const entryIndexById = new Map(entries.map((entry, index) => [entry.id, index]));
   return manager.getBranch().flatMap((entry) => sessionEntryToContextMessages(entry).filter((message) => message.role !== "system" && !(message.role === "custom" && !message.display)).map((message) => ({
     ...message,
     entryId: entry.id,
+    messageId: sessionMessageId(manager.getSessionId(), entryIndexById.get(entry.id)!),
     ...(message.role === "assistant" ? { contextWindow: getContextWindow(message.provider, message.model) } : {}),
   })));
 }
@@ -94,6 +129,17 @@ export class AgentService {
     const sessionDir = await ensureWorkspaceState(workspace);
     const [sessions, metadata] = await Promise.all([SessionManager.list(workspace.path, sessionDir), getSessionMetadata(workspace)]);
     return sessions.map(({ path: _path, ...info }) => ({ ...info, pinned: metadata[info.id]?.pinned || false, archived: metadata[info.id]?.archived || false, groups: metadata[info.id]?.groups || [] })).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.modified.getTime() - a.modified.getTime());
+  }
+
+  statuses(workspace: WorkspaceDefinition) {
+    const prefix = `${workspace.id}:`;
+    return [...this.handles.entries()].filter(([key]) => key.startsWith(prefix)).map(([, handle]) => ({
+      id: handle.session.sessionId,
+      state: handle.runtimeState,
+      statusRevision: handle.statusRevision,
+      updateRevision: handle.updateRevision,
+      ...(handle.errorMessage ? { errorMessage: handle.errorMessage } : {}),
+    }));
   }
 
   async updateSession(workspace: WorkspaceDefinition, sessionId: string, patch: { name?: string; pinned?: boolean; archived?: boolean; groups?: string[] }) {
@@ -267,13 +313,18 @@ export class AgentService {
     return { id: handle.session.sessionId };
   }
 
-  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessageNumber?: number; start?: number } = {}): Promise<() => void> {
+  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessage?: string; start?: number } = {}): Promise<() => void> {
     const handle = await this.getOrOpen(workspace, sessionId);
     const messages = this.snapshotMessages(handle);
     const defaultStart = previousDisplayPageStart(messages);
-    const targetStart = options.targetMessageNumber && options.targetMessageNumber <= messages.length ? previousDisplayPageStart(messages, options.targetMessageNumber) : defaultStart;
+    let targetIndex = options.targetMessage ? messages.findIndex((message) => message.messageId === options.targetMessage) : -1;
+    if (targetIndex < 0 && options.targetMessage && /^[1-9]\d*$/.test(options.targetMessage)) {
+      const legacyIndex = Number(options.targetMessage) - 1;
+      if (Number.isSafeInteger(legacyIndex) && legacyIndex < messages.length) targetIndex = legacyIndex;
+    }
+    const targetStart = targetIndex >= 0 ? previousDisplayPageStart(messages, targetIndex + 1) : defaultStart;
     const requestedStart = Number.isInteger(options.start) ? Math.max(0, Math.min(options.start!, messages.length)) : undefined;
-    handle.clients.set(socket, { start: requestedStart ?? Math.min(defaultStart, targetStart) });
+    handle.clients.set(socket, { start: requestedStart ?? Math.min(defaultStart, targetStart), ...(targetIndex >= 0 ? { targetMessageId: messages[targetIndex].messageId } : {}) });
     this.sendSnapshot(handle, socket, messages);
     return () => handle.clients.delete(socket);
   }
@@ -289,6 +340,7 @@ export class AgentService {
 
   async prompt(workspace: WorkspaceDefinition, sessionId: string, text: string, attachments: IncomingAttachment[] = []): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
+    if (handle.session.sessionManager.getEntries().length >= MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
     const saved = attachments.length ? await saveAttachments(workspace, sessionId, attachments) : [];
     const attachmentNote = saved.length ? `\n\nAttached files:\n${saved.map((attachment) => `- ${attachment.name}: ${attachment.path}`).join("\n")}` : "";
     const promptText = `${text.trim() || (saved.length ? "Review the attached files." : "")}${attachmentNote}`;
@@ -305,7 +357,16 @@ export class AgentService {
         this.publishQueueState(handle);
         throw error;
       }
-    } else await handle.session.prompt(promptText, { images });
+    } else {
+      try { await handle.session.prompt(promptText, { images }); }
+      catch (error) {
+        if (handle.runtimeState !== "error") {
+          this.setRuntimeStatus(handle, "error", error instanceof Error ? error.message : "Agent prompt failed");
+          handle.updateRevision += 1;
+        }
+        throw error;
+      }
+    }
   }
 
   async abort(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
@@ -361,6 +422,9 @@ export class AgentService {
       rebuildingQueue: false,
       queueVersion: 0,
       queueRevision: 0,
+      runtimeState: "ready",
+      statusRevision: 0,
+      updateRevision: 0,
     };
     handle.unsubscribe = session.subscribe((event) => this.onEvent(handle, event));
     this.handles.set(this.key(workspace, session.sessionId), handle);
@@ -375,9 +439,30 @@ export class AgentService {
       this.publishQueueState(handle);
       return;
     }
+    if (event.type === "agent_start") {
+      handle.pendingError = undefined;
+      this.setRuntimeStatus(handle, "running");
+    } else if (event.type === "agent_end" && !event.willRetry) {
+      const assistant = [...event.messages].reverse().find((message) => message.role === "assistant");
+      handle.pendingError = assistant?.stopReason === "error" ? assistant.errorMessage || "Agent response failed" : undefined;
+    } else if (event.type === "auto_retry_end" && !event.success) {
+      handle.pendingError = event.finalError || "Agent retry failed";
+    } else if (event.type === "agent_settled") {
+      const errorMessage = event.aborted ? undefined : handle.pendingError;
+      if (!event.aborted) handle.updateRevision += 1;
+      this.setRuntimeStatus(handle, errorMessage ? "error" : "ready", errorMessage);
+      handle.pendingError = undefined;
+    }
     handle.displayMessages = undefined;
     this.broadcast(handle, { type: "agent-event", event });
     if (event.type === "message_end" || event.type === "agent_settled") this.scheduleSnapshot(handle);
+  }
+
+  private setRuntimeStatus(handle: AgentHandle, state: SessionRuntimeState, errorMessage?: string): void {
+    if (handle.runtimeState === state && handle.errorMessage === errorMessage) return;
+    handle.runtimeState = state;
+    handle.errorMessage = errorMessage;
+    handle.statusRevision += 1;
   }
 
   private scheduleSnapshot(handle: AgentHandle): void {
@@ -461,8 +546,8 @@ export class AgentService {
     return handle.displayMessages;
   }
 
-  private snapshotPayload(handle: AgentHandle, messages: ReturnType<typeof buildSessionDisplayMessages>, requestedStart: number) {
-    let start = Math.max(0, requestedStart);
+  private snapshotPayload(handle: AgentHandle, messages: ReturnType<typeof buildSessionDisplayMessages>, client: AgentClientState) {
+    let start = Math.max(0, client.start);
     if (start >= messages.length && messages.length > 0) start = previousDisplayPageStart(messages);
     return {
       type: "snapshot",
@@ -472,6 +557,7 @@ export class AgentService {
         messages: messages.slice(start),
         messageNumberOffset: start,
         totalDisplayMessages: messages.length,
+        targetMessageId: client.targetMessageId,
         hasEarlierMessages: start > 0,
         isStreaming: handle.session.isStreaming,
         isIdle: handle.session.isIdle,
@@ -491,10 +577,10 @@ export class AgentService {
     const messages = projectedMessages || this.snapshotMessages(handle);
     if (oneClient) {
       const client = handle.clients.get(oneClient);
-      if (client) send(oneClient, this.snapshotPayload(handle, messages, client.start));
+      if (client) send(oneClient, this.snapshotPayload(handle, messages, client));
       return;
     }
-    for (const [client, state] of handle.clients) send(client, this.snapshotPayload(handle, messages, state.start));
+    for (const [client, state] of handle.clients) send(client, this.snapshotPayload(handle, messages, state));
   }
 
   private broadcast(handle: AgentHandle, payload: unknown): void {

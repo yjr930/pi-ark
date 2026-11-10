@@ -141,6 +141,9 @@ app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/ap
 app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/sessions", async (request) => ({
   sessions: await agents.list(workspaces.get(request.params.workspaceId)),
 }));
+app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/session-statuses", async (request) => ({
+  statuses: agents.statuses(workspaces.get(request.params.workspaceId)),
+}));
 app.post<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/sessions", async (request, reply) => {
   const created = await agents.create(workspaces.get(request.params.workspaceId));
   return reply.code(201).send(created);
@@ -171,9 +174,9 @@ app.delete<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspa
 
 app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
   const workspace = workspaces.get(request.params.workspaceId);
-  const targetMessageNumber = Number(request.query.message);
+  const targetMessage = request.query.message?.trim() || undefined;
   const requestedStart = Number(request.query.start);
-  const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessageNumber: Number.isInteger(targetMessageNumber) && targetMessageNumber > 0 ? targetMessageNumber : undefined, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
+  const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessage, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
   const onMessage = async (raw: Buffer) => {
     try {
       const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; attachments?: Array<{ name: string; mimeType: string; data: string }> };
