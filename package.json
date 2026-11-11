@@ -34,7 +34,8 @@
     "check:terminal": "tsx scripts/check-terminal.ts",
     "check:terminal-ui": "node scripts/check-terminal-ui.mjs",
     "check:terminal-appearance": "tsx scripts/check-terminal-appearance.ts",
-    "check:skills-ui": "node scripts/check-skills-ui.mjs"
+    "check:skills-ui": "node scripts/check-skills-ui.mjs",
+    "check:mcp-ui": "node scripts/check-mcp-ui.mjs"
   },
   "engines": {
     "node": ">=22.19"

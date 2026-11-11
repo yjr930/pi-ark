@@ -599,18 +599,19 @@ Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户�
 ### MCP
 
 1. 打开 Settings → MCP。页面使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace，并显示 server 列表。
-2. 查看每行的 Source、Transport、Exposure、Tools 和连接状态。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。
+2. 查看每行的 Source、Transport、Exposure、Registered actions 和连接状态。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。
 3. 使用行右侧开关启用或停用 server。修改立即保存，Server 重新加载空闲 Session。
 4. 需要 OAuth 登录时，行内显示 `pi-ark mcp login <server>`；在服务器终端执行该命令，完成登录后点击 Refresh。
-5. 点击 Refresh 重新读取 server 列表、连接状态、工具数量和诊断。
+5. 点击 Refresh 重新读取 server 列表、连接状态、注册动作数量和诊断。
 6. 需要添加、删除或修改 server 时，在服务器终端使用 `pi-ark mcp` 命令，或编辑 `PI_ARK_AGENT_DIR/mcp.json`。
 
 #### 启用 playwright 与安装浏览器
 
 1. 在 Settings → MCP 找到 `playwright` 行。该行带 Recommended 标记，并显示 Browser runtime 区域。
-2. 打开 `playwright` 的启用开关。浏览器运行时尚未安装时，Pi-Ark 自动执行安装，状态显示 Installing，目标目录显示在 Browser runtime 区域。
-3. 等待状态变为 Installed。安装成功后，`playwright` 保存为启用状态；失败时日志显示在该行，server 保持未启用，可以再次打开开关重试。
-4. 启用后新建 Session，Agent 可以使用 `browser` skill 调用 `playwright` 工具。
+2. `playwright` 行的 Advanced capabilities 开关默认开启，开启时 server 启动参数包含 `--caps=config,network,storage,devtools,vision`，提供 Storage、Network、DevTools、Vision 与 Configuration 动作；关闭后只保留 Core automation 与 Tab management 动作。
+3. 打开 `playwright` 的启用开关。浏览器运行时尚未安装时，Pi-Ark 自动执行安装，状态显示 Installing，目标目录显示在 Browser runtime 区域。
+4. 等待状态变为 Installed。安装成功后，`playwright` 保存为启用状态；失败时日志显示在该行，server 保持未启用，可以再次打开开关重试。
+5. 启用后新建 Session，Agent 可以使用 `browser` skill 调用 `playwright` 工具。
 
 ### Files
 

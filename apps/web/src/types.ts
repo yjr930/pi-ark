@@ -305,6 +305,7 @@ export type McpServerState = "connected" | "disabled" | "failed" | "needs-sign-i
 export interface McpServerView {
   name: string;
   source: McpServerSource;
+  advanced: boolean;
   enabled: boolean;
   exposure: string;
   transport: string;

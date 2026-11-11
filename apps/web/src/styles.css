@@ -405,6 +405,9 @@ html, body { color: var(--text); background: var(--bg); }
 .mcp-server-meta > span { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
 .mcp-server-meta em { color: var(--muted-2); font-size: 8px; font-style: normal; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
 .mcp-server-meta strong { color: var(--text-soft); font-size: 10px; font-weight: 550; overflow-wrap: anywhere; }
+.mcp-advanced-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 0; border-top: 1px solid var(--line-soft); }
+.mcp-advanced-row strong { display: block; color: var(--text-soft); font-size: 10px; font-weight: 600; }
+.mcp-advanced-row span { display: block; color: var(--muted-2); font-size: 9px; margin-top: 2px; }
 .mcp-login-command { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--warning); font-size: 9px; }
 .mcp-login-command code { padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--line)); border-radius: 5px; color: var(--text-soft); background: var(--input); font: 9px "SFMono-Regular", Consolas, monospace; user-select: all; }
 .mcp-server-diagnostics { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; list-style: none; }

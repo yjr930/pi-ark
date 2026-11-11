@@ -13,6 +13,7 @@ export type McpBrowserState = "not-installed" | "installing" | "installed" | "fa
 export interface McpServerView {
   name: string;
   source: McpServerSource;
+  advanced: boolean;
   enabled: boolean;
   exposure: string;
   transport: string;
@@ -57,6 +58,7 @@ interface McpListPayload {
 
 const PLAYWRIGHT_SERVER = "playwright";
 const PLAYWRIGHT_MCP_PACKAGE = "@playwright/mcp@0.0.85";
+const ADVANCED_CAPABILITIES = "--caps=config,network,storage,devtools,vision";
 const COMMAND_TIMEOUT_MS = 120_000;
 const INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -66,7 +68,7 @@ const DEFAULT_MCP_CONFIG = {
   mcpServers: {
     [PLAYWRIGHT_SERVER]: {
       command: "npx",
-      args: [PLAYWRIGHT_MCP_PACKAGE],
+      args: [PLAYWRIGHT_MCP_PACKAGE, ADVANCED_CAPABILITIES],
       enabled: false,
       exposure: "codemode",
       description: "Browser automation for web pages",
@@ -143,6 +145,7 @@ function mapServer(report: McpListReport): McpServerView | undefined {
     enabled,
     exposure: optionalString(report.exposure) ?? "codemode",
     transport: optionalString(report.transport) ?? "",
+    advanced: (optionalString(report.transport) ?? "").includes("--caps="),
     state: mapServerState(report.state, enabled),
     tools: stringList(report.tools),
     diagnostics,
@@ -172,8 +175,25 @@ export class McpService {
     this.configReady ??= (async () => {
       await mkdir(piArkAgentDir, { recursive: true, mode: 0o700 });
       const path = join(piArkAgentDir, "mcp.json");
-      if (existsSync(path)) return;
-      await atomicWriteJson(path, DEFAULT_MCP_CONFIG);
+      if (!existsSync(path)) {
+        await atomicWriteJson(path, DEFAULT_MCP_CONFIG);
+        return;
+      }
+      try {
+        const config = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+        const servers = typeof config.mcpServers === "object" && config.mcpServers !== null && !Array.isArray(config.mcpServers) ? config.mcpServers as Record<string, unknown> : undefined;
+        const current = servers?.[PLAYWRIGHT_SERVER];
+        if (typeof current === "object" && current !== null && !Array.isArray(current)) {
+          const entry = current as Record<string, unknown>;
+          const args = Array.isArray(entry.args) ? entry.args : [];
+          if (args.length === 1 && args[0] === PLAYWRIGHT_MCP_PACKAGE) {
+            servers![PLAYWRIGHT_SERVER] = { ...entry, args: [PLAYWRIGHT_MCP_PACKAGE, ADVANCED_CAPABILITIES] };
+            await atomicWriteJson(path, config);
+          }
+        }
+      } catch {
+        // Invalid configuration is reported by the pi MCP command.
+      }
     })();
     return this.configReady;
   }
@@ -202,6 +222,35 @@ export class McpService {
       return mapped ? [mapped] : [];
     }) : [];
     return { servers, errors: stringList(payload.errors) };
+  }
+
+  async setAdvanced(name: string, enabled: boolean): Promise<void> {
+    if (name !== PLAYWRIGHT_SERVER) throw Object.assign(new Error("Advanced capabilities are only available for playwright"), { statusCode: 400 });
+    if (typeof enabled !== "boolean") throw Object.assign(new Error("Advanced capabilities state must be a boolean"), { statusCode: 400 });
+    await this.ensureConfig();
+    const path = join(piArkAgentDir, "mcp.json");
+    const task = this.configWrite.catch(() => undefined).then(async () => {
+      let config: Record<string, unknown>;
+      try {
+        config = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+      } catch (error) {
+        throw Object.assign(new Error(`Cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`), { statusCode: 500 });
+      }
+      const servers = typeof config.mcpServers === "object" && config.mcpServers !== null && !Array.isArray(config.mcpServers) ? config.mcpServers as Record<string, unknown> : undefined;
+      if (!servers) throw Object.assign(new Error(`Cannot read the MCP server list from ${path}`), { statusCode: 500 });
+      const current = servers[name];
+      if (typeof current !== "object" || current === null || Array.isArray(current)) throw Object.assign(new Error(`Unknown MCP server: ${name}`), { statusCode: 404 });
+      const entry = current as Record<string, unknown>;
+      const existing = Array.isArray(entry.args) ? entry.args.filter((arg): arg is string => typeof arg === "string") : [];
+      const args = existing.filter((arg) => !arg.startsWith("--caps="));
+      if (!args.some((arg) => arg.startsWith("@playwright/mcp"))) args.unshift(PLAYWRIGHT_MCP_PACKAGE);
+      if (enabled) args.push(ADVANCED_CAPABILITIES);
+      servers[name] = { ...entry, args };
+      await atomicWriteJson(path, config);
+    });
+    this.configWrite = task.then(() => undefined, () => undefined);
+    await task;
+    await this.reloadSessions();
   }
 
   async setEnabled(name: string, enabled: boolean): Promise<void> {

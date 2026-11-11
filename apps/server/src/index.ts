@@ -143,6 +143,11 @@ app.put<{ Params: { name: string }; Body: { enabled?: unknown } }>("/api/mcp/ser
   await mcp.setEnabled(request.params.name, request.body.enabled);
   return { ok: true };
 });
+app.put<{ Params: { name: string }; Body: { enabled?: unknown } }>("/api/mcp/servers/:name/advanced", async (request) => {
+  if (typeof request.body?.enabled !== "boolean") throw Object.assign(new Error("Advanced capabilities state must be a boolean"), { statusCode: 400 });
+  await mcp.setAdvanced(request.params.name, request.body.enabled);
+  return { ok: true };
+});
 app.get("/api/mcp/browser", async () => mcp.browserStatus());
 app.post("/api/mcp/install-browser", async () => mcp.installBrowser());
 app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/api/workspaces/:workspaceId/files", async (request) => {

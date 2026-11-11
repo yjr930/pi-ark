@@ -429,11 +429,11 @@ Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同
 
 ### MCP server
 
-`McpService.ensureConfig()` 在 Server 启动时创建 `PI_ARK_AGENT_DIR/mcp.json`，文件已存在时保留原内容。初始内容为 `playwright` server：`command` 为 `npx`，`args` 为 `@playwright/mcp@0.0.85`，`enabled` 为 `false`，`exposure` 为 `codemode`，并带 `description`。
+`McpService.ensureConfig()` 在 Server 启动时创建 `PI_ARK_AGENT_DIR/mcp.json`，文件已存在时保留原内容。初始内容为 `playwright` server：`command` 为 `npx`，`args` 为 `@playwright/mcp@0.0.85` 与 `--caps=config,network,storage,devtools,vision`，`enabled` 为 `false`，`exposure` 为 `codemode`，并带 `description`。已有配置的 `args` 只含 `@playwright/mcp@0.0.85` 时，`ensureConfig()` 补上 `--caps`，其他自定义参数保持原样。
 
 `McpService.list()` 运行 `process.execPath <pi-core-cli> mcp list --json`，工作目录为目标 Workspace，环境变量设置 `PI_CODING_AGENT_DIR` 与 `NO_COLOR=1`，超时 120 秒。Server 把返回的 `state` 映射为 `connected`、`starting`、`needs-sign-in`、`failed`，并把 `enabled` 为 false 的 server 显示为 `disabled`；`tools`、每个 server 的 `error` 与顶层 `errors` 进入列表和诊断。
 
-`McpService.setEnabled()` 校验 server 名称与 boolean，串行读取 `mcp.json`，只更新目标条目的 `enabled` 字段，以 temporary file 加 rename 原子写入，然后调用 `reloadIdleSessions()`。`mcp.json` 解析失败、条目不存在或写入失败时返回对应的 HTTP 错误。
+`McpService.setEnabled()` 校验 server 名称与 boolean，串行读取 `mcp.json`，只更新目标条目的 `enabled` 字段，以 temporary file 加 rename 原子写入，然后调用 `reloadIdleSessions()`。`McpService.setAdvanced()` 只接受 `playwright`，过滤 `args` 中已有的 `--caps=` 后按开关追加或移除 `--caps=config,network,storage,devtools,vision`，写回配置并重载空闲 Session。`mcp.json` 解析失败、条目不存在或写入失败时返回对应的 HTTP 错误。
 
 `McpService.browserStatus()` 检查服务账号 home 下的 `.cache/ms-playwright`，识别 `chromium_headless_shell-<数字>` 与 `chromium-<数字>` 目录并优先使用 headless shell。`installBrowser()` 在状态为 `not-installed` 或 `failed` 时执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`，设置 `npm_config_yes=true`，超时 15 分钟，并保留最多 64 KiB 的安装日志。安装目录出现后状态变为 `installed`；命令失败或没有生成目录时保持 `failed` 并保留日志。
 
@@ -509,7 +509,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
-| `PI_ARK_AGENT_DIR/mcp.json` | MCP server 定义、`enabled`、`exposure`、`toolExposure`、`timeout` 与 `description` |
+| `PI_ARK_AGENT_DIR/mcp.json` | MCP server 定义、`args`、`enabled`、`exposure`、`toolExposure`、`timeout` 与 `description` |
 | `PI_ARK_AGENT_DIR/skills/` | Global user skills |
 | `PI_ARK_AGENT_DIR/models.json` | Custom provider/model config |
 | `PI_ARK_AGENT_DIR/SYSTEM.md` | 可选 Global replacement prompt |
@@ -618,6 +618,7 @@ interface TerminalInfo {
 | POST | `/api/skills/reload` | 重新加载空闲 Session，返回 `{ reloaded }` |
 | GET | `/api/mcp?workspaceId=` | 返回 `servers` 与配置级 `errors` |
 | PUT | `/api/mcp/servers/:name/state` | Body 为 `{ enabled: boolean }`，保存 server 启用状态 |
+| PUT | `/api/mcp/servers/:name/advanced` | Body 为 `{ enabled: boolean }`，保存 playwright 的高级 capability 开关 |
 | GET | `/api/mcp/browser` | 返回浏览器运行时状态、版本、目录与日志 |
 | POST | `/api/mcp/install-browser` | 启动 Chromium headless shell 安装并返回当前状态 |
 

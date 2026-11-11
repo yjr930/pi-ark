@@ -27,7 +27,7 @@ try {
   assert.equal(playwrightConfig.enabled, false);
   assert.equal(playwrightConfig.exposure, "codemode");
   assert.equal(playwrightConfig.command, "npx");
-  assert.deepEqual(playwrightConfig.args, ["@playwright/mcp@0.0.85"]);
+  assert.deepEqual(playwrightConfig.args, ["@playwright/mcp@0.0.85", "--caps=config,network,storage,devtools,vision"]);
 
   const listed = await service.list(workspace);
   assert.deepEqual(listed.errors, []);
@@ -37,11 +37,28 @@ try {
   assert.equal(playwright.enabled, false);
   assert.equal(playwright.exposure, "codemode");
   assert.equal(playwright.state, "disabled");
+  assert.equal(playwright.advanced, true);
 
   await service.setEnabled("playwright", true);
   const updated = JSON.parse(await readFile(configPath, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
   assert.equal(updated.mcpServers.playwright.enabled, true);
   assert.equal(updated.mcpServers.playwright.exposure, "codemode");
+
+  await service.setAdvanced("playwright", false);
+  const basic = JSON.parse(await readFile(configPath, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
+  assert.deepEqual(basic.mcpServers.playwright.args, ["@playwright/mcp@0.0.85"]);
+  const basicListed = await service.list(workspace);
+  assert.equal(basicListed.servers.find((server) => server.name === "playwright")?.advanced, false);
+  await service.setAdvanced("playwright", true);
+  const advanced = JSON.parse(await readFile(configPath, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
+  assert.deepEqual(advanced.mcpServers.playwright.args, ["@playwright/mcp@0.0.85", "--caps=config,network,storage,devtools,vision"]);
+
+  const legacy = { mcpServers: { playwright: { command: "npx", args: ["@playwright/mcp@0.0.85"], enabled: false } } };
+  await (await import("node:fs/promises")).writeFile(configPath, JSON.stringify(legacy));
+  const migrated = new McpService();
+  await migrated.ensureConfig();
+  const migratedConfig = JSON.parse(await readFile(configPath, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
+  assert.deepEqual(migratedConfig.mcpServers.playwright.args, ["@playwright/mcp@0.0.85", "--caps=config,network,storage,devtools,vision"]);
 
   const browser = await service.browserStatus();
   assert.equal(browser.directory, join(homedir(), ".cache", "ms-playwright"));

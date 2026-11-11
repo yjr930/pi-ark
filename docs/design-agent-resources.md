@@ -168,7 +168,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
   "mcpServers": {
     "playwright": {
       "command": "npx",
-      "args": ["@playwright/mcp@0.0.85"],
+      "args": ["@playwright/mcp@0.0.85", "--caps=config,network,storage,devtools,vision"],
       "enabled": false,
       "exposure": "codemode",
       "description": "Browser automation for web pages"
@@ -236,7 +236,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 
 页面只有一个列表，覆盖内置与用户 server：
 
-- 每行包含名称、来源、transport、exposure、启用开关、连接状态、工具数量与诊断。
+- 每行包含名称、来源、transport、exposure、启用开关、连接状态、注册动作数量与诊断。`playwright` 行额外显示 Advanced capabilities 开关，默认开启。
 - `playwright` 行带 `Recommended` 标记与 Browser runtime 区域。
 - 页面不提供添加、编辑、删除与 OAuth 登录按钮，这些操作通过 `pi-ark mcp` 命令完成。
 - 需要登录的行显示 `Needs sign-in` 与命令 `pi-ark mcp login <server>`。
@@ -256,6 +256,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 | `POST /api/skills/reload` | 重建 loader 并重新加载空闲 Session |
 | `GET /api/mcp?workspaceId=` | 返回 server 列表、状态、工具数量与诊断 |
 | `PUT /api/mcp/servers/:name/state` | 保存启用状态 |
+| `PUT /api/mcp/servers/:name/advanced` | 保存 playwright 的高级 capability 开关 |
 | `GET /api/mcp/browser` | 返回浏览器安装状态、版本、目录与安装日志 |
 | `POST /api/mcp/install-browser` | 启动浏览器运行时安装并返回当前状态 |
 

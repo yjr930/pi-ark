@@ -57,6 +57,7 @@ export const api = {
   reloadSkills: () => request<{ reloaded: number }>("/api/skills/reload", { method: "POST" }),
   mcpServers: (workspaceId: string) => request<import("./types").McpServersResponse>(`/api/mcp?workspaceId=${encodeURIComponent(workspaceId)}`),
   setMcpServerState: (name: string, enabled: boolean) => request<{ ok: true }>(`/api/mcp/servers/${encodeURIComponent(name)}/state`, { method: "PUT", body: JSON.stringify({ enabled }) }),
+  setMcpAdvanced: (name: string, enabled: boolean) => request<{ ok: true }>(`/api/mcp/servers/${encodeURIComponent(name)}/advanced`, { method: "PUT", body: JSON.stringify({ enabled }) }),
   mcpBrowser: () => request<import("./types").McpBrowserStatus>("/api/mcp/browser"),
   installMcpBrowser: () => request<import("./types").McpBrowserStatus>("/api/mcp/install-browser", { method: "POST" }),
   notebook: (workspaceId: string) => request<{ content: string }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/notebook`),

@@ -245,13 +245,13 @@ Skills 类别按固定顺序显示三段列表：Built-in skills、Global skills
 
 ### MCP
 
-MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、来源（Built-in 或 User）、启用开关、连接状态、Transport、Exposure、工具数量和诊断。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。`playwright` 行额外显示 Recommended 标记和 Browser runtime 区域。
+MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、来源（Built-in 或 User）、启用开关、连接状态、Transport、Exposure、注册动作数量（Registered actions）和诊断。`playwright` 行额外显示 Advanced capabilities 开关，默认开启；开启时 `args` 带 `--caps=config,network,storage,devtools,vision`，关闭时移除该参数。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。`playwright` 行额外显示 Recommended 标记和 Browser runtime 区域。
 
 启用开关保存 server 的 `enabled` 字段。启用 `playwright` 时，页面先检查浏览器运行时；未安装或上次安装失败时自动开始安装 Chromium headless shell，并在 Browser runtime 区域显示 Installing 状态与目标目录，页面轮询安装状态。安装完成后保存启用状态；安装仍在进行或失败时，server 保持未启用，页面显示对应提示，失败日志显示在 `playwright` 行内。其他 server 的开关直接保存。
 
 `playwright` 行显示 Browser runtime 状态（Not installed、Installing、Installed 或 Failed）、已安装版本与目标目录。Needs sign-in 的行显示 `pi-ark mcp login <server>` 命令提示。页面不提供添加、编辑、删除和 OAuth 登录按钮；server 定义通过 `pi-ark mcp` 命令或直接编辑 `mcp.json` 管理。配置文件解析失败或 `pi-ark mcp list --json` 返回错误时，列表上方显示 Configuration errors。
 
-Refresh 重新执行列表读取并更新连接状态、工具数量和诊断。页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。列表为空时显示 `pi-ark mcp add <name>` 提示。
+Refresh 重新执行列表读取并更新连接状态、注册动作数量和诊断。页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。列表为空时显示 `pi-ark mcp add <name>` 提示。
 
 ### 配置的生效方式
 

@@ -148,8 +148,35 @@ export function McpSettings({ active }: { active: boolean }) {
     }
   }
 
+  async function waitForServerState(name: string, targetWorkspace: string) {
+    const deadline = Date.now() + 180_000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      if (!mounted.current || workspaceId !== targetWorkspace) return;
+      let latest: McpServersResponse;
+      try {
+        latest = await api.mcpServers(targetWorkspace);
+      } catch (reason) {
+        if (mounted.current) setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot refresh MCP server status" });
+        return;
+      }
+      if (!mounted.current || workspaceId !== targetWorkspace) return;
+      setData(latest);
+      const current = latest.servers.find((item) => item.name === name);
+      if (!current || current.state !== "starting") {
+        if (current?.state === "connected") setNotice({ kind: "success", text: `${name} connected with ${current.tools.length} tools.` });
+        else if (current?.state === "needs-sign-in") setNotice({ kind: "error", text: `${name} needs sign-in. Run pi-ark mcp login ${name}.` });
+        else if (current?.state === "failed") setNotice({ kind: "error", text: current.diagnostics.join(" ") || `${name} failed to connect.` });
+        return;
+      }
+      if (mounted.current) setNotice({ kind: "success", text: `${name} is starting. Checking connection…` });
+    }
+    if (mounted.current) setNotice({ kind: "error", text: `${name} is still starting. Use Refresh to check progress.` });
+  }
+
   async function toggleServer(server: McpServerView, enabled: boolean) {
     if (busyName || refreshing) return;
+    const targetWorkspace = workspaceId;
     setBusyName(server.name); setNotice(null);
     try {
       if (server.name === "playwright" && enabled) {
@@ -162,11 +189,33 @@ export function McpSettings({ active }: { active: boolean }) {
       }
       await api.setMcpServerState(server.name, enabled);
       if (!mounted.current) return;
-      const nextState: McpServerState = enabled ? "starting" : "disabled";
-      setData((current) => current ? { ...current, servers: current.servers.map((item) => item.name === server.name ? { ...item, enabled, state: nextState } : item) } : current);
-      setNotice({ kind: "success", text: enabled ? `${server.name} enabled. New Sessions will connect to this server.` : `${server.name} disabled.` });
+      if (!enabled) {
+        await loadData(targetWorkspace, "refresh");
+        if (mounted.current) setNotice({ kind: "success", text: `${server.name} disabled.` });
+        return;
+      }
+      setData((current) => current ? { ...current, servers: current.servers.map((item) => item.name === server.name ? { ...item, enabled, state: "starting" } : item) } : current);
+      setNotice({ kind: "success", text: `${server.name} enabled. Checking connection…` });
+      await waitForServerState(server.name, targetWorkspace);
     } catch (reason) {
       if (mounted.current) setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save MCP server state" });
+    } finally {
+      if (mounted.current) setBusyName(null);
+    }
+  }
+
+  async function toggleAdvanced(server: McpServerView, enabled: boolean) {
+    if (busyName || refreshing) return;
+    const targetWorkspace = workspaceId;
+    setBusyName(server.name); setNotice(null);
+    try {
+      await api.setMcpAdvanced(server.name, enabled);
+      if (!mounted.current) return;
+      setData((current) => current ? { ...current, servers: current.servers.map((item) => item.name === server.name ? { ...item, advanced: enabled, state: item.enabled ? "starting" : item.state } : item) } : current);
+      setNotice({ kind: "success", text: `${server.name} advanced capabilities ${enabled ? "enabled" : "disabled"}.` });
+      if (server.enabled) await waitForServerState(server.name, targetWorkspace);
+    } catch (reason) {
+      if (mounted.current) setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save advanced capabilities" });
     } finally {
       if (mounted.current) setBusyName(null);
     }
@@ -205,10 +254,11 @@ export function McpSettings({ active }: { active: boolean }) {
         <span><em>Source</em><strong>{server.source === "built-in" ? "Built-in" : "User"}</strong></span>
         <span><em>Transport</em><strong>{server.transport || "—"}</strong></span>
         <span><em>Exposure</em><strong>{server.exposure || "—"}</strong></span>
-        <span><em>Tools</em><strong>{server.tools.length}</strong></span>
+        <span><em>Registered actions</em><strong>{server.tools.length}</strong></span>
       </div>
       {server.state === "needs-sign-in" && <div className="mcp-login-command"><ShieldAlert size={13} /><span>Sign in with</span><code>pi-ark mcp login {server.name}</code></div>}
       {server.diagnostics.length > 0 && <ul className="mcp-server-diagnostics">{server.diagnostics.map((diagnostic, index) => <li key={index}>{diagnostic}</li>)}</ul>}
+      {server.name === "playwright" && <div className="mcp-advanced-row"><div><strong>Advanced capabilities</strong><span>Storage, network, DevTools, vision and configuration actions.</span></div><Toggle checked={server.advanced !== false} disabled={busyName !== null || loading || refreshing} onChange={(checked) => void toggleAdvanced(server, checked)} label={`${server.advanced !== false ? "Disable" : "Enable"} advanced capabilities`} /></div>}
       {server.name === "playwright" && renderBrowserRuntime()}
     </div>;
   }
