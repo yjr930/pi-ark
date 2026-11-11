@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 
 const url = process.env.PI_ARK_CHECK_URL;
 if (!url) throw new Error("Set PI_ARK_CHECK_URL for an isolated Pi-Ark service");
@@ -20,6 +20,38 @@ const navigation = () => page.getByRole("navigation", { name: "Settings categori
 const select = (name) => navigation().getByRole("button", { name, exact: true }).click();
 const appPage = (name) => page.locator(".sidebar-navigation").getByRole("button", { name, exact: true }).click();
 const snapshot = () => Object.fromEntries([...requests].filter(([path]) => path.startsWith("/api/settings/")));
+const modelWrites = [];
+let modelPreferences = {
+  models: [
+    { provider: "openai-codex", providerName: "OpenAI Codex (legacy)", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", reasoning: true, contextWindow: 200000, thinkingLevels: ["low", "medium", "high"], enabled: true },
+    { provider: "openai", providerName: "OpenAI", id: "gpt-6", name: "GPT-6", reasoning: true, contextWindow: 200000, thinkingLevels: ["medium", "high"], enabled: true },
+    { provider: "openai", providerName: "OpenAI", id: "chat", name: "Chat", reasoning: false, contextWindow: 128000, thinkingLevels: ["off"], enabled: true },
+  ],
+  defaultProvider: "openai-codex", defaultModel: "gpt-5.6-sol", thinkingLevel: "high",
+};
+await page.route("**/api/settings/model-preferences", async (route) => {
+  if (route.request().method() === "PUT") {
+    const input = route.request().postDataJSON();
+    modelWrites.push(input);
+    const selectedDefault = modelPreferences.models.find((model) => model.provider === input.defaultProvider && model.id === input.defaultModel);
+    const error = !input.enabledModels.length ? "Select at least one model" : !selectedDefault || !input.enabledModels.includes(`${input.defaultProvider}/${input.defaultModel}`) ? "Default model must be enabled" : !selectedDefault.thinkingLevels.includes(input.thinkingLevel) ? "Thinking level is not supported by the default model" : undefined;
+    if (error) return route.fulfill({ status: 400, json: { error } });
+    modelPreferences = { ...modelPreferences, defaultProvider: input.defaultProvider, defaultModel: input.defaultModel, thinkingLevel: input.thinkingLevel, models: modelPreferences.models.map((model) => ({ ...model, enabled: input.enabledModels.includes(`${model.provider}/${model.id}`) })) };
+  }
+  await route.fulfill({ json: modelPreferences });
+});
+const modelCheckbox = (name) => page.getByRole("checkbox", { name: new RegExp(`^(Hide|Show) ${name} in model menus$`) });
+async function toggleModel(name, expectedDefault, expectedThinking) {
+  const checkbox = modelCheckbox(name);
+  const wasEnabled = await checkbox.getAttribute("aria-checked") === "true";
+  const response = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/model-preferences");
+  await checkbox.click();
+  assert.equal((await response).status(), 200);
+  await expect(checkbox).toBeEnabled();
+  await expect(checkbox).toHaveAttribute("aria-checked", String(!wasEnabled));
+  assert.equal(`${modelWrites.at(-1).defaultProvider}/${modelWrites.at(-1).defaultModel}`, expectedDefault);
+  assert.equal(modelWrites.at(-1).thinkingLevel, expectedThinking);
+}
 const filesWrites = [];
 await page.route("**/api/settings/preferences", async (route) => {
   if (route.request().method() === "PUT") {
@@ -51,6 +83,36 @@ try {
   await page.locator('html[data-theme="paper"]').waitFor();
   await select("Interface");
   await page.screenshot({ path: join(screenshots, "settings-paper-desktop.png") });
+
+  await select("Models & providers");
+  await expect(modelCheckbox("GPT-6")).toHaveAttribute("aria-checked", "true");
+  assert.equal(await page.locator(".model-visibility > *").count(), 0);
+  assert.equal((await page.locator(".model-visibility").allTextContents()).join(""), "");
+  await toggleModel("GPT-6", "openai-codex/gpt-5.6-sol", "high");
+  await toggleModel("GPT-6", "openai-codex/gpt-5.6-sol", "high");
+  await toggleModel("Chat", "openai-codex/gpt-5.6-sol", "high");
+  await toggleModel("Chat", "openai-codex/gpt-5.6-sol", "high");
+  await toggleModel("GPT-5.6 Sol", "openai/gpt-6", "high");
+  await expect(page.getByRole("button", { name: "GPT-6 is the default model", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await toggleModel("GPT-6", "openai/chat", "off");
+  const writesBeforeLastModel = modelWrites.length;
+  await modelCheckbox("Chat").click();
+  await expect(page.getByText("Select at least one model.", { exact: true })).toBeVisible();
+  await expect(modelCheckbox("Chat")).toHaveAttribute("aria-checked", "true");
+  assert.equal(modelWrites.length, writesBeforeLastModel);
+  const defaultResponse = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/model-preferences");
+  await page.getByRole("button", { name: "Use GPT-5.6 Sol as default", exact: true }).click();
+  assert.equal((await defaultResponse).status(), 200);
+  await expect(modelCheckbox("GPT-5.6 Sol")).toBeEnabled();
+  await expect(modelCheckbox("GPT-5.6 Sol")).toHaveAttribute("aria-checked", "true");
+  assert.equal(modelPreferences.defaultModel, "gpt-5.6-sol");
+  assert.equal(modelPreferences.thinkingLevel, "low");
+  await page.reload();
+  await navigation().waitFor();
+  await select("Models & providers");
+  await expect(modelCheckbox("GPT-6")).toHaveAttribute("aria-checked", "false");
+  await expect(modelCheckbox("GPT-5.6 Sol")).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("button", { name: "GPT-5.6 Sol is the default model", exact: true })).toHaveAttribute("aria-pressed", "true");
 
   await select("Agent behavior");
   assert.equal(await page.getByRole("heading", { name: "Agent tools", exact: true }).count(), 0);
@@ -162,6 +224,12 @@ try {
     await response;
     const geometry = await page.locator(".settings-layout").evaluate((element) => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, viewport: window.innerWidth }; });
     assert.ok(geometry.left >= 0 && geometry.right <= geometry.viewport + 1);
+    await select("Models & providers");
+    const checkedColor = await modelCheckbox("GPT-5.6 Sol").evaluate((element) => getComputedStyle(element).backgroundColor);
+    const uncheckedColor = await modelCheckbox("GPT-6").evaluate((element) => getComputedStyle(element).backgroundColor);
+    assert.notEqual(checkedColor, uncheckedColor);
+    assert.equal(await page.locator(".model-visibility > *").count(), 0);
+    if (theme === "Ark Dark" || theme === "Paper") await page.screenshot({ path: join(screenshots, `settings-models-${theme === "Paper" ? "paper" : "dark"}.png`) });
     await select("Interface");
     if (theme === "Ark Dark") await page.screenshot({ path: join(screenshots, "settings-dark-desktop.png") });
   }
@@ -175,6 +243,10 @@ try {
   assert.notEqual(chrome.text, chrome.background);
   assert.equal(chrome.sidebarShadow, "none");
   await page.screenshot({ path: join(screenshots, "settings-paper-mobile.png") });
+  await select("Models & providers");
+  await toggleModel("GPT-6", "openai-codex/gpt-5.6-sol", "low");
+  await toggleModel("GPT-6", "openai-codex/gpt-5.6-sol", "low");
+  await page.screenshot({ path: join(screenshots, "settings-models-mobile.png") });
   await select("Agent behavior");
   await append.waitFor();
   assert.equal(await append.inputValue(), content);

@@ -410,11 +410,11 @@ Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示。开启�
 
 1. 在 Manage Provider 中选择需要认证或断开的 Provider。模型行右侧的星标继续决定新 Session 的 default。
 2. 通过 API key 或 subscription account 完成认证。
-3. 在 Models shown in Pi-Ark 中勾选需要出现在模型菜单中的模型。列表按 Provider 分组，并支持搜索。
+3. 在 Models shown in Pi-Ark 中选择需要出现在模型菜单中的模型。模型 checkbox 的填色状态表示启用，空白状态表示关闭。列表按 Provider 分组，并支持搜索。
 4. 点击模型行右侧的星标，将已勾选模型指定为新 Session 的 default。选择尚未勾选的模型作为 default 时，Pi-Ark 会同时勾选该模型。
 5. 选择 default model 支持的 Default thinking level。
 
-模型 checkbox、default 和 Default thinking level 在选择后立即保存。至少需要保留一个已勾选模型，default 必须属于已勾选模型。已有 Session 会继续恢复它记录的当前模型；如果该模型后来取消勾选，composer 仍显示当前的 `provider/model` reference，模型菜单显示当前已勾选的模型。API key 输入是 write-only；输入后使用该区域内的 Save API key 或 Cancel。浏览器接收 credential 状态与来源，credential 内容保存在服务端。
+模型 checkbox、default 和 Default thinking level 在选择后立即保存。切换普通模型的启用状态时，当前 default 和 Default thinking level 保持原值。关闭 default 模型时，Pi-Ark 从列表中选择第一个仍启用的模型作为新 default，并调整 thinking level 以匹配新 default。最后一个启用的模型保持启用，页面显示 Select at least one model 提示。已有 Session 会继续恢复它记录的当前模型；如果该模型后来取消勾选，composer 仍显示当前的 `provider/model` reference，模型菜单显示当前已勾选的模型。API key 输入是 write-only；输入后使用该区域内的 Save API key 或 Cancel。浏览器接收 credential 状态与来源，credential 内容保存在服务端。
 
 使用保存 credential 的 Provider 会显示 Disconnect。确认后，Pi-Ark 删除 `auth.json` 中该 Provider 的 credential。环境变量或 `models.json` 提供的认证继续由对应配置管理；Disconnect 的显示条件是 credential source 为 stored。断开后，Pi-Ark 保留仍可用的已勾选模型；如果没有剩余的已勾选模型，Pi-Ark 选择第一个仍可用模型作为模型清单和 default。
 

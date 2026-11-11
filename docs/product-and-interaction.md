@@ -210,6 +210,8 @@ Settings 对所有 Workspace 使用同一份配置。桌面端的左侧按类别
 
 Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和提示词草稿。模型数据独立加载；effective prompt preview 在展开时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取设置。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
 
+模型 checkbox 使用填色表示启用，使用空白状态表示关闭。切换非默认模型的启用状态时，页面保留当前的 default model 和 Default thinking level。关闭 default model 时，页面选择模型列表中第一个仍启用的模型作为新 default，并将 thinking level 调整为新 default 支持的等级。最后一个启用的模型保持启用，并显示 Select at least one model 提示。
+
 Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；模型 checkbox、default model、default thinking level 和 Agent defaults 在选择后保存。Manage Provider 选择器用于切换当前管理的 Provider；新 Session 的 default 由模型行右侧的星标决定。API key 与 Global system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。pi 保存 API key 和 OAuth credential，浏览器接收 credential 状态与来源。使用保存 credential 的 Provider 显示 Disconnect；确认后，Pi-Ark 删除该 credential，并从仍可用的已勾选模型中保留 default，或选择第一个仍可用模型。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面省略该输入项。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，使新的登录 flow 可以继续。
 
 Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent 和 pi-ai。更新过程保留 Global data 与 Workspace data，将 `current` symlink 切换到新 release，并在延迟重启前保留上一 release。Roll back 将 `current` 和 `previous` 对调。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
