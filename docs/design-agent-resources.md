@@ -110,7 +110,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 |---|---|---|
 | `browser` | 用 MCP `playwright` server 打开网页、点击、输入、截图 | `playwright` MCP server 已启用且浏览器运行时已安装 |
 
-后续内置 skill 按需要增加，新增时同时更新本表与 `docs/index.md`。
+首版只内置 `browser`。后续新增内置 skill 时同时更新本表与 `docs/index.md`。
 
 ### 7.2 browser skill 的内容要点
 
@@ -233,5 +233,4 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 ## 13. 待定问题
 
 - 浏览器运行时安装是否由 Server 自动执行，还是只提供命令与状态。
-- Built-in skill 的清单除 `browser` 外还有哪些。
 - User MCP server 的添加与编辑是否在首版提供。
