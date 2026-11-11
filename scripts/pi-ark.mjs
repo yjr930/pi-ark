@@ -18,6 +18,13 @@ const command = args[0];
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const releaseRepository = process.env.PI_ARK_RELEASE_REPOSITORY || "yjr930/pi-ark";
 const portable = process.env.PI_ARK_PORTABLE === "1" || process.platform !== "linux";
+
+const formatMegabytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+function progressTicker(label, intervalMs) {
+  const started = Date.now();
+  return setInterval(() => console.log(`${label} (${Math.round((Date.now() - started) / 1000)}s)`), intervalMs);
+}
 const nodeExecutable = process.env.PI_ARK_NODE_PATH || process.execPath;
 const arkHome = resolve(process.env.PI_ARK_HOME || join(homedir(), ".pi-ark"));
 const option = (name) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; };
@@ -110,9 +117,16 @@ function systemdServiceName() {
 }
 
 async function restartService() {
-  if (portable) return portableCommand("restart");
+  if (portable) { console.log("Restarting Pi-Ark"); return portableCommand("restart"); }
   const service = systemdServiceName();
-  execFileSync("systemctl", ["restart", service], { stdio: "inherit" });
+  console.log(`Restarting ${service}`);
+  await new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn("systemctl", ["restart", service], { stdio: "inherit" });
+    const ticker = progressTicker("Waiting for the service to stop and start", 5000);
+    const settle = (error) => { clearInterval(ticker); error ? rejectPromise(error) : resolvePromise(); };
+    child.once("error", (error) => settle(error));
+    child.once("exit", (code, signal) => settle(code === 0 ? undefined : new Error(`systemctl restart exited with ${signal ? `signal ${signal}` : `code ${code}`}`)));
+  });
   console.log(`${service} restarted`);
 }
 
@@ -192,12 +206,16 @@ async function withManagerLock(callback) {
 async function stopPortable() {
   const state = await optionalJson(statePath());
   if (!await controlRequest(state, "status").catch(() => undefined)) { console.log("Pi-Ark is stopped"); return; }
+  console.log("Stopping Pi-Ark");
   await controlRequest(state, "stop");
-  for (let attempt = 0; attempt < 240; attempt += 1) {
-    if (!await managerStatus()) { console.log("Pi-Ark stopped"); return; }
-    await delay(250);
-  }
-  throw new Error("Background manager is still stopping; inspect the installation log");
+  const ticker = progressTicker("Waiting for Pi-Ark to stop", 10000);
+  try {
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      if (!await managerStatus()) { console.log("Pi-Ark stopped"); return; }
+      await delay(250);
+    }
+    throw new Error("Background manager is still stopping; inspect the installation log");
+  } finally { clearInterval(ticker); }
 }
 
 async function startPortable() {
@@ -222,6 +240,7 @@ async function startPortable() {
   await mkdir(dirname(logPath()), { recursive: true, mode: 0o700 });
   const log = await open(logPath(), "a", 0o600);
   const token = randomBytes(32).toString("hex");
+  console.log("Starting Pi-Ark");
   let spawnError;
   let child;
   try {
@@ -229,20 +248,23 @@ async function startPortable() {
     child.once("error", (error) => { spawnError = error; });
     child.unref();
   } finally { await log.close(); }
-  for (let attempt = 0; attempt < 240; attempt += 1) {
-    if (spawnError) throw spawnError;
-    const state = await optionalJson(statePath());
-    if (state?.token === token) {
-      const status = await controlRequest(state, "status").catch(() => undefined);
-      if (status?.healthy) { console.log(JSON.stringify(status, null, 2)); return; }
-      if (state.error) throw new Error(`${state.error}; see ${logPath()}`);
+  const ticker = progressTicker("Waiting for Pi-Ark to be ready", 10000);
+  try {
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      if (spawnError) throw spawnError;
+      const state = await optionalJson(statePath());
+      if (state?.token === token) {
+        const status = await controlRequest(state, "status").catch(() => undefined);
+        if (status?.healthy) { console.log(JSON.stringify(status, null, 2)); return; }
+        if (state.error) throw new Error(`${state.error}; see ${logPath()}`);
+      }
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Background manager exited; see ${logPath()}`);
+      await delay(250);
     }
-    if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Background manager exited; see ${logPath()}`);
-    await delay(250);
-  }
-  const state = await optionalJson(statePath());
-  if (state?.token === token) await controlRequest(state, "stop").catch(() => undefined);
-  throw new Error(`Pi-Ark startup timed out; see ${logPath()}`);
+    const state = await optionalJson(statePath());
+    if (state?.token === token) await controlRequest(state, "stop").catch(() => undefined);
+    throw new Error(`Pi-Ark startup timed out; see ${logPath()}`);
+  } finally { clearInterval(ticker); }
 }
 
 async function portableCommand(name) {
@@ -403,7 +425,34 @@ async function serve(background = false) {
   }
 }
 
+async function downloadReleaseAsset(url, destination, expectedSize) {
+  const response = await fetch(url, { headers: { "User-Agent": "Pi-Ark" }, redirect: "follow", signal: AbortSignal.timeout(300000) });
+  if (!response.ok) throw new Error(`Release download returned HTTP ${response.status}`);
+  const total = expectedSize || Number(response.headers.get("content-length")) || 0;
+  if (!response.body) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    await writeFile(destination, buffer);
+    console.log(`Downloaded ${formatMegabytes(buffer.length)}`);
+    return;
+  }
+  const chunks = [];
+  let received = 0;
+  let reportedAt = Date.now();
+  for await (const chunk of response.body) {
+    chunks.push(Buffer.from(chunk));
+    received += chunk.length;
+    if (total && Date.now() - reportedAt >= 2000) {
+      reportedAt = Date.now();
+      console.log(`Downloaded ${formatMegabytes(received)} of ${formatMegabytes(total)}`);
+    }
+  }
+  const buffer = Buffer.concat(chunks);
+  await writeFile(destination, buffer);
+  console.log(total ? `Downloaded ${formatMegabytes(buffer.length)} of ${formatMegabytes(total)}` : `Downloaded ${formatMegabytes(buffer.length)}`);
+}
+
 async function updateRelease() {
+  console.log("Checking the latest Pi-Ark release");
   const latest = await githubLatest();
   const version = validateVersion(String(latest.tag_name || "").replace(/^v/, ""));
   const assetName = releaseAssetName(version);
@@ -412,18 +461,20 @@ async function updateRelease() {
   const prefix = installPrefix();
   const current = (await readReleaseState(prefix)).current;
   if (current && (await readJson(join(current, "RELEASE.json"))).version === version) { console.log(`Pi-Ark ${version} is already current`); return; }
+  console.log(`Latest Pi-Ark release: ${version}`);
   const temporary = await mkdtemp(join(tmpdir(), "pi-ark-update-"));
   try {
     const archive = join(temporary, assetName);
-    const response = await fetch(asset.browser_download_url, { headers: { "User-Agent": "Pi-Ark" }, redirect: "follow", signal: AbortSignal.timeout(300000) });
-    if (!response.ok) throw new Error(`Release download returned HTTP ${response.status}`);
-    await writeFile(archive, Buffer.from(await response.arrayBuffer()));
+    console.log(`Downloading ${assetName}`);
+    await downloadReleaseAsset(asset.browser_download_url, archive, Number(asset.size));
     const extracted = join(temporary, "extracted");
     await mkdir(extracted);
     extractArchive(archive, extracted);
     const source = join(extracted, `pi-ark-${version}-${process.platform}-${process.arch}`);
+    console.log(`Verifying Pi-Ark ${version}`);
     const manifest = await verifyRelease(source);
     if (manifest.version !== version) throw new Error("Release version does not match the downloaded asset");
+    console.log(`Installing Pi-Ark ${version}`);
     const destination = await stageRelease(source, prefix, version);
     await verifyRelease(destination);
     await switchRelease(prefix, destination);

@@ -645,7 +645,7 @@ Portable 的 `start` 在后台启动，`stop` 通过本机管理通道请求停�
 
 Linux 的系统安装通过 systemd 执行 start/stop/restart，`status` 显示 service 状态，`logs` 持续显示 service journal。双实例的 command name 分别为 `pi-ark-dev` 与 `pi-ark-backup`。
 
-`update` 安装 GitHub latest stable release，`rollback` 恢复 previous release，随后重新启动并执行 health check。`--no-restart` 可以将 release 切换与重启分开安排。两个操作都保留 Global data 与 Workspace data。
+`update` 安装 GitHub latest stable release，`rollback` 恢复 previous release，随后重新启动并执行 health check。`--no-restart` 可以将 release 切换与重启分开安排。两个操作都保留 Global data 与 Workspace data。`update` 依次输出检查 latest release、下载（包含已下载大小）、校验、安装和重启的状态；等待期间持续输出已等待时间。
 
 ## 从 dev 实例到正式发布上线
 

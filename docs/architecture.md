@@ -447,6 +447,8 @@ Instance-aware CLI 的 `update` command 执行以下流程：
 6. Web update API 在返回响应后触发 Server 正常关闭，释放 Agent runtime、WebSocket 和 Fastify；portable 后台管理器或 Linux systemd 下的 CLI supervisor 从新的 `current` 启动服务。
 7. CLI supervisor 请求新进程的 `/api/health`；启动检查通过后移除 pending state，检查失败时恢复 previous release 并重新启动。
 
+CLI 在上述阶段输出状态行：检查 latest release、下载（每两秒输出已下载大小）、校验、安装、切换版本和重启。重启等待期间，systemd 路径每五秒输出一次已等待时间，portable 路径在停止与启动阶段每十秒输出一次。
+
 Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写入 pending release state，并使用相同的健康检查与重启流程。Global data 和 Workspace data 位于 release 目录之外，更新与回退会保留这些数据。Maintenance 与 CLI 共享相同的 release state，页面展示 previous release 和稳定 CLI 的完整 Node 调用命令。
 
 日常迭代使用 `<next-version>-dev.<iteration>` SemVer prerelease。开发 artifact 安装到本机 `/opt/pi-ark-dev/releases/<dev-version>`，并通过同一套 preflight、symlink 和 systemd 流程运行；该流程不会创建 Git tag 或 GitHub Release。正式 release 需要明确的发布安排。
