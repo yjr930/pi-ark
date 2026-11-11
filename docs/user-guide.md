@@ -466,16 +466,18 @@ Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧�
 
 ## Terminal 页面
 
-首次打开 Terminal 时，Pi-Ark 恢复当前 Workspace 的已有 Tab；列表为空时自动创建首个 Tab。每个 Tab 在 Workspace 目录中运行独立的 shell，Tab 栏显示 Running 或 Exited 状态，退出后同时显示已知的 exit code。
+首次打开 Terminal 时，Pi-Ark 恢复当前 Workspace 的已有 Tab；列表为空时自动创建首个 Tab。每个 Tab 在 Workspace 目录中运行独立的 shell。Tab 栏使用紧凑的单行布局，标题使用 `Tab 1` 这样的简短名称，活动 Tab 使用中性色背景与细底线。
 
 - 点击 Tab 栏中的加号（New terminal tab）创建新 Tab。
 - 点击 Tab 标题切换终端；焦点位于 Tab 标题时，可以使用左右方向键切换，也可以使用 Home 或 End 选择首个或末个 Tab。
 - 点击 Tab 的关闭按钮结束对应进程并清理输出；关闭最后一个 Tab 后，点击空状态中的 New terminal 可以重新创建，Refresh tabs 可以读取当前列表。
-- 选择终端中的文字后，点击 Copy，或使用复制快捷键（Ctrl+Shift+C 或 Cmd+C）复制选区。
+- 选择终端中的文字后，点击 Copy，或使用复制快捷键（Ctrl+Shift+C 或 Cmd+C）复制选区；成功后，终端区域右上角显示短暂的悬浮提示。
 - 使用系统或浏览器的默认粘贴方式将文字粘贴到终端，也可以点击工具栏中的 Paste。
 - Ctrl+C 沿用终端程序的中断行为。
 - 点击 Fit（Fit terminal）主动适配当前容器，页面尺寸变化时也会自动适配。
-- 连接中断后，页面自动尝试重连；状态栏中的 Retry 可以主动重新连接。
+- 鼠标悬停、键盘聚焦或点击 Tab 栏右端的 Terminal details（省略号图标），可以查看连接详情；连接中断后，页面自动尝试重连，详情中的 Retry 可以主动重新连接。
+- 按 Escape、点击详情外部或再次点击 Terminal details，可以关闭连接详情；切换 Tab 或页面时，详情同样关闭。
+- 操作反馈以紧凑的悬浮卡片显示，终端正文的位置保持稳定；成功提示在 2.8 秒后消失，错误提示可以通过关闭按钮收起。
 
 切换 Tab、页面或 Workspace 后返回，Pi-Ark 会立即显示保留的终端界面，包括原来的状态（输出、阅读位置和选区）。Server 在当前运行生命周期内保存每个 Tab 的进程和完整输出，浏览器刷新后重新连接并恢复历史。shell 自然退出后，可以继续查看该 Tab 的输出，直到显式关闭；关闭 Workspace 或 Server shutdown 时，Pi-Ark 释放相关 Terminal 资源。
 
@@ -575,7 +577,7 @@ Shell profile 同时列出服务器上已发现的可用程序（Bash、Zsh、Fi
 
 PowerShell 启动时将输入与输出编码设置为 UTF-8，Unix 会继承有效的 UTF-8 locale；Environment variables 中的值覆盖继承的环境变量。Terminal 配置首次进入时加载，之后保留在页面缓存中。在该类别点击 Refresh settings 会更新 Server 配置与可用 profiles，同时保留尚未保存的草稿；Cancel 可以切换到刷新后的已保存内容。
 
-Browser appearance 区域的 Font family 与 Font size 保存在当前浏览器中，修改后立即应用到已打开的 Terminal Tab。Font family 使用以逗号分隔的字体名称，支持带引号的字体名称；默认列表包含中文字体的候选名称（Sarasa Mono SC、Noto Sans Mono CJK SC、Microsoft YaHei 和 PingFang SC），浏览器使用本机已安装的字体。Font size 默认是 13 px，可设置为 10–30 px。Reset font defaults 恢复默认的字体列表和字号。
+Browser appearance 区域的 Font family 与 Font size 保存在当前浏览器中，修改后立即应用到已打开的 Terminal Tab。Font family 使用以逗号分隔的字体名称，支持带引号的字体名称；默认列表为 `ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace`，浏览器使用本机的等宽字体，并为中文字符选择可用的备用字体。历史默认列表在读取时采用新的默认字体，同时保留已保存的字号；自行设置的其他字体列表继续使用原值。Font size 默认是 13 px，可设置为 10–30 px。Reset font defaults 恢复默认的字体列表和字号。
 
 Keyboard shortcuts 区域说明系统的默认粘贴行为，以及工具栏的 Copy 和 Paste 操作。复制选区可以使用 Ctrl+Shift+C 或 Cmd+C，Ctrl+C 沿用终端程序的中断行为。
 
@@ -689,7 +691,7 @@ Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/a
 
 ### Terminal 显示 Disconnected
 
-点击 Terminal 状态栏的 Retry，并检查浏览器到 `/ws/terminal/:workspaceId/:terminalId` 的连接、node-pty 安装状态和服务账号的 shell 权限。需要更换 shell 时，在 Settings → Terminal 保存配置后创建新 Tab。
+打开 Tab 栏右端的连接详情，点击 Retry，并检查浏览器到 `/ws/terminal/:workspaceId/:terminalId` 的连接、node-pty 安装状态和服务账号的 shell 权限。需要更换 shell 时，在 Settings → Terminal 保存配置后创建新 Tab。
 
 ### System prompt preview 未更新
 

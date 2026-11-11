@@ -193,15 +193,17 @@ Markdown 文件使用与 conversation 相同的安全 Markdown renderer，并支
 
 ## Terminal
 
-Terminal 页面使用 xterm.js，每个 Tab 在 Workspace 目录中启动独立的 PTY。首次进入当前 Workspace 的 Terminal 时，页面读取已有的 Tab；列表为空时自动创建首个 Tab。Tab 栏的加号提供 New terminal tab，每个 Tab 显示可读标题和 Running 或 Exited 状态，Exited 同时显示已知的 exit code。Tab 上的关闭按钮释放对应进程和输出；关闭最后一个 Tab 后，页面显示 No terminal tabs，并提供 New terminal 与 Refresh tabs。
+Terminal 页面使用 xterm.js，每个 Tab 在 Workspace 目录中启动独立的 PTY。首次进入当前 Workspace 的 Terminal 时，页面读取已有的 Tab；列表为空时自动创建首个 Tab。Tab 栏使用紧凑的单行布局，活动 Tab 使用中性色背景与细底线，加号紧邻 Tab 列表并提供 New terminal tab。Tab 的标题使用 `Tab 1` 这样的简短名称，并保留独立的关闭按钮。Tab 上的关闭按钮释放对应进程和输出；关闭最后一个 Tab 后，页面显示 No terminal tabs，并提供 New terminal 与 Refresh tabs。
 
-页面顶部显示 Workspace 路径，并提供工具栏操作（Copy、Paste 和 Fit）。Copy 在存在选区时可用，Paste 在当前 Tab 已连接且正在运行时可用；连接状态显示在 Tab 栏下方。普通连接中断后，页面自动重连，并提供 Retry；重新连接时继续接收尚未收到的输出。容器尺寸变化时，终端自动调整行列数；Fit 主动适配当前容器。
+页面顶部显示 Workspace 路径，并提供工具栏操作（Copy、Paste 和 Fit）。Copy 在存在选区时可用，Paste 在当前 Tab 已连接且正在运行时可用。Tab 栏右端的 Terminal details 使用省略号图标；鼠标悬停、键盘聚焦或触屏点击时，悬浮详情显示连接信息及已退出进程的 exit code。普通连接中断后，页面自动重连，连接详情提供 Retry；重新连接时继续接收尚未收到的输出。Escape、外部点击或再次点击 Terminal details 可以关闭详情，切换 Tab 或页面时同样关闭。容器尺寸变化时，终端自动调整行列数；Fit 主动适配当前容器。
+
+工具栏的图标按钮提供 hover 与键盘聚焦说明。复制成功等操作反馈显示为终端区域右上角的紧凑悬浮卡片，并在 2.8 秒后消失；错误反馈保留关闭按钮。提示与连接详情覆盖在页面上方，终端正文的位置和可用高度保持稳定。
 
 粘贴使用系统、浏览器和 xterm 的默认行为，工具栏的 Paste 通过浏览器剪贴板读取文字并交给 xterm 粘贴。Ctrl+Shift+C 或 Cmd+C 复制当前选区，Ctrl+C 沿用终端程序的中断行为。输入法组合文字期间，按键由输入法和 xterm 处理。
 
 App 按已访问的 Workspace 保持 Terminal 页面及各 Tab 的 xterm DOM 挂载。切换 Tab、页面或 Workspace 时隐藏对应的终端界面，返回后立即显示保留的状态（输出、阅读位置和选区）。Server 在当前运行生命周期内保留所有 Tab 的独立进程和完整输出；浏览器刷新后重新连接这些 Tab 并回放历史。shell 自然退出后，Tab 和输出保留到显式关闭；关闭 Workspace 或 Server shutdown 时释放相关资源。
 
-Settings → Terminal 提供共享的 Server shell 设置，以及当前浏览器的字体设置。Server 自动发现可用的 shell profiles，支持以下选择（Auto、Bash、Zsh、Fish、PowerShell、Windows PowerShell、Git Bash、WSL 和自定义程序）。Auto 在 Windows 上优先使用 PowerShell（pwsh），其次使用 Windows PowerShell；在 macOS 上使用有效的 `SHELL`，其次使用 `/bin/zsh`；在 Linux 上使用有效的 `SHELL`，其次使用 `/bin/bash`。PowerShell 启动时设置 UTF-8 编码，Unix 继承有效的 UTF-8 locale，并支持环境变量覆盖。默认字体列表包含中文字体的候选名称，浏览器使用本机已安装的字体渲染文字。
+Settings → Terminal 提供共享的 Server shell 设置，以及当前浏览器的字体设置。Server 自动发现可用的 shell profiles，支持以下选择（Auto、Bash、Zsh、Fish、PowerShell、Windows PowerShell、Git Bash、WSL 和自定义程序）。Auto 在 Windows 上优先使用 PowerShell（pwsh），其次使用 Windows PowerShell；在 macOS 上使用有效的 `SHELL`，其次使用 `/bin/zsh`；在 Linux 上使用有效的 `SHELL`，其次使用 `/bin/bash`。PowerShell 启动时设置 UTF-8 编码，Unix 继承有效的 UTF-8 locale，并支持环境变量覆盖。默认字体列表使用系统的等宽字体，浏览器为中文字符选择可用的备用字体。历史默认字体列表在读取时采用新的默认值，并保留用户选择的字号；用户自定义的其他字体列表保持原值。
 
 Terminal 命令使用 Pi-Ark 服务账号的系统权限，并以 Workspace 目录作为启动目录。
 

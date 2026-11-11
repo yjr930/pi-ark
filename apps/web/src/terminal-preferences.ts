@@ -1,10 +1,11 @@
 export type TerminalAppearance = { fontFamily: string; fontSize: number };
 
 export const DEFAULT_TERMINAL_APPEARANCE: TerminalAppearance = Object.freeze({
-  fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Microsoft YaHei", "PingFang SC", monospace',
+  fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace',
   fontSize: 13,
 });
 
+const legacyDefaultFontFamily = '"JetBrains Mono", "SFMono-Regular", Consolas, "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Microsoft YaHei", "PingFang SC", monospace';
 const storageKey = "pi-ark-terminal-appearance";
 const changeEvent = "pi-ark-terminal-appearance-change";
 let fallback: TerminalAppearance = { ...DEFAULT_TERMINAL_APPEARANCE };
@@ -12,8 +13,9 @@ let useFallback = false;
 
 function normalizeAppearance(value: unknown): TerminalAppearance {
   const appearance = value && typeof value === "object" ? value as Partial<TerminalAppearance> : {};
+  const fontFamily = typeof appearance.fontFamily === "string" && appearance.fontFamily.trim() ? appearance.fontFamily : DEFAULT_TERMINAL_APPEARANCE.fontFamily;
   return {
-    fontFamily: typeof appearance.fontFamily === "string" && appearance.fontFamily.trim() ? appearance.fontFamily : DEFAULT_TERMINAL_APPEARANCE.fontFamily,
+    fontFamily: fontFamily === legacyDefaultFontFamily ? DEFAULT_TERMINAL_APPEARANCE.fontFamily : fontFamily,
     fontSize: typeof appearance.fontSize === "number" && Number.isFinite(appearance.fontSize) && appearance.fontSize >= 10 && appearance.fontSize <= 30 ? appearance.fontSize : DEFAULT_TERMINAL_APPEARANCE.fontSize,
   };
 }

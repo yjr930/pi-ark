@@ -101,12 +101,13 @@ npm run check:subagents
 npm run check:subagents-ui
 npm run check:ui
 npm run check:terminal
+npm run check:terminal-appearance
 npm run check:terminal-ui
 npm run release:build
 npm start
 ```
 
-`check:terminal` 使用临时配置与实际 PTY 检查配置、shell 选择和 Tab 生命周期，并包含在 `check:behavior` 中。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的独立实例和工作目录检查浏览器交互。
+`check:terminal` 使用临时配置与实际 PTY 检查配置、shell 选择和 Tab 生命周期，并包含在 `check:behavior` 中。`check:terminal-appearance` 检查系统等宽字体的默认值与历史字体偏好的迁移。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的独立实例和工作目录检查浏览器交互。
 
 ## 命令行管理
 

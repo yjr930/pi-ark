@@ -4,6 +4,7 @@ apps/*/dist/
 *.tsbuildinfo
 .env
 .pi-ark/
+.tmp/
 *.log
 *.key
 *.crt

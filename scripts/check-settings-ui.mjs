@@ -5,7 +5,7 @@ import { chromium, expect } from "@playwright/test";
 
 const url = process.env.PI_ARK_CHECK_URL;
 if (!url) throw new Error("Set PI_ARK_CHECK_URL for an isolated Pi-Ark service");
-const screenshots = process.env.PI_ARK_CHECK_SCREENSHOT_DIR || "/tmp/pi-ark-settings-preview";
+const screenshots = process.env.PI_ARK_CHECK_SCREENSHOT_DIR || join(import.meta.dirname, "..", ".tmp", "screenshots", "settings");
 await mkdir(screenshots, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });

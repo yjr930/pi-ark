@@ -106,7 +106,8 @@ docs/               产品、架构、使用和集成文档
 | Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示，以及全局单次换行的显示设置 |
 | Terminal | `apps/web/src/components/Terminal.tsx` | Workspace 的 Tab 列表、创建与关闭、选中状态、连接状态及工具栏 |
 | Terminal client | `apps/web/src/terminal-client.ts` | 每个 Tab 的 xterm.js、FitAddon、WebSocket、UTF-16 offset 重连、剪贴板与选区复制 |
-| Terminal appearance | `apps/web/src/terminal-preferences.ts` | 浏览器字体偏好、默认中文字体列表、localStorage 与偏好变更事件 |
+| Terminal appearance | `apps/web/src/terminal-preferences.ts` | 浏览器字体偏好、系统等宽字体列表、历史默认字体迁移、localStorage 与偏好变更事件 |
+| Terminal tooltip | `apps/web/src/components/TerminalTooltip.tsx` | Terminal 的 hover、focus 与触屏详情，portal 定位与交互式连接说明 |
 | Terminal settings | `apps/web/src/components/TerminalSettings.tsx` | 按需加载 Server shell 配置、草稿与保存队列、Refresh 草稿保留及浏览器字体编辑 |
 | Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示设置，保留页面状态，并按需加载 prompt preview、Terminal 配置与 release 信息 |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
@@ -167,6 +168,8 @@ PTY 的每次输出追加一个分块，并记录该分块起点和输出后的 
 首次打开 Workspace 的 Terminal 时，页面读取 Server 的 Tab 列表；列表为空时自动创建首个 Tab。关闭最后一个 Tab 后显示空状态，并提供 `New terminal` 和 `Refresh tabs`。当前 Terminal 页面激活时，在窗口获得焦点、文档恢复可见和每 10 秒时同步 Tab 列表，处理其他浏览器创建或关闭的 Tab。
 
 同一个 xterm 发生连接中断时，`TerminalClient` 以已接收的 UTF-16 offset 重新连接，并对返回数据按 offset 去重；自动重连使用从 500 ms 增长到 10 秒的等待时间，并提供 Retry。浏览器刷新后，从 Server 重新取得 Tab 列表，为各 Tab 创建 xterm，并从 offset `0` 回放历史。选中 Tab 的标识保存在浏览器 localStorage 中。
+
+Terminal 的 Tab、加号与 Terminal details（省略号图标）在同一栏中排列；浏览器将 Server 的默认标题 `Terminal 1` 显示为简短的 `Tab 1`，Tab 的常驻内容为名称与关闭按钮。`TerminalTooltip` 将辅助信息通过 portal 渲染到 document body，并根据 viewport 调整位置；连接详情同时支持 hover、focus 与触屏点击，保留 Retry 的键盘访问。Escape、外部点击、再次点击指示器或切换 Tab 与页面时关闭详情。操作反馈绝对定位在 Terminal 内容区域的右上角；成功反馈在 2.8 秒后清除，错误反馈保留关闭按钮。悬浮内容保持 Terminal 的布局尺寸。
 
 Terminal 的粘贴使用系统、浏览器和 xterm 的默认行为。工具栏的 Paste 通过 `navigator.clipboard.readText()` 读取文字，并调用 xterm 的 `paste()`；工具栏的 Copy 与复制快捷键（Ctrl+Shift+C 或 Cmd+C）使用当前选区，并通过 `navigator.clipboard.writeText()` 写入剪贴板。输入法组合文字期间，custom key handler 继续交由 xterm 处理按键。Fit 在当前可见 Tab 上计算尺寸，并将行列数通过 `resize` 同步到 Server。
 
@@ -385,7 +388,7 @@ Server shell 配置保存在 `PI_ARK_HOME/config.json` 的 `preferences.terminal
 
 程序启动使用 node-pty 的 executable 与 args 参数，用户填写的 `args` 逐个追加到 profile 的默认参数后。PowerShell profiles 默认提供 `-NoLogo`，启动 PowerShell 时再追加 `-NoExit -Command` 与 UTF-8 初始化命令，设置 Console 的输入编码、输出编码和 `$OutputEncoding`，随后保留交互 shell。Unix 根据 `LC_ALL`、`LC_CTYPE` 和 `LANG` 确定当前字符编码，结合 `locale -a` 的可用列表保留有效的 UTF-8 locale，或选择平台的可用 UTF-8 locale。最终环境包含 `TERM=xterm-256color` 和 `COLORTERM=truecolor`，用户的 `env` 最后覆盖继承的环境变量。
 
-Server shell 配置由所有 Workspace 共用，在创建新 Tab 时读取。浏览器外观使用 `fontFamily` 与 `fontSize`，保存在 localStorage 中，并通过偏好变更事件立即更新已打开的 xterm。默认字号为 13 px，范围为 10–30 px；默认字体列表包含 Sarasa Mono SC、Noto Sans Mono CJK SC、Microsoft YaHei 和 PingFang SC 等中文字体的候选名称，浏览器根据本机安装情况选择字体。
+Server shell 配置由所有 Workspace 共用，在创建新 Tab 时读取。浏览器外观使用 `fontFamily` 与 `fontSize`，保存在 localStorage 中，并通过偏好变更事件立即更新已打开的 xterm。默认字号为 13 px，范围为 10–30 px；默认字体列表为 `ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace`，浏览器为中文字符选择可用的备用字体。归一化时将完整匹配历史默认值的字体列表更新为当前默认值，并保留合法字号；其他自定义字体保持原值。该迁移覆盖读取、保存与偏好变更事件，读取时在内存中生效，后续保存时写入新的字体列表。
 
 ### Subscription OAuth
 
@@ -729,6 +732,7 @@ npm run check:subagents-ui
 npm run check:ui
 npm run check:markdown-ui
 npm run check:terminal
+npm run check:terminal-appearance
 npm run check:terminal-ui
 npm run release:build
 ```
@@ -739,6 +743,6 @@ npm run release:build
 
 `check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格。
 
-`check:terminal` 使用临时配置与实际 PTY，覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。
+`check:terminal` 使用临时配置与实际 PTY，覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
 
 Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、Session 切换后的 draft/attachment/disclosure 恢复、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

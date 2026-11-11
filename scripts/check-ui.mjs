@@ -10,6 +10,8 @@ const password = process.env.PI_ARK_CHECK_PASSWORD || "check-password";
 const workspacePath = process.env.PI_ARK_CHECK_WORKSPACE;
 const baseOrigin = baseURL ? new URL(baseURL).origin : "";
 if (!baseURL || !workspacePath) throw new Error("Set PI_ARK_CHECK_URL and PI_ARK_CHECK_WORKSPACE");
+const screenshots = process.env.PI_ARK_CHECK_SCREENSHOT_DIR || join(import.meta.dirname, "..", ".tmp", "screenshots", "ui");
+await mkdir(screenshots, { recursive: true });
 const filesFixtureName = "pi-ark-ui-test-files";
 const filesFixtureDirectory = join(workspacePath, filesFixtureName);
 const readableFileFixturePath = join(workspacePath, "pi-ark-ui-test-readable.txt");
@@ -953,7 +955,7 @@ try {
   await sessionInfoPanel.getByRole("button", { name: "Copy session URL" }).click();
   await sessionInfoPanel.getByRole("button", { name: "Session URL copied", exact: true }).waitFor();
   await assertSessionInfoActions(sessionInfoPanel);
-  await sessionInfoPanel.screenshot({ path: "/tmp/pi-ark-session-information-desktop.png" });
+  await sessionInfoPanel.screenshot({ path: join(screenshots, "session-information-desktop.png") });
   const copiedSessionUrl = await page.evaluate(() => navigator.clipboard.readText());
   const copiedSessionTarget = new URL(copiedSessionUrl);
   assert.equal(copiedSessionTarget.searchParams.get("page"), "agent");
@@ -969,7 +971,7 @@ try {
     await copySessionButton.click();
     await sessionInfoPanel.getByRole("button", { name: "Session URL copied", exact: true }).waitFor();
     await assertSessionInfoActions(sessionInfoPanel);
-    await sessionInfoPanel.screenshot({ path: `/tmp/pi-ark-session-information-${width}.png` });
+    await sessionInfoPanel.screenshot({ path: join(screenshots, `session-information-${width}.png`) });
   }
   await page.setViewportSize(sessionInfoViewport);
   await page.getByTitle("Session information").click();
@@ -1344,6 +1346,7 @@ try {
   await page.locator(".subscription-state.success").getByText("Subscription connected", { exact: true }).waitFor();
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
   await page.locator(".composer-thinking .ark-select-trigger").waitFor();
+  await page.locator(".chat-header .status-dot").filter({ hasText: "Ready" }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileTitleLayout = await page.locator(".chat-title").evaluate((title) => { const heading = title.querySelector("h2"); const rename = title.querySelector('[title="Rename session"]'); const headingBox = heading.getBoundingClientRect(); const renameBox = rename.getBoundingClientRect(); const headingStyle = getComputedStyle(heading); const clone = heading.cloneNode(true); clone.style.position = "fixed"; clone.style.visibility = "hidden"; clone.style.width = "max-content"; clone.style.maxWidth = "none"; clone.style.flex = "none"; clone.style.margin = "0"; clone.style.font = headingStyle.font; clone.style.letterSpacing = headingStyle.letterSpacing; document.body.appendChild(clone); const intrinsicWidth = clone.getBoundingClientRect().width; clone.remove(); const maxWidth = Number.parseFloat(headingStyle.maxWidth); return { headingWidth: headingBox.width, intrinsicWidth, maxWidth, expectedWidth: Math.min(intrinsicWidth, maxWidth), renameGap: renameBox.left - headingBox.right }; });
   assert.ok(Math.abs(mobileTitleLayout.headingWidth - mobileTitleLayout.expectedWidth) <= 1, JSON.stringify(mobileTitleLayout));
@@ -1376,7 +1379,7 @@ try {
 
   console.log("browser UI checks passed");
 } catch (error) {
-  await page.screenshot({ path: "/tmp/pi-ark-ui-check-failure.png", fullPage: true });
+  await page.screenshot({ path: join(screenshots, "ui-check-failure.png"), fullPage: true });
   throw error;
 } finally {
   await browser.close();

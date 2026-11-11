@@ -7,6 +7,8 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 const url = process.env.PI_ARK_CHECK_URL;
 const workspace = process.env.PI_ARK_CHECK_WORKSPACE;
 if (!url || !workspace) throw new Error("Set PI_ARK_CHECK_URL and PI_ARK_CHECK_WORKSPACE for an isolated service");
+const screenshots = process.env.PI_ARK_CHECK_SCREENSHOT_DIR || join(import.meta.dirname, "..", ".tmp", "screenshots", "markdown");
+await mkdir(screenshots, { recursive: true });
 const filename = "pi-ark-line-breaks.md";
 const filePath = join(workspace, filename);
 const source = "First line\nSecond line\n\nNext paragraph\n\n```text\ncode line one\ncode line two\n```\n\n- First item\n- Second item\n\n| Label | Value |\n| --- | --- |\n| One | Two |\n";
@@ -113,7 +115,7 @@ try {
   assert.equal((await themeResponse).ok(), true);
   assert.equal((await uiSettings()).markdownLineBreaks, false);
   await expect(lineBreakSwitch()).toHaveAttribute("aria-checked", "false");
-  await page.screenshot({ path: "/tmp/pi-ark-markdown-settings-desktop.png", fullPage: true });
+  await page.screenshot({ path: join(screenshots, "markdown-settings-desktop.png"), fullPage: true });
   await setLineBreaks(true);
   await checkConversation(true);
   await checkFile(true);
@@ -128,10 +130,10 @@ try {
   await lineBreakSwitch().scrollIntoViewIfNeeded();
   const pageSize = await page.evaluate(() => ({ width: innerWidth, content: document.documentElement.scrollWidth }));
   assert.ok(pageSize.content <= pageSize.width);
-  await page.screenshot({ path: "/tmp/pi-ark-markdown-settings-mobile.png", fullPage: true });
+  await page.screenshot({ path: join(screenshots, "markdown-settings-mobile.png"), fullPage: true });
   console.log("Markdown line-break UI checks passed");
 } catch (error) {
-  await page.screenshot({ path: "/tmp/pi-ark-markdown-check-failure.png", fullPage: true });
+  await page.screenshot({ path: join(screenshots, "markdown-check-failure.png"), fullPage: true });
   throw error;
 } finally {
   await browser.close();
