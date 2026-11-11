@@ -10,6 +10,7 @@
 | [程序实现架构](architecture.md) | 开发和运维 | 前后端模块、pi SDK 集成、数据流、存储、API、安全和部署 |
 | [使用手册](user-guide.md) | 使用者和管理员 | 安装、登录、Workspace、Session、Agent、Files、Terminal 和 Settings 操作 |
 | [Pi 集成调研](research.md) | 开发 | pi SDK 选型、公开 API、事件和 session 存储背景 |
+| [Agent 资源联合设计](design-agent-resources.md) | 产品设计、开发 | Skills 与 MCP 的分层来源、启用管理、内置 skill 与浏览器能力接入（计划） |
 
 ## 信息来源
 
@@ -29,6 +30,7 @@
 - 程序实现架构文档描述模块职责、数据流、存储和运行机制。
 - 使用手册按照用户完成任务的顺序描述操作步骤。
 - Pi 集成调研记录技术选型依据和上游 pi API 背景。
+- Agent 资源联合设计记录计划中的 Skills 与 MCP 设计，实现后并入功能与交互设计文档和程序实现架构文档。
 
 ## 维护检查表
 
@@ -39,3 +41,4 @@
 - 修改安装、启动、环境变量、CLI 或部署方式时，更新 README、使用手册和程序实现架构文档。
 - 修改 pi SDK 的集成方式时，更新程序实现架构文档和 Pi 集成调研。
 - 新增文档或调整文档职责时，更新本索引和 `AGENTS.md` 中的文档索引。
+- 调整 Skills、MCP 或内置 skill 的设计时，更新 Agent 资源联合设计文档。
