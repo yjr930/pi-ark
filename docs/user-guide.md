@@ -326,7 +326,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
 
 ### 等待 Session 加载
 
-首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器在内存中保存最近五个 Session 的 snapshot 和 UI state；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。UI state 会恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开状态。浏览器刷新会清空该内存 cache。
+首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器使用 IndexedDB 保存最近五个 Session 的 snapshot 和 UI state，并按实例与登录账号隔离；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。UI state 会恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开状态，刷新页面后继续保留。Settings → Interface 的 Clear browser cache 可以删除当前实例与账号的缓存、未发送 draft 和 attachments，Session history 与服务端设置保持不变。
 
 长会话的初始 Server snapshot 默认只包含最新约 100 条 messages。点击顶部 Show earlier messages 会向 Server 请求 earlier messages，并逐页扩展当前 display window，直至看到完整活动 branch。
 
@@ -524,6 +524,8 @@ Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示。开启�
 
 Keep line breaks（按原文换行）默认开启：原文写成几行，普通文本就按几行显示。关闭后，同一段落内的普通换行会合并显示，使用空行可以分隔段落。该设置统一作用于会话正文、Reasoning、摘要和 Files 的 Markdown 预览，切换后立即保存，刷新后保留选择。
 
+Browser cache 显示当前实例与登录账号缓存的 conversation 数量与 composer state 数量。Clear browser cache 会打开确认对话框；确认后删除这些缓存、未发送的 draft 和 attachments。Session history 与服务端设置保持不变。
+
 ### Models & providers
 
 1. 在 Manage Provider 中选择需要认证或断开的 Provider。模型行右侧的星标继续决定新 Session 的 default。
@@ -716,6 +718,8 @@ pi-ark mcp logout <server-name>
 - Terminal 的字体列表和字号。
 - 每个 Workspace 最近选择的 Terminal Tab。
 
+Session snapshot、composer draft、attachments 与 conversation disclosure 状态保存在 IndexedDB 的 Session cache 中，不使用 localStorage；Settings → Interface 的 Clear browser cache 可以清理。
+
 移动端通过顶部菜单按钮打开 drawer sidebar。drawer 打开后，遮罩覆盖页面 header、composer 和 drawer 之外的其他应用内容；点击遮罩可以关闭 drawer。Chat 主列限制在屏幕宽度内，状态栏、conversation、sticky User row、Running 和 composer 不会向屏幕右侧溢出。
 
 ## Service 管理与 release 更新
@@ -861,7 +865,7 @@ Workspace data：
 
 ### Session 长时间显示 Loading conversation
 
-Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/agent/...` 的连接、服务日志和 Session JSONL 的读取权限。
+Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/agent/...` 的连接、服务日志和 Session JSONL 的读取权限。如果刷新后仍显示旧的缓存内容，可以在 Settings → Interface 清理 Browser cache 后重试。
 
 ### Terminal 显示 Disconnected
 

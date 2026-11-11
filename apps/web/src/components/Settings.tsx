@@ -1,6 +1,7 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, Plug, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Unplug } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, Plug, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
+import { clearSessionCache, getSessionCacheSummary } from "../session-cache";
 import { applyTheme, themes } from "../theme";
 import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, UiSettings, GlobalPreferences } from "../types";
 import { Select } from "./Select";
@@ -11,7 +12,7 @@ import { TerminalSettings } from "./TerminalSettings";
 import type { TerminalSettingsHandle } from "./TerminalSettings";
 
 const categories = [
-  { id: "interface", label: "Interface", description: "Appearance and conversation visibility.", icon: Palette },
+  { id: "interface", label: "Interface", description: "Appearance, conversation visibility, and browser cache.", icon: Palette },
   { id: "models", label: "Models & providers", description: "Credentials, available models, and defaults for new Sessions.", icon: Cpu },
   { id: "agent", label: "Agent behavior", description: "Shared instructions and conversation defaults.", icon: SlidersHorizontal },
   { id: "skills", label: "Skills", description: "Agent skills available globally and in each workspace.", icon: Sparkles },
@@ -60,6 +61,9 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
   const [terminalBusy, setTerminalBusy] = useState(false);
   const terminalSettingsRef = useRef<TerminalSettingsHandle>(null);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [cacheSummary, setCacheSummary] = useState(() => getSessionCacheSummary());
+  const [cacheClearOpen, setCacheClearOpen] = useState(false);
+  const [cacheClearing, setCacheClearing] = useState(false);
   const globalSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const uiSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const modelSaveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -88,7 +92,8 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
   useEffect(() => { setGlobal((current) => current ? { ...current, ...uiSettings } : current); }, [uiSettings.theme, uiSettings.hideReasoning, uiSettings.markdownLineBreaks]);
 
   useEffect(() => {
-    if (!active) { setApiKey(""); setDisconnectOpen(false); setReleaseUpdateOpen(false); setReleaseRollbackOpen(false); }
+    if (!active) { setApiKey(""); setDisconnectOpen(false); setReleaseUpdateOpen(false); setReleaseRollbackOpen(false); setCacheClearOpen(false); }
+    if (active && category === "interface") setCacheSummary(getSessionCacheSummary());
     if (active && category === "maintenance" && !releaseRequested.current) {
       releaseRequested.current = true;
       setReleaseChecking(true);
@@ -343,6 +348,18 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     if (global) void persistFileSettings(files, success);
   }
 
+  async function clearBrowserCache() {
+    setCacheClearing(true);
+    try {
+      await clearSessionCache();
+      setCacheSummary(getSessionCacheSummary());
+      setCacheClearOpen(false);
+      setNotice({ kind: "success", text: "Browser cache cleared." });
+    } catch (reason) {
+      setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot clear browser cache" });
+    } finally { setCacheClearing(false); }
+  }
+
   if (loading) return <section className="settings-page"><div className="page-loading"><LoaderCircle size={20} />Loading settings</div></section>;
 
   return <section className="settings-page">
@@ -370,6 +387,10 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
             <div className="settings-section-title"><Palette size={17} /><div><h3>Appearance</h3><p>Theme and conversation visibility shared by every workspace and device using this service.</p></div></div>
             <div className="theme-options" aria-label="Theme">{themes.map((theme) => <button type="button" aria-pressed={global.theme === theme.id} title={theme.description} className={global.theme === theme.id ? "selected" : ""} onClick={() => selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><strong>{theme.name}</strong><Check size={13} className={global.theme === theme.id ? "" : "theme-check-hidden"} /></button>)}</div>
             <div className="settings-rows"><div className="settings-row"><div><strong>Hide reasoning</strong><span>Hide reasoning content in every conversation while preserving it in Session history.</span></div><Toggle checked={global.hideReasoning} onChange={(checked) => void persistUiSettings({ ...global, hideReasoning: checked }, "Reasoning visibility saved.")} /></div><div className="settings-row"><div><strong>Keep line breaks</strong><span>Show each new line in conversations and Markdown files on a new line. Turn off to join lines within a paragraph.</span></div><Toggle label="Keep line breaks" checked={global.markdownLineBreaks} onChange={(checked) => void persistUiSettings({ ...global, markdownLineBreaks: checked }, "Line break preference saved.")} /></div></div>
+          </section>
+          <section className="settings-section">
+            <div className="settings-section-title"><HardDrive size={17} /><div><h3>Browser cache</h3><p>Recent conversations and composer state stored in this browser for faster reopening.</p></div></div>
+            <div className="settings-rows"><div className="settings-row settings-cache-row"><div><strong>Cached data</strong><span>{cacheSummary.snapshots === 0 && cacheSummary.uiStates === 0 ? "No cached conversations or composer states in this browser." : `${cacheSummary.snapshots} cached ${cacheSummary.snapshots === 1 ? "conversation" : "conversations"} and ${cacheSummary.uiStates} ${cacheSummary.uiStates === 1 ? "composer state" : "composer states"} in this browser.`}{!cacheSummary.persistent && " This browser is keeping the cache for the current page only."}</span></div><button type="button" className="secondary-button" disabled={cacheClearing || (cacheSummary.snapshots === 0 && cacheSummary.uiStates === 0)} onClick={() => setCacheClearOpen(true)}><Trash2 size={14} />Clear browser cache</button></div></div>
           </section>
           </div>
           <div className="settings-category" hidden={category !== "models"}>
@@ -439,5 +460,6 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     {disconnectOpen && selectedProvider && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setDisconnectOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="disconnect-provider-title"><div className="dialog-header no-close"><div className="dialog-icon danger"><Unplug size={18} /></div><div><h2 id="disconnect-provider-title">Disconnect {selectedProvider.name}?</h2><p>Pi-Ark will remove this Provider's saved credential. Sessions that need this Provider will require authentication again.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setDisconnectOpen(false)}>Cancel</button><button type="button" className="danger-button" disabled={saving} onClick={() => void disconnectProvider()}>{saving ? <LoaderCircle size={14} /> : <Unplug size={14} />}Disconnect Provider</button></div></div></div>}
     {releaseUpdateOpen && release && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !releaseUpdating) setReleaseUpdateOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="release-update-title"><div className="dialog-header no-close"><div className="dialog-icon"><Download size={18} /></div><div><h2 id="release-update-title">Update Pi-Ark?</h2><p>Pi-Ark will install release {release.latestVersion}, switch the current release atomically, preserve this data directory, and restart the service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseUpdateOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={releaseUpdating} onClick={() => void updateRelease()}>{releaseUpdating ? <LoaderCircle size={14} /> : <Download size={14} />}Update Pi-Ark</button></div></div></div>}
     {releaseRollbackOpen && release && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !releaseUpdating) setReleaseRollbackOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="release-rollback-title"><div className="dialog-header no-close"><div className="dialog-icon"><RotateCcw size={18} /></div><div><h2 id="release-rollback-title">Roll back Pi-Ark?</h2><p>Pi-Ark will switch from {release.version} to {release.previousVersion}, preserve this data directory, and restart the service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseRollbackOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={releaseUpdating} onClick={() => void rollbackRelease()}>{releaseUpdating ? <LoaderCircle size={14} /> : <RotateCcw size={14} />}Roll back</button></div></div></div>}
+    {cacheClearOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cacheClearing) setCacheClearOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="cache-clear-title"><div className="dialog-header no-close"><div className="dialog-icon"><HardDrive size={18} /></div><div><h2 id="cache-clear-title">Clear browser cache?</h2><p>Pi-Ark will remove cached conversations, unsent drafts, and attachments from this browser. Session history stored on the server stays unchanged.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={cacheClearing} onClick={() => setCacheClearOpen(false)}>Cancel</button><button type="button" className="danger-button" disabled={cacheClearing} onClick={() => void clearBrowserCache()}>{cacheClearing ? <LoaderCircle size={14} /> : <Trash2 size={14} />}Clear cache</button></div></div></div>}
   </section>;
 }

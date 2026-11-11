@@ -85,9 +85,9 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 ### 加载状态
 
-首次打开 Session 且浏览器没有内存 cache 时，WebSocket 建立后页面继续显示 Loading conversation。首个 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
+首次打开 Session 且浏览器没有缓存时，WebSocket 建立后页面继续显示 Loading conversation。首个 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
 
-浏览器在内存中保存最近五个 Session 的 snapshot 和 Session UI state。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。该 cache 不写入 localStorage，浏览器刷新后重新加载。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
+浏览器使用 IndexedDB 保存最近五个 Session 的 snapshot 和 Session UI state，并按 Pi-Ark 实例与登录账号隔离。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。浏览器刷新后继续使用同一 cache。Settings → Interface 的 Browser cache 显示缓存数量，并提供 Clear browser cache；清理删除当前实例与账号的缓存，Session history 与 Settings 保持不变。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
 
 Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完整 projection 的全局 offset 和总数。顶部 Show earlier messages 每次请求 Server 将当前 client 的 display window 向前扩展一页，直至显示完整活动 branch。
 
@@ -107,7 +107,7 @@ Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text 
 
 每个 tool call 与对应 tool result 合并为一行 tool item。工具 logo 位于折叠框的 summary 内，后面依次显示工具名称、实际摘要和状态；展开内容与折叠框左边界对齐。Completed 使用中性色；Running 使用 warning color，Failed 使用 danger color，Result 使用 info color，Saved 使用 saved color。状态颜色作用于同一层折叠框的 border、logo 和状态文字，Running 不增加外层背景或包围框。Tool permalink target 使用折叠框内侧的 accent 标识，不改变 row 的外部尺寸。所有 themes 都将大 Run group 与内部 Tool row 分成两层 palette：Run group 使用 theme tint，Tool row 和 Reasoning 使用更亮、更中性的 surface。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；其他 themes 使用相同的外层 tint、内层 neutral 逻辑。bash 优先显示 command，文件工具优先显示 path，其他工具显示 query、pattern、URL、紧凑 arguments 或 result 文本。连续 tool items 使用紧凑的内部上下间距和行间距。
 
-Tool item 在没有已保存 disclosure 状态时默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。切换 Session 后，页面恢复用户对 Tool、Reasoning、Compact 和 Message Info 的展开状态。已完成 tool item 的 message permalink target 在没有用户保存状态时自动展开对应 tool item。展开后第一行显示 Call/Result 的消息 link 按钮，整段文字与图标区域都可以复制对应的 `pi-ark://` link；tooltip 在页面浮层中显示，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。展开内容的底部左侧显示最后的时间，格式为 `YYYY-MM-DD HH:mm:ss`，使用浏览器所在的时区；已有结果时采用配对的 tool result 时间，等待结果期间采用 tool call 所在消息的时间。错误结果显示 Failed 状态和错误颜色。
+Tool item 在没有已保存 disclosure 状态时默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。切换 Session 后，页面恢复用户对 Tool、Reasoning、Compact 和 Message Info 的展开状态。已完成 tool item 的 message permalink target 在页面打开时展开对应 Run、Tool 和 tool group，即使此前保存了折叠状态；用户可以随后手动折叠。展开后第一行显示 Call/Result 的消息 link 按钮，整段文字与图标区域都可以复制对应的 `pi-ark://` link；tooltip 在页面浮层中显示，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。展开内容的底部左侧显示最后的时间，格式为 `YYYY-MM-DD HH:mm:ss`，使用浏览器所在的时区；已有结果时采用配对的 tool result 时间，等待结果期间采用 tool call 所在消息的时间。错误结果显示 Failed 状态和错误颜色。
 
 连续的工具调用按可见内容分组，默认保留最后 3 个 tool call；较早的调用通过 `show more tool call` 与 `show less tool call` 展开或折叠。一个 message 中的多个调用分别计数。Hide reasoning 开启后，分组会跳过隐藏的 thinking block，包括只包含 thinking 的独立 message，因此这些内容前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，含普通正文或图片的 message 保持原有显示。分组保留原始 message 与 permalink，展开状态随 Session UI cache 保留，较早调用的 permalink target 会在首次访问时展开对应分组。
 
@@ -213,7 +213,7 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限，并以 Workspace 目�
 
 Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Terminal 的字体设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
 
-- Interface：Appearance，包含紧凑的主题色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）、Hide reasoning 和 Keep line breaks。
+- Interface：Appearance，包含紧凑的主题色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）、Hide reasoning 和 Keep line breaks；Browser cache 显示当前实例与账号的缓存数量，并提供 Clear browser cache。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。
@@ -259,7 +259,7 @@ Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在
 
 ## 桌面与移动布局
 
-桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。Session draft、attachments 与 disclosure 状态使用最多五个 Session 的 memory cache，不写入 localStorage。Terminal 的字体设置和每个 Workspace 最近选择的 Tab 也保存在 localStorage，Terminal 的 xterm 界面状态保存在当前页面的内存中。
+桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。Session snapshot、draft、attachments 与 disclosure 状态使用最多五个 Session 的 IndexedDB cache，并按实例与账号隔离；Settings → Interface 可以清理。Terminal 的字体设置和每个 Workspace 最近选择的 Tab 也保存在 localStorage，Terminal 的 xterm 界面状态保存在当前页面的内存中。
 
 移动端使用 drawer sidebar 和顶部 mobile bar。drawer 打开时，scrim 覆盖 drawer 之外的完整应用内容，其中包括页面 header、composer 和其他浮动控件；drawer 位于 scrim 上方。点击页面入口或 Session 后，drawer 自动关闭。Composer、对话框和 Settings actions 使用适合窄屏的布局。
 

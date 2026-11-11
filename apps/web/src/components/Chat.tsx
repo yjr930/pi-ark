@@ -184,6 +184,7 @@ function CompactOverview({ message }: { message: AgentMessage }) {
 
 function ToolFeedItem({ call, callTimestamp, result, summaryMessage, messageId, resultMessageId, target, stateKey, disclosureOpen, onDisclosureChange, onImageOpen, onCopyLink }: { call?: ContentBlock; callTimestamp?: number; result?: AgentMessage; summaryMessage?: AgentMessage; messageId?: string; resultMessageId?: string; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageId: string) => void }) {
   const previousRunningRef = useRef(Boolean(call && !result));
+  const targetOpenedRef = useRef(false);
   const isSummary = Boolean(summaryMessage);
   const isCompaction = summaryMessage?.role === "compactionSummary";
   const isSubagentTool = call?.name === "subagent" || result?.toolName === "subagent";
@@ -194,8 +195,10 @@ function ToolFeedItem({ call, callTimestamp, result, summaryMessage, messageId, 
   const running = Boolean(call && !result);
   const sources = [{ label: isSummary ? "Message" : call ? "Call" : "Result", messageId }, ...(resultMessageId ? [{ label: "Result", messageId: resultMessageId }] : [])];
   useLayoutEffect(() => {
-    if (running && !previousRunningRef.current) onDisclosureChange(stateKey, false);
-    else if (target && !running && disclosureOpen === undefined) onDisclosureChange(stateKey, true);
+    if (target && !running && !targetOpenedRef.current) {
+      targetOpenedRef.current = true;
+      if (disclosureOpen !== true) onDisclosureChange(stateKey, true);
+    } else if (running && !previousRunningRef.current) onDisclosureChange(stateKey, false);
     previousRunningRef.current = running;
   }, [disclosureOpen, onDisclosureChange, running, stateKey, target]);
   const open = disclosureOpen ?? (target && !running);
@@ -242,9 +245,13 @@ function FeedMessage({ message, hiddenCalls, idByMessage, resultByCall, targetMe
 
 function RunCollapse({ active, duration, toolMessages, target, stateKey, disclosureOpen, onDisclosureChange, children }: { active: boolean; duration: string; toolMessages: number; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; children: ReactNode }) {
   const previousActiveRef = useRef(active);
+  const targetOpenedRef = useRef(false);
   useLayoutEffect(() => {
-    if (previousActiveRef.current && !active) onDisclosureChange(stateKey, false);
-    else if ((active || target) && disclosureOpen === undefined) onDisclosureChange(stateKey, true);
+    if (target && !targetOpenedRef.current) {
+      targetOpenedRef.current = true;
+      if (disclosureOpen !== true) onDisclosureChange(stateKey, true);
+    } else if (previousActiveRef.current && !active) onDisclosureChange(stateKey, false);
+    else if (active && disclosureOpen === undefined) onDisclosureChange(stateKey, true);
     previousActiveRef.current = active;
   }, [active, disclosureOpen, onDisclosureChange, stateKey, target]);
   const open = disclosureOpen ?? (active || target);
@@ -253,7 +260,13 @@ function RunCollapse({ active, duration, toolMessages, target, stateKey, disclos
 
 function ToolCallSequence({ calls, target, stateKey, disclosureOpen, onDisclosureChange, children }: { calls: ContentBlock[]; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; children: (hiddenCalls: ReadonlySet<ContentBlock>) => ReactNode }) {
   const expanded = disclosureOpen ?? target;
-  useLayoutEffect(() => { if (target && disclosureOpen === undefined) onDisclosureChange(stateKey, true); }, [disclosureOpen, onDisclosureChange, stateKey, target]);
+  const targetOpenedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (target && !targetOpenedRef.current) {
+      targetOpenedRef.current = true;
+      if (disclosureOpen !== true) onDisclosureChange(stateKey, true);
+    }
+  }, [disclosureOpen, onDisclosureChange, stateKey, target]);
   const hiddenCalls = new Set(expanded ? [] : calls.slice(0, -3));
   return <div className="feed-tool-sequence"><button type="button" className="tool-sequence-toggle" aria-expanded={expanded} onClick={() => onDisclosureChange(stateKey, !expanded)}>{expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}{expanded ? "show less tool call" : "show more tool call"}</button>{children(hiddenCalls)}</div>;
 }

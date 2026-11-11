@@ -112,7 +112,7 @@ pi 的 public `message_end` listener 在 SessionManager 持久化 completed mess
 - 浏览器断线不会停止 Agent runtime。
 - 多个浏览器连接可以共享同一个 runtime。
 
-首次打开且没有浏览器内存 cache 时，Web 以首个 snapshot 判定 Session 加载完成。切回最近五个 Session 时，Web 先显示内存 LRU snapshot，再在后台以 Server snapshot 更新。独立的五 Session UI LRU 保存 composer draft、attachments 和 disclosure states；这些状态保持在浏览器内存中，并使用 source entry/tool call identity 恢复。Socket open 只说明 transport 已经建立。
+首次打开且没有浏览器 cache 时，Web 以首个 snapshot 判定 Session 加载完成。切回最近五个 Session 时，Web 先显示 IndexedDB LRU snapshot，再在后台以 Server snapshot 更新。同一持久化 LRU 保存 composer draft、attachments 和 disclosure states，并使用 source entry/tool call identity 恢复。Socket open 只说明 transport 已经建立。
 
 ## Queue 处理
 

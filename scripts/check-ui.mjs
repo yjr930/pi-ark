@@ -64,6 +64,12 @@ failedSessionFixture.appendMessage({ role: "user", content: "继续", timestamp:
 failedSessionFixture.appendMessage({ role: "assistant", content: [], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "error", errorMessage: "Provider authentication failed: 401", timestamp: Date.now() - 2000 });
 const failedSessionFixturePath = failedSessionFixture.getSessionFile();
 if (!failedSessionFixturePath) throw new Error("Cannot create failed browser Session fixture");
+const loadingSessionFixture = SessionManager.create(workspacePath, sessionFixtureDirectory);
+loadingSessionFixture.appendSessionInfo("Uncached loading fixture");
+loadingSessionFixture.appendMessage({ role: "user", content: "Loading fixture question", timestamp: Date.now() - 2000 });
+loadingSessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Loading fixture answer" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 10, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 13, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - 1000 });
+const loadingSessionFixturePath = loadingSessionFixture.getSessionFile();
+if (!loadingSessionFixturePath) throw new Error("Cannot create uncached loading browser Session fixture");
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });
@@ -327,6 +333,21 @@ try {
   const restoredAttachmentImage = page.locator(".attachment-preview").filter({ hasText: "preview.png" }).locator("img");
   await restoredAttachmentImage.waitFor();
   assert.equal(await restoredAttachmentImage.evaluate((image) => image.complete && image.naturalWidth > 0), true);
+  await page.waitForTimeout(400);
+  await page.reload();
+  await page.locator(".composer textarea").waitFor();
+  assert.equal(await page.locator(".composer textarea").inputValue(), "Session-specific draft");
+  const reloadedAttachmentImage = page.locator(".attachment-preview").filter({ hasText: "preview.png" }).locator("img");
+  await reloadedAttachmentImage.waitFor();
+  assert.equal(await reloadedAttachmentImage.evaluate((image) => image.complete && image.naturalWidth > 0), true);
+  await page.getByText("Final browser answer", { exact: true }).waitFor({ timeout: 500 });
+  assert.equal(await page.locator(".session-loading").count(), 0);
+  await page.locator(".status-dot").filter({ hasText: "Refreshing conversation" }).waitFor({ timeout: 500 });
+  assert.notEqual(await page.locator(".run-collapse").last().getAttribute("open"), null);
+  assert.notEqual(await page.locator(".run-collapse").last().locator(".feed-tool-details").getAttribute("open"), null);
+  assert.notEqual(await page.locator(".run-collapse").last().locator(".thinking").getAttribute("open"), null);
+  assert.equal(await page.locator(".feed-source-message").filter({ hasText: "Final browser answer" }).getByRole("button", { name: `Hide information for AI message ${sessionStateFinalMessageId}` }).getAttribute("aria-expanded"), "true");
+  await page.locator(".status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
   await page.getByTitle("Remove preview.png").click();
   await page.locator(".composer textarea").fill("");
 
@@ -399,7 +420,9 @@ try {
     webSocket.onMessage((message) => server.send(message));
     server.onMessage((message) => { let snapshot = false; try { snapshot = JSON.parse(String(message)).type === "snapshot"; } catch {} if (snapshot) setTimeout(() => webSocket.send(message), 1200); else webSocket.send(message); });
   });
-  await loadingPage.goto(page.url());
+  const loadingTarget = new URL(page.url());
+  loadingTarget.searchParams.set("session", loadingSessionFixture.getSessionId());
+  await loadingPage.goto(loadingTarget.toString());
   await loadingPage.getByRole("status").filter({ hasText: "Loading conversation" }).waitFor();
   assert.equal(await loadingPage.getByText("What are we building?", { exact: true }).count(), 0);
   assert.equal(await loadingPage.locator(".composer").count(), 0);
@@ -938,6 +961,8 @@ try {
   assert.ok(feedAlignment.userContentX - feedAlignment.userX >= 12);
   assert.ok(Math.abs(feedAlignment.userContentX - feedAlignment.aiContentX) <= 1);
   assert.ok(Math.abs(feedAlignment.aiHeaderX - feedAlignment.aiContentX) <= 1);
+  assert.equal(await browserFinalMessage.locator(".feed-text-meta").count(), 1);
+  await browserFinalMessage.getByRole("button", { name: `Hide information for AI message ${browserFinalMessageId}` }).click();
   assert.equal(await browserFinalMessage.locator(".feed-text-meta").count(), 0);
   assert.equal(await browserFinalMessage.getByRole("button", { name: "Copy Markdown" }).count(), 1);
   assert.equal(await browserFinalMessage.getByRole("button", { name: "Fork session" }).count(), 1);
@@ -962,6 +987,8 @@ try {
   assert.equal(await page.locator(".conversation-content .ai-turn-header button").count(), 0);
   const foldedToolTurn = page.locator(".run-collapse").filter({ hasText: "用时" }).last();
   await foldedToolTurn.locator(":scope > summary").filter({ hasText: "用时" }).waitFor();
+  assert.notEqual(await foldedToolTurn.getAttribute("open"), null);
+  await foldedToolTurn.locator(":scope > summary").click();
   assert.equal(await foldedToolTurn.getAttribute("open"), null);
   await foldedToolTurn.locator(":scope > summary").click();
   assert.notEqual(await foldedToolTurn.getAttribute("open"), null);
@@ -976,6 +1003,8 @@ try {
   const browserToolResult = browserToolRows.first();
   const browserToolExecution = browserToolResult.locator(".feed-tool-details");
   assert.match(await browserToolExecution.locator(":scope > summary").textContent(), /read.*README\.md.*Completed/);
+  assert.notEqual(await browserToolExecution.getAttribute("open"), null);
+  await browserToolExecution.locator(":scope > summary").click();
   assert.equal(await browserToolExecution.getAttribute("open"), null);
   const browserToolResultContent = browserToolResult.getByText("Browser fixture tool result", { exact: true });
   assert.equal(await browserToolResultContent.isVisible(), false);
@@ -1406,6 +1435,33 @@ try {
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
   await page.locator(".composer-thinking .ark-select-trigger").waitFor();
   await page.locator(".chat-header .status-dot").filter({ hasText: "Ready" }).waitFor();
+  await page.locator(".composer textarea").fill("Cache clear draft");
+  await page.locator('.composer input[type="file"]').setInputFiles(join(filesFixtureDirectory, "preview.png"));
+  await page.locator(".attachment-preview").filter({ hasText: "preview.png" }).waitFor();
+  await page.waitForTimeout(400);
+  await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
+  const cacheSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Browser cache", exact: true }) });
+  await cacheSection.waitFor();
+  assert.match(await cacheSection.textContent(), /cached conversation/);
+  const clearCacheButton = cacheSection.getByRole("button", { name: "Clear browser cache" });
+  assert.equal(await clearCacheButton.isEnabled(), true);
+  await clearCacheButton.click();
+  const cacheDialog = page.getByRole("dialog", { name: "Clear browser cache?" });
+  await cacheDialog.waitFor();
+  await assertDialogChrome(cacheDialog);
+  await cacheDialog.getByRole("button", { name: "Clear cache", exact: true }).click();
+  await page.getByText("Browser cache cleared.", { exact: true }).waitFor();
+  assert.match(await cacheSection.textContent(), /No cached conversations or composer states/);
+  await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
+  await page.locator(".composer textarea").waitFor();
+  assert.equal(await page.locator(".composer textarea").inputValue(), "");
+  assert.equal(await page.locator(".attachment-preview").count(), 0);
+  await page.reload();
+  await page.locator(".composer textarea").waitFor();
+  assert.equal(await page.locator(".composer textarea").inputValue(), "");
+  assert.equal(await page.locator(".attachment-preview").count(), 0);
+  await page.locator(".chat-header .status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileTitleLayout = await page.locator(".chat-title").evaluate((title) => { const heading = title.querySelector("h2"); const rename = title.querySelector('[title="Rename session"]'); const headingBox = heading.getBoundingClientRect(); const renameBox = rename.getBoundingClientRect(); const headingStyle = getComputedStyle(heading); const clone = heading.cloneNode(true); clone.style.position = "fixed"; clone.style.visibility = "hidden"; clone.style.width = "max-content"; clone.style.maxWidth = "none"; clone.style.flex = "none"; clone.style.margin = "0"; clone.style.font = headingStyle.font; clone.style.letterSpacing = headingStyle.letterSpacing; document.body.appendChild(clone); const intrinsicWidth = clone.getBoundingClientRect().width; clone.remove(); const maxWidth = Number.parseFloat(headingStyle.maxWidth); return { headingWidth: headingBox.width, intrinsicWidth, maxWidth, expectedWidth: Math.min(intrinsicWidth, maxWidth), renameGap: renameBox.left - headingBox.right }; });
   assert.ok(Math.abs(mobileTitleLayout.headingWidth - mobileTitleLayout.expectedWidth) <= 1, JSON.stringify(mobileTitleLayout));
@@ -1447,4 +1503,5 @@ try {
   await rm(sessionFixturePath, { force: true });
   await rm(compactedSessionFixturePath, { force: true });
   await rm(failedSessionFixturePath, { force: true });
+  await rm(loadingSessionFixturePath, { force: true });
 }

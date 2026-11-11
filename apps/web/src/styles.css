@@ -438,3 +438,6 @@ html, body { color: var(--text); background: var(--bg); }
   .mcp-server-head { gap: 10px; }
   .mcp-server-meta { gap: 5px 12px; }
 }
+
+.settings-cache-row > .secondary-button { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 760px) { .settings-cache-row { align-items: flex-start; flex-direction: column; gap: 10px; }.settings-cache-row > .secondary-button { align-self: flex-start; } }

@@ -9,7 +9,8 @@ import { NameDialog } from "./components/NameDialog";
 import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
 import { appLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
-import { cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionUiState, sessionCacheKey } from "./session-cache";
+import { basePath } from "./base-path";
+import { cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionUiState, initializeSessionCache, sessionCacheKey } from "./session-cache";
 import { resolveActiveSessionId } from "./session-selection";
 import { acknowledgeSessionStatus, mergeSessionStatuses, type SessionStatusMap } from "./session-status";
 import { applyTheme } from "./theme";
@@ -67,7 +68,13 @@ export default function App() {
     } finally { setWorkspacesLoading(false); }
   }, []);
 
-  useEffect(() => { api.session().then(() => { setAuth("in"); return loadWorkspaces(); }).catch(() => setAuth("out")); }, [loadWorkspaces]);
+  const startSession = useCallback(async () => {
+    const session = await api.session();
+    await initializeSessionCache(`${basePath || "/"}:${session.username}`);
+    setAuth("in");
+    await loadWorkspaces();
+  }, [loadWorkspaces]);
+  useEffect(() => { void startSession().catch(() => setAuth("out")); }, [startSession]);
   useEffect(() => {
     if (auth !== "in") return;
     if (!workspaceId) { setSessions([]); setSessionsWorkspaceId(""); setSessionId(""); setSessionsLoading(false); return; }
@@ -273,7 +280,7 @@ export default function App() {
   }
 
   if (auth === "loading") return <div className="app-loading"><Box size={28} /><span>Pi-Ark</span></div>;
-  if (auth === "out") return <Login onLogin={() => { setAuth("in"); void loadWorkspaces(); }} />;
+  if (auth === "out") return <Login onLogin={() => { void startSession().catch(() => setAuth("out")); }} />;
 
   return <MarkdownLineBreaksContext.Provider value={uiSettings.markdownLineBreaks}><div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} onClickCapture={(event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !(event.target instanceof Element)) return;

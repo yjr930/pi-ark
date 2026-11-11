@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cacheSessionSnapshot, cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionSnapshot, getCachedSessionUiState, SESSION_CACHE_LIMIT } from "../apps/web/src/session-cache.ts";
+import { cacheSessionSnapshot, cacheSessionUiState, clearSessionCache, deleteCachedSessionSnapshot, getCachedSessionSnapshot, getCachedSessionUiState, getSessionCacheSummary, SESSION_CACHE_LIMIT } from "../apps/web/src/session-cache.ts";
 import type { AgentSnapshot } from "../apps/web/src/types.ts";
 
 function snapshot(id: string): AgentSnapshot {
@@ -36,4 +36,9 @@ assert.equal(getCachedSessionUiState("workspace:ui-1"), undefined);
 assert.deepEqual(getCachedSessionUiState("workspace:ui-0")?.disclosures, { "tool-0": true });
 deleteCachedSessionSnapshot("workspace:ui-new");
 assert.equal(getCachedSessionUiState("workspace:ui-new"), undefined);
+const summaryBeforeClear = getSessionCacheSummary();
+assert.equal(summaryBeforeClear.persistent, false);
+assert.ok(summaryBeforeClear.snapshots > 0 && summaryBeforeClear.uiStates > 0);
+await clearSessionCache();
+assert.deepEqual(getSessionCacheSummary(), { snapshots: 0, uiStates: 0, persistent: false });
 console.log("session cache checks passed");
