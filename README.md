@@ -97,6 +97,7 @@ npm run check
 npm run check:behavior
 npm run check:setup
 npm run check:platform
+npm run check:file-links
 npm run check:release-process
 npm run check:release -- "path/to/extracted-artifact"
 npm run check:subagents

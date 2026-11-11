@@ -141,7 +141,7 @@ Cookie 属性如下：
 
 Fastify `onRequest` hook 保护所有 `/api/` 和 `/ws/` 路径；health 和 login routes 保持公开。WebSocket upgrade 使用相同的 cookie 认证。
 
-### 文件链接的异步增强
+## 文件链接的异步增强
 
 `Markdown` 在现有 marked 与 DOMPurify 渲染完成后，通过 `file-link-dom.ts` 为正文和 inline code 增加文件链接。`FileLinksContext` 提供当前 Workspace，Files 的 Markdown 预览通过 `fileBasePath` 提供文件所在目录。该增强保持消息原文、复制内容与提示词资源的现有行为。
 
@@ -836,6 +836,8 @@ npm run check
 npm run check:behavior
 npm run check:setup
 npm run check:platform
+npm run check:file-links
+npm run check:file-links-ui
 npm run check:release-process
 npm run check:release -- "path/to/extracted-artifact"
 npm run check:subagents
