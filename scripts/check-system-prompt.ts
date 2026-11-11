@@ -31,7 +31,7 @@ try {
   assert.deepEqual(JSON.parse(await readFile(join(agentDir, "auth.json"), "utf8")), { provider: "development-copy" });
   const coreInfo = await new PiCoreService().info(false);
   assert.equal(coreInfo.agentDir, agentDir);
-  assert.match(coreInfo.corePath, /@earendil-works\/pi-coding-agent$/);
+  assert.equal(coreInfo.corePath.endsWith(join("@earendil-works", "pi-coding-agent")), true);
   assert.deepEqual(await config.loadUiSettings(), { theme: "ark-dark", hideReasoning: false });
   assert.equal(createGlobalSettingsManager(workspace.path).getSteeringMode(), "one-at-a-time");
   assert.equal(createGlobalSettingsManager(otherWorkspace.path).getSteeringMode(), "one-at-a-time");

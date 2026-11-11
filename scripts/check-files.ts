@@ -7,7 +7,7 @@ import { mock } from "node:test";
 
 const nativePlatform = process.platform;
 const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform")!;
-const directory = await mkdtemp(join(tmpdir(), "pi-ark files 中文 "));
+const directory = await fs.realpath(await mkdtemp(join(tmpdir(), "pi-ark files 中文 ")));
 const arkHome = join(directory, "home");
 const workspace = { id: "files-check", name: "Files check", path: join(directory, "workspace 中文") };
 process.env.PI_ARK_HOME = arkHome;
