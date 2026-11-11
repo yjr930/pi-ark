@@ -635,7 +635,9 @@ PTY 自然退出时发送 `exit`，随后继续保留 Tab 和连接；重新连�
 
 ## Release 构建与安装
 
-`npm run release:build` 在原生平台构建 release，目标 platform、Node architecture 与主机 architecture 相同。Artifact 包含编译后的 Server/Web、production dependencies、native node-pty、CLI、installer、平台工具模块和 `RELEASE.json`。
+`npm run release:build` 从 Git checkout 在原生平台构建 release，目标 platform、Node architecture 与主机 architecture 相同。Artifact 包含编译后的 Server/Web、production dependencies、native node-pty、运行脚本（`pi-ark.mjs`、`install-release.mjs`、`platform.mjs`、`setup.mjs`）和 `RELEASE.json`。
+
+`scripts/release-source.mjs` 在构建前后读取源码 commit 与工作区状态。`RELEASE.json` 的 `sourceCommit` 记录该 commit，`sourceDirty` 记录构建期间的未提交源码状态。构建期间源码 commit 发生变化时，构建报错；正式版本从已提交的源码构建。开发版本可以记录 `sourceDirty: true`，发布准备从 `sourceDirty: false` 的开发 artifact 取得来源。
 
 | 平台 | 原生 runner | Artifact |
 |---|---|---|
@@ -645,9 +647,23 @@ PTY 自然退出时发送 `exit`，随后继续保留 Tab 和连接；重新连�
 | macOS Apple Silicon arm64 | `macos-15` | `pi-ark-<version>-darwin-arm64.tar.gz` |
 | Windows x64 | `windows-2022` | `pi-ark-<version>-win32-x64.zip` |
 
-构建脚本在 staging directory 中执行 `npm ci --omit=dev --include=optional`，并在对应 runner 上从源码编译 native dependencies。Windows 的 runner 使用 Visual Studio 2022 与 Python 3.12，通过 Node 调用 npm 的 JavaScript 入口，通过系统的 tar 创建 zip 并展开 npm workspace junctions。安装包使用方需要 Node.js 22.19 或更新版本；编译所需的 Python 与 C++ 工具属于源码构建环境。Linux 的运行工具为 Bash 与 tar，默认系统安装使用 systemd；portable 使用当前用户的后台管理器。macOS 使用系统 Bash 与 tar，Windows 使用 Git for Windows 的 Git Bash 及系统内置的 PowerShell。
+构建脚本在 staging directory 中执行 `npm ci --omit=dev --include=optional`，并在对应 runner 上从源码编译 native dependencies。CI 的开发依赖安装同样使用源码编译，使 PTY 的行为检查与原生安装包使用相同的工具链。Windows 的 runner 使用 Visual Studio 2022 与 Python 3.12，通过 Node 调用 npm 的 JavaScript 入口，通过系统的 tar 创建 zip 并展开 npm workspace junctions。安装包使用方需要 Node.js 22.19 或更新版本；编译所需的 Python 与 C++ 工具属于源码构建环境。Linux 的运行工具为 Bash 与 tar，默认系统安装使用 systemd；portable 使用当前用户的后台管理器。macOS 使用系统 Bash 与 tar，Windows 使用 Git for Windows 的 Git Bash 及系统内置的 PowerShell。
 
-`.github/workflows/release.yml` 在 `main` 或 `release/**` 分支的相关实现路径（`apps/**`、`scripts/**`、package manifests 与该 workflow）发生 push 时执行原生构建，也支持 `workflow_dispatch`。每个 runner 解压实际 archive 后执行安装 smoke，覆盖带 Unicode 与空格的安装及数据路径、setup、HTTPS 登录、Files 预览与下载、Session API、PTY 命令输出、后台 start/restart/stop、release rollback 和数据保留。创建 `v*` tag 时，publish job 在平台构建完成后将安装包发布到 GitHub Releases。`check-ci-command.mjs` 保存各个命令的输出到 `dist/native-ci/`，失败时生成包含错误内容的 Actions annotation，并将同一目录中的日志上传为诊断 artifact。
+`.github/workflows/release.yml` 在 `main` 或 `release/**` 分支发生 push 时执行原生构建，也支持 `workflow_dispatch`。每个 runner 解压实际 archive 后执行安装 smoke，覆盖带 Unicode 与空格的安装及数据路径、setup、HTTPS 登录、Files 预览与下载、Session API、PTY 命令输出、后台 start/restart/stop、release rollback 和数据保留。该 runner 完成 smoke 后上传可发布的 archive。`check-ci-command.mjs` 保存各个命令的输出到 `dist/native-ci/`，失败时生成包含错误内容的 Actions annotation，并将同一目录中的日志上传为诊断 artifact。
+
+### 正式发布的编排
+
+`scripts/release-process.mjs` 提供 `release:prepare`、`release:status` 与 `release:publish` 的源码命令入口。`prepare` 默认从 systemd MainPID 及其子进程定位 `pi-ark-dev.service` 的实际 Server，并根据 `/proc/<pid>/cmdline` 中的 Server 入口读取对应的 `RELEASE.json`，随后再次确认读取期间的 service 与 Server 进程一致。它使用 artifact 的 `sourceCommit`，并核对该 commit 的 package 版本与实际运行版本。`--source <Git ref>` 表示发布负责人确认的已提交源码。实例安装目录与 service unit 可以通过 `--prefix` 和 `--service-name` 指定。
+
+每个正式版本的状态保存在 `.tmp/release-process/<version>/state.json`，候选源码位于该目录下的 `source` Git worktree，Git 操作的临时目录位于 `tmp`。状态包含来源记录、固定的 source commit、release commit、分支与工作区。命令锁协调同一版本的准备和发布操作。`prepare` 在 `release/<version>` 分支更新项目与 workspace 的 package/lock 版本，再提交并推送候选。共享开发工作区保留当前的内容。
+
+候选需要修正时，`prepare --source <Git ref> --refresh` 使用新的已确认源码。候选 tree 等于新来源加 package 版本更新，后续 commit 追加在旧候选之后，并通过 `Pi-Ark-Source` trailer 记录来源。`pendingSource` 保存更新期间的来源与候选状态，完成后将旧记录保存在 `previous` 中。重复执行可以恢复 commit 或 push 中断；状态文件丢失时，命令从候选分支与来源 trailer 恢复记录。正式 tag 创建后，该版本继续沿用已发布的来源。
+
+`status` 通过 GitHub API 显示候选或正式 tag 的 run、job 和步骤，失败时读取 `Native CI command failed` annotation；`--watch` 在有 API token 时默认每 30 秒查询，匿名查询时默认每 180 秒查询，以适应公共 API 的查询频率。Git push 沿用当前 Git 配置，GitHub API 使用可选的 `GH_TOKEN` 或 `GITHUB_TOKEN`。正式发布的完成状态还会核对 Release 类型、tag 与完整的非空安装包清单。
+
+`scripts/release-candidate.mjs` 供源码命令和 tag workflow 共用。候选须来自 `release/<version>` 分支的成功 push run，run 的 commit 和源码 package 版本须与目标一致，所需的平台 artifacts 须完整且处于保留期。`publish` 确认候选后创建并推送 annotated `v<version>` tag。Tag workflow 按候选 run ID 和 artifact IDs 下载安装包，核对对应版本的归档文件名，再通过 `contents: write` 与 `actions: read` 权限发布 GitHub Release。已完整交付的同 commit 版本可以再次确认。
+
+实例管理员在正式 Release 完成后通过现有的 `update`、安装器和 `rollback` 执行上线或恢复，运行实例的安装状态与发布工作区分别保存。
 
 ### Linux 系统安装
 
@@ -726,6 +742,7 @@ npm run check
 npm run check:behavior
 npm run check:setup
 npm run check:platform
+npm run check:release-process
 npm run check:release -- "path/to/extracted-artifact"
 npm run check:subagents
 npm run check:subagents-ui
@@ -736,6 +753,8 @@ npm run check:terminal-appearance
 npm run check:terminal-ui
 npm run release:build
 ```
+
+`check:release-process` 使用隔离 Git repository、bare remote 和受控的 GitHub API 响应，检查构建来源、候选准备、源码修正、中断恢复、tag 冲突、候选安装包复用和正式交付清单；该命令包含在 `check:behavior` 中。
 
 `check:setup` 检查 setup 的参数与环境变量、TLS certificate、密码摘要与 HTTPS。`check:platform` 检查平台默认路径、release state、staging 与路径迁移。`check:release -- <artifact-dir>` 使用解压后的原生 artifact 执行 portable 安装 smoke；设置 `PI_ARK_SMOKE_ROLLBACK=1` 后还会覆盖版本切换与 rollback 的数据保留，Release workflow 使用该设置。
 

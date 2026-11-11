@@ -7,12 +7,6 @@ on:
       - "release/**"
     tags:
       - "v*"
-    paths:
-      - "apps/**"
-      - "scripts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions:
@@ -20,6 +14,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     strategy:
       fail-fast: false
       matrix:
@@ -47,8 +42,15 @@ jobs:
     env:
       PI_ARK_TARGET_PLATFORM: ${{ matrix.platform }}
       PI_ARK_TARGET_ARCH: ${{ matrix.architecture }}
+      npm_config_build_from_source: "true"
+      TMPDIR: ${{ github.workspace }}/.tmp
+      TMP: ${{ github.workspace }}/.tmp
+      TEMP: ${{ github.workspace }}/.tmp
+      RUNNER_TEMP: ${{ github.workspace }}/.tmp/native-runner
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare project-local temporary storage
+        run: node -e "require('node:fs').mkdirSync(process.env.RUNNER_TEMP, { recursive: true })"
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
@@ -96,6 +98,7 @@ jobs:
         env:
           PI_ARK_SKIP_BUILD: "1"
       - name: Extract and smoke the actual release archive
+        id: release_smoke
         env:
           PI_ARK_SMOKE_ROLLBACK: "1"
         run: |
@@ -117,7 +120,7 @@ jobs:
           }
           NODE
       - name: Upload release archive
-        if: always() && steps.release_build.outcome == 'success'
+        if: success() && steps.release_build.outcome == 'success' && steps.release_smoke.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: pi-ark-${{ matrix.platform }}-${{ matrix.architecture }}
@@ -136,19 +139,46 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          pattern: pi-ark-*
+          node-version: 22.19.0
+      - name: Verify release tag and successful candidate
+        id: candidate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release-candidate.mjs --commit "$(git rev-parse HEAD)" --version "${GITHUB_REF_NAME#v}" --repository "$GITHUB_REPOSITORY"
+      - name: Download the verified candidate archives
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.candidate.outputs.run-id }}
+          artifact-ids: ${{ steps.candidate.outputs.artifact-ids }}
           path: artifacts
           merge-multiple: true
+      - name: Verify the exact archive filename list
+        env:
+          RELEASE_VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readdir } from 'node:fs/promises';
+          import { RELEASE_ARTIFACT_NAMES } from './scripts/release-candidate.mjs';
+          const expected = RELEASE_ARTIFACT_NAMES.map((name) => `${name.replace('pi-ark-', `pi-ark-${process.env.RELEASE_VERSION}-`)}.${name.includes('win32') ? 'zip' : 'tar.gz'}`).sort();
+          const entries = await readdir('artifacts', { withFileTypes: true });
+          assert.ok(entries.every((entry) => entry.isFile()), 'Candidate artifacts must contain archive files');
+          assert.deepEqual(entries.map((entry) => entry.name).sort(), expected, 'Candidate archive filename list must match the release version and all native platforms');
+          console.log(`Verified release archives:\n${expected.join('\n')}`);
+          NODE
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/*.tar.gz
             artifacts/*.zip
+          fail_on_unmatched_files: true
           generate_release_notes: true

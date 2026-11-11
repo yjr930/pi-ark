@@ -14,7 +14,7 @@ Linux 的 `--portable` 安装使用当前用户的后台进程。Windows 的 Age
 
 Release 安装包包含 production dependencies 与当前平台的 native node-pty。Setup 使用安装包中的 JavaScript 依赖生成 TLS certificate。运行账号需要能够访问所注册的 Workspace，并需要可用的 provider API key 或 subscription account。
 
-源码开发还需要 npm、Python 与 C++ 编译工具：Linux 使用 make 与 GCC/G++，macOS 使用 Xcode Command Line Tools，Windows 使用 Visual Studio 2022 Build Tools 的 C++ workload 与对应的 Spectre-mitigated runtime libraries。这些工具用于编译 node-pty 等 native dependencies。
+源码开发还需要 Git、npm、Python 与 C++ 编译工具：Linux 使用 make 与 GCC/G++，macOS 使用 Xcode Command Line Tools，Windows 使用 Visual Studio 2022 Build Tools 的 C++ workload 与对应的 Spectre-mitigated runtime libraries。这些工具用于编译 node-pty 等 native dependencies。
 
 ## 安装与初始化
 
@@ -204,6 +204,7 @@ npm run check
 npm run check:behavior
 npm run check:setup
 npm run check:platform
+npm run check:release-process
 npm run check:release -- "path/to/extracted-artifact"
 npm run check:ui
 npm run release:build
@@ -639,6 +640,77 @@ Portable 的 `start` 在后台启动，`stop` 通过本机管理通道请求停�
 Linux 的系统安装通过 systemd 执行 start/stop/restart，`status` 显示 service 状态，`logs` 持续显示 service journal。双实例的 command name 分别为 `pi-ark-dev` 与 `pi-ark-backup`。
 
 `update` 安装 GitHub latest stable release，`rollback` 恢复 previous release，随后重新启动并执行 health check。`--no-restart` 可以将 release 切换与重启分开安排。两个操作都保留 Global data 与 Workspace data。
+
+## 从 dev 实例到正式发布上线
+
+发布命令在 source checkout 中执行，使用已经确认的开发源码。开发 artifact 的 `RELEASE.json` 记录 `sourceCommit` 与 `sourceDirty`，发布准备通过实际运行进程取得来源。首次采用这套流程时，先从包含发布工具的已提交源码构建并确认开发版本。
+
+### 准备候选版本
+
+在 Linux 开发主机的 source checkout 中执行：
+
+```bash
+VERSION="0.1.6"
+npm run release:prepare -- --version "$VERSION"
+```
+
+命令默认读取 `pi-ark-dev.service` 的实际进程，固定运行版本的源码，随后在 `.tmp/release-process/<version>/source` 创建隔离的 Git worktree。命令会将项目与 workspace 的 package/lock 版本改为目标正式版本，创建 commit，并推送 `release/<version>` 候选分支。开发分支继续保留当前的内容，后续的并发开发也可以继续进行。
+
+自定义开发实例使用 `--prefix <安装目录> --service-name <unit>`。其他平台或已经由发布负责人确认的源码，使用以下入口：
+
+```bash
+npm run release:prepare -- --version "$VERSION" --source <已确认的 Git ref>
+```
+
+来源源码应包含当前的发布工具与原生构建 workflow。旧 artifact 的来源可以通过原构建记录确认，再使用 `--source`；新的开发构建会自动保存来源记录。
+
+### 等待原生构建并处理错误
+
+```bash
+npm run release:status -- --version "$VERSION" --watch
+```
+
+状态命令显示各个平台的构建步骤与 Actions 链接。失败时，命令直接输出失败的 job 与具体的命令错误。当前流程完成后，命令结束轮询；再次执行相同命令可以继续查询。查询使用公开的 GitHub API，也可以通过 `GH_TOKEN` 或 `GITHUB_TOKEN` 提供 API token；Git push 沿用已有的 Git 配置。有 token 时默认每 30 秒查询，匿名查询时默认每 180 秒查询，`--interval <秒>` 可以调整间隔。
+
+构建与安装 smoke 完成后，每个平台上传对应的候选安装包。正式发布将复用该次构建的安装包。
+
+### 修正候选或恢复中断
+
+连接或进程中断后，重复执行相同的 `release:prepare` 可以继续准备和推送，随后使用 `release:status --watch` 查询。来源记录与恢复状态保存在 `.tmp/release-process/<version>/state.json`，运行期间的临时内容也保存在项目的 `.tmp/` 中。
+
+正式发布之前需要修正源码时，先提交修正并确认新的开发源码，再执行：
+
+```bash
+npm run release:prepare -- --version "$VERSION" --source <新的已确认的 Git ref> --refresh
+npm run release:status -- --version "$VERSION" --watch
+```
+
+`--refresh` 为同一目标版本生成后续的候选 commit，并以 fast-forward 推送。它保留旧候选的 Git 历史，新候选的文件内容对应新来源加正式版本更新。发生中断时，重复相同的命令或普通的 `prepare` 可以继续完成该次更新。正式 tag 创建后，该版本沿用已发布的来源；后续的源码修改进入下一个版本。
+
+### 发布正式安装包
+
+在候选完成后执行：
+
+```bash
+npm run release:publish -- --version "$VERSION" --watch
+```
+
+命令核对源码与版本，并确认原生安装包齐全，随后创建并推送 annotated `v<version>` tag。Tag workflow 下载对应成功候选的安装包，核对文件名与版本，再发布 GitHub Release。状态命令确认正式 Release 的类型、tag 和非空安装包清单后，显示正式发布已完成。
+
+重复执行 `release:publish` 可以确认已经完整交付的同一正式版本。需要继续查看进度时，执行 `release:status --watch`；正式发布 job 失败时，可以在输出的 Actions 链接中重新运行该 job，再继续查询。
+
+### 将正式版本上线到选定实例
+
+正式 Release 完成后，在选定实例上使用安装时输出的稳定 CLI 更新到 latest stable release：
+
+```text
+node "<prefix>/bin/pi-ark.mjs" update
+node "<prefix>/bin/pi-ark.mjs" status
+```
+
+非 default instance 使用对应的 CLI 文件名。指定版本的安装可以下载对应的正式安装包，再使用[安装与初始化](#安装与初始化)中的安装器参数保留该实例的 prefix 和 data directory。主力开发实例从自身 Session 安装时，使用 `--deferred-restart <seconds>` 安排 systemd timer。
+
+上线后确认 `/api/health`、实际运行路径与 Settings → Global → Maintenance 中的运行版本。Linux 系统安装可以通过 systemd MainPID 定位实际的 Server 子进程，再核对该进程命令行中的 Server 入口与对应的 artifact。需要恢复上一版本时，执行稳定 CLI 的 `rollback`，再确认 health 与运行版本。发布工作区和实例安装状态分别保存，实例管理员按选定的上线安排执行更新。
 
 ## 数据位置与备份
 

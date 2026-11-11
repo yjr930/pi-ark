@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WebSocket } from "ws";
 import { defaultTerminalSettings, discoverTerminalProfiles, resolveTerminalShell, terminalEnvironment, type TerminalSettings } from "../apps/server/src/terminal-shells.ts";
 
-const directory = await mkdtemp(join(tmpdir(), "pi-ark-terminal-"));
+const directory = await realpath(await mkdtemp(join(tmpdir(), "pi-ark-terminal-")));
 process.env.PI_ARK_HOME = join(directory, "home");
 process.env.PI_ARK_AGENT_DIR = join(directory, "home", "agent");
 const workspace = { id: "terminal-check", name: "Terminal check", path: join(directory, "workspace") };
@@ -23,7 +23,7 @@ class Client extends EventEmitter {
   get socket(): WebSocket { return this as unknown as WebSocket; }
   send(raw: string): void { this.messages.push(JSON.parse(raw)); }
   close(code = 1000): void { if (this.readyState !== 1) return; this.closeCode = code; this.readyState = 3; this.emit("close"); }
-  input(data: string): void { this.emit("message", Buffer.from(JSON.stringify({ type: "input", data }))); }
+  input(data: string): void { this.emit("message", Buffer.from(JSON.stringify({ type: "input", data: process.platform === "win32" ? data.replace(/\r?\n/g, "\r") : data }))); }
   output(): string { return this.messages.filter((message) => message.type === "ready" || message.type === "output").map((message) => message.data).join(""); }
   offset(): number { return this.messages.filter((message) => message.type === "ready" || message.type === "output").at(-1)?.offset ?? 0; }
 }
@@ -44,7 +44,7 @@ function startup(client: Client): { pid: number; cwd: string; text: string; valu
 let service: InstanceType<typeof TerminalService> | undefined;
 try {
   await Promise.all([mkdir(config.arkHome, { recursive: true }), mkdir(workspace.path), mkdir(other.path)]);
-  await writeFile(config.configPath, JSON.stringify({ auth: { username: "check", passwordHash: "check" }, tls: { keyPath: "/tmp/key", certPath: "/tmp/cert" }, workspaces: [workspace, other] }));
+  await writeFile(config.configPath, JSON.stringify({ auth: { username: "check", passwordHash: "check" }, tls: { keyPath: join(directory, "key"), certPath: join(directory, "cert") }, workspaces: [workspace, other] }));
   assert.deepEqual((await config.loadGlobalPreferences()).terminal, defaultTerminalSettings());
   const nodeProgram = `console.log('__START__'+JSON.stringify({pid:process.pid,cwd:process.cwd(),text:'中文🙂',value:process.env.TERMINAL_CHECK})); const readline=require('node:readline').createInterface({input:process.stdin,terminal:false}); readline.on('line',line=>{if(line==='exit')process.exit(7);else if(line==='defer')setTimeout(()=>console.log('__LATER__中文🙂'),180);else console.log('__VALUE__'+line)});`;
   const custom: TerminalSettings = { shell: "custom", executable: process.execPath, args: ["-e", nodeProgram], env: { HOME: directory, ZDOTDIR: directory, XDG_CONFIG_HOME: directory, USERPROFILE: directory, TERMINAL_CHECK: "配置中文" } };
@@ -111,6 +111,10 @@ try {
   for (const dimensions of [{ cols: -1 }, { rows: 0 }, { cols: 2.5 }]) assert.throws(() => service!.create(workspace.id, custom, dimensions), { statusCode: 400 });
   const defaultTab = service.create(workspace.id, { ...defaultTerminalSettings(), env: { HOME: directory, ZDOTDIR: directory, XDG_CONFIG_HOME: directory, USERPROFILE: directory } });
   assert.equal(defaultTab.status, "running");
+  const defaultClient = new Client();
+  service.connect(workspace.id, defaultTab.id, defaultClient.socket);
+  defaultClient.input(process.platform === "win32" ? "Write-Output ('__DEFAULT_' + 'READY__')\r" : "printf '__DEFAULT_%s__\\n' READY\n");
+  await until(() => defaultClient.output().includes("__DEFAULT_READY__"), "default shell startup");
   service.close(workspace.id, defaultTab.id);
   const first = service.create(workspace.id, custom);
   const second = service.create(workspace.id, custom, { cols: 80, rows: 24 });

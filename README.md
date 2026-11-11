@@ -23,7 +23,7 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 - 运行 Pi-Ark 的账号可以访问的 Workspace 目录。
 - 可用的 provider API key 或 subscription account。
 
-Release 安装包包含 production dependencies 和当前平台的 native node-pty。源码开发还需要 npm、Python 和对应平台的 C++ 编译工具，详见[使用手册](docs/user-guide.md#环境要求)。Setup 使用随安装包提供的 JavaScript 依赖生成 TLS certificate。
+Release 安装包包含 production dependencies 和当前平台的 native node-pty。源码开发还需要 Git、npm、Python 和对应平台的 C++ 编译工具，详见[使用手册](docs/user-guide.md#环境要求)。Setup 使用随安装包提供的 JavaScript 依赖生成 TLS certificate。
 
 ## 快速开始
 
@@ -96,6 +96,7 @@ npm run check
 npm run check:behavior
 npm run check:setup
 npm run check:platform
+npm run check:release-process
 npm run check:release -- "path/to/extracted-artifact"
 npm run check:subagents
 npm run check:subagents-ui
@@ -108,6 +109,21 @@ npm start
 ```
 
 `check:terminal` 使用临时配置与实际 PTY 检查配置、shell 选择和 Tab 生命周期，并包含在 `check:behavior` 中。`check:terminal-appearance` 检查系统等宽字体的默认值与历史字体偏好的迁移。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的独立实例和工作目录检查浏览器交互。
+
+## 正式发布
+
+在 source checkout 中，从已经确认的 dev 实例准备正式版本：
+
+```bash
+VERSION="0.1.6"
+npm run release:prepare -- --version "$VERSION"
+npm run release:status -- --version "$VERSION" --watch
+npm run release:publish -- --version "$VERSION" --watch
+```
+
+`prepare` 从 Linux dev 服务的实际进程与安装包来源记录固定源码，在 `.tmp/release-process/<version>/` 中创建隔离工作区并推送候选分支。`status` 显示原生构建进度与具体错误；`publish` 创建正式 tag，并让 GitHub Release 复用已确认的候选安装包。发布前修正源码时，使用 `prepare --source <已确认的 Git ref> --refresh` 更新同一目标版本的候选。
+
+其他来源使用 `--source <已确认的 Git ref>`。来源记录、恢复步骤和发布后的实例更新见[使用手册](docs/user-guide.md#从-dev-实例到正式发布上线)。
 
 ## 命令行管理
 
@@ -135,7 +151,7 @@ node "<prefix>/bin/pi-ark.mjs" rollback
 
 双实例部署使用对应的 command name：主力开发版使用 `pi-ark-dev`，备用正式版使用 `pi-ark-backup`；稳定入口的文件名相应为 `pi-ark-dev.mjs` 与 `pi-ark-backup.mjs`。
 
-Release workflow 在 `main` 或 `release/**` 分支的相关实现路径更新时，为上述平台构建原生安装包并执行安装 smoke；创建 `v*` tag 时发布 GitHub Release，也可以通过 `workflow_dispatch` 手动运行。
+Release workflow 在 `main` 或 `release/**` 分支 push 时，为上述平台构建原生安装包并执行安装 smoke，也支持 `workflow_dispatch`。正式 tag 使用同一候选 commit 的安装包发布 GitHub Release。
 
 ## 数据位置
 
