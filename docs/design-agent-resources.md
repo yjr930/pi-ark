@@ -157,10 +157,13 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 
 ### 8.3 浏览器运行时
 
-- 浏览器二进制不进入 pi-ark 发布包，默认安装到 `~/.cache/ms-playwright`。
-- 首次启用 `playwright` server 时，Server 检查缓存目录，缺失时提示安装命令。
-- 安装命令为 `npx playwright install chromium --only-shell`，只装无头版本。
-- 安装需要网络与磁盘写入，由用户确认后执行。
+- 浏览器二进制不进入 pi-ark 发布包，安装到服务用户的 `~/.cache/ms-playwright`。
+- 用户在 Settings 启用 `playwright` server 时，Server 检查缓存目录与浏览器版本。
+- 缺失或版本不匹配时，Server 自动执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`。
+- 安装任务在 Server 内串行执行，同一时间只允许一个任务。
+- 安装状态取 `Not installed`、`Installing`、`Installed`、`Failed`，`Installing` 展示下载百分比或当前阶段。
+- 安装失败时保留日志与重试按钮，server 保持停用。
+- Settings 页面在开始前展示下载体积与目标目录。
 
 ### 8.4 截图与结果
 
@@ -169,6 +172,13 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - codemode 脚本用 `image()` 把截图输出给模型。
 - pi-ark 的 Web 端已经能渲染 tool result 中的图片，点击可以放大。
 - 页面正文与快照文本按现有 tool result 展示，长文本保留折叠。
+
+### 8.5 安装流程中的推荐步骤
+
+- 安装器完成后输出提示，引导用户到 Settings 启用浏览器能力。
+- Web 首次登录后，Settings 的 MCP 页面显示推荐卡片：安装浏览器并启用 `playwright` server。
+- 推荐步骤不阻塞其他功能，用户可以从 MCP 页面随时进入。
+- 安装完成后，`browser` skill 的依赖状态变为满足。
 
 ## 9. Settings 页面
 
@@ -192,10 +202,12 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 
 页面分两段：
 
-1. Built-in servers：`playwright` 的启用开关、exposure 选择、浏览器运行时状态、安装按钮。
+1. Built-in servers：`playwright` 的推荐标记、启用开关、exposure 选择、浏览器运行时状态、安装按钮。
 2. User servers：名称、命令或 URL、启用开关、连接状态、工具数量、诊断。
 
 - 连接状态取 `Starting`、`Connected`、`Needs sign-in`、`Failed`、`Disabled`。
+- 浏览器运行时状态取 `Not installed`、`Installing`、`Installed`、`Failed`，并展示目标目录。
+- 未安装时提供 `Install browser` 按钮，开始前展示下载体积，安装中显示进度，失败时显示错误与 `Retry`。
 - `playwright` 未启用时，Skills 页面的 `browser` 行显示依赖未满足。
 - 工具暴露变更后提示需要重新加载 Session。
 
@@ -208,6 +220,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 | `POST /api/skills/migrate` | 复制 External 来源到目标作用域并写入迁移记录 |
 | `POST /api/skills/reload` | 重建 loader 并重新加载空闲 Session |
 | `GET /api/mcp?workspaceId=` | 返回 Built-in 与 User server、状态、工具数量与诊断 |
+| `GET /api/mcp/browser` | 返回浏览器安装状态、版本、目录与安装日志 |
 | `PUT /api/mcp/servers` | 保存 server 的启用状态与 exposure |
 | `POST /api/mcp/install-browser` | 执行浏览器运行时安装并返回结果 |
 
@@ -226,11 +239,10 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 2. 增加 `SkillService` 与 Skills 页面，覆盖 Built-in、Global、Workspace 三段。
 3. 增加 External 来源扫描与迁移流程。
 4. 挂载 `createMcpExtension` 与 `createCodemodeExtension`，初始化 `mcp.json`。
-5. 增加 MCP 页面、浏览器运行时检查与安装入口。
+5. 增加 MCP 页面、浏览器运行时自动安装任务、安装器提示与安装推荐卡片。
 6. 加入 `browser` 内置 skill，与 MCP 页面联动显示依赖状态。
 7. 更新 `docs/product-and-interaction.md`、`docs/architecture.md`、`docs/user-guide.md` 与 `docs/index.md`。
 
 ## 13. 待定问题
 
-- 浏览器运行时安装是否由 Server 自动执行，还是只提供命令与状态。
 - User MCP server 的添加与编辑是否在首版提供。
