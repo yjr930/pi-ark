@@ -40,7 +40,7 @@ Built-in 与 User 来源由 pi-ark 管理，External 来源由 pi 或用户其�
 |---|---|---|
 | Built-in | `PI_ARK_AGENT_DIR/mcp.json` 的 `playwright` 条目 | pi-ark 初始化，用户只改启用 |
 | User | `PI_ARK_AGENT_DIR/mcp.json` 的其他条目 | 通过 `pi-ark mcp` 命令或直接编辑 `mcp.json` |
-| Project | `<workspace>/.pi/mcp.json` | 识别展示，当前不参与加载 |
+| Project | `<workspace>/.pi/mcp.json` | 识别展示为 `Not loaded`，迁移通过 `pi-ark mcp` 命令把条目复制到全局配置 |
 
 ## 3. 目录与发布布局
 
@@ -86,6 +86,8 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 
 MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 的 MCP extension 直接读取该文件。`enabled`、`exposure`、`toolExposure`、`timeout` 与 server 定义保存在一起，修改后由 `McpService` 写回该文件。
 
+项目级 MCP 条目的迁移记录写在 `preferences.mcp.migrations`，字段与 skills 的迁移记录一致。
+
 ## 5. 服务端模块
 
 | 模块 | 职责 |
@@ -108,7 +110,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - MCP 通过 `createMcpExtension` 挂载，`codemode` 通过 `createCodemodeExtension` 挂载。
 - MCP server 使用 `codemode` 暴露时，MCP extension 在连接后把 `codemode` 加入活动工具。
 - MCP server 的连接在 `session_start` 建立，在 `session_shutdown` 关闭。
-- 启停修改后，Server 重建 loader，并对空闲 Session 调用 `session.reload()`。
+- Settings 的启用开关修改后，Server 重建 loader，并对空闲 Session 调用 `session.reload()`。
 - 运行中的 Session 延后生效，界面提示下次启动生效。
 - 新 Session 与 subagent 直接使用最新集合。
 - Global system prompt 预览使用与目标 Workspace 相同的停用集合，保证预览与运行时一致。
@@ -156,7 +158,8 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - `pi-ark mcp login <name>` 与 `pi-ark mcp logout <name>` 处理 OAuth 登录与退出。
 - 密钥通过 `--env`、`--header` 与 `--bearer-token-env-var` 引用环境变量，pi-ark 不提供单独的密钥存储。
 - 用户可以直接编辑 `PI_ARK_AGENT_DIR/mcp.json`，格式与 pi 的 `mcp.json` 一致。
-- Server 监听该文件的变化，重建 loader 并重载空闲 Session。
+- 配置变化后，Settings 页面通过 `Refresh` 按钮重新执行 `pi-ark mcp list --json` 并更新列表。
+- 新 Session 启动时读取最新配置，运行中的 Session 需要重建后使用新配置。
 
 ### 8.3 内置 server 定义
 
@@ -240,8 +243,12 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - exposure 以只读文本展示。
 - 页面不提供添加、编辑、删除与 OAuth 登录按钮，这些操作通过 `pi-ark mcp` 命令完成。
 - 需要登录的行显示 `Needs sign-in` 与命令 `pi-ark mcp login <server>`。
+- Project 来源的行显示 `Project` 与 `Not loaded`，不提供启用开关。
+- 项目级条目的迁移入口在 `pi-ark mcp` 子命令，界面显示来源与状态。
 - 浏览器未安装时，打开启用开关触发自动安装，行内显示进度与结果。
 - 连接状态取 `Starting`、`Connected`、`Needs sign-in`、`Failed`、`Disabled`。
+- 页面提供 `Refresh` 按钮，重新执行 `pi-ark mcp list --json` 更新列表与状态。
+- 页面打开时读取一次，后台不自动刷新。
 - `playwright` 未启用时，Skills 页面的 `browser` 行显示依赖未满足。
 
 ## 10. API
@@ -262,7 +269,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - `mcp.json` 解析失败、server 连接失败、浏览器缺失时，诊断进入 Settings 页面与 Session 状态提示。
 - `pi-ark mcp list --json` 返回的 `errors` 进入列表诊断。
 - 需要 OAuth 登录时，行内显示 `pi-ark mcp login <server>` 命令提示。
-- 配置文件变化后，Server 重建 loader 并重载空闲 Session。
+- 配置文件变化后，Settings 页面通过 `Refresh` 重新读取列表；新 Session 使用最新配置。
 - `codemode` 未启用而 server 使用 `codemode` exposure 时，界面提示工具不可达。
 - Skill 名称冲突保留先发现的项，冲突项进入诊断。
 - 同名冲突下停用只作用于胜出的项。
@@ -275,11 +282,10 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 2. 增加 `SkillService` 与 Skills 页面，覆盖 Built-in、Global、Workspace 三段。
 3. 增加 External 来源扫描与迁移流程。
 4. 挂载 `createMcpExtension` 与 `createCodemodeExtension`，初始化 `mcp.json`。
-5. 增加 MCP 列表与启用开关、`pi-ark mcp` 命令透传、配置文件变化重载、浏览器自动安装与推荐卡片。
+5. 增加 MCP 列表与启用开关、`pi-ark mcp` 命令透传、手动刷新、浏览器自动安装与推荐卡片。
 6. 加入 `browser` 内置 skill，与 MCP 页面联动显示依赖状态。
 7. 更新 `docs/product-and-interaction.md`、`docs/architecture.md`、`docs/user-guide.md` 与 `docs/index.md`。
 
 ## 13. 待定问题
 
-- 配置文件变化的监听方式与重载时机。
-- 项目级 `.pi/mcp.json` 是否在列表展示。
+- 项目级条目迁移命令的具体形态。
