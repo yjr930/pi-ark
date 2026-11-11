@@ -71,6 +71,26 @@ let mockedModelPreferences = {
 function fixtureMessageId(index) { return `m${index.toString(36).padStart(6, "0")}`; }
 function withFixtureMessageIds(messages, start = 0) { return messages.map((message, index) => ({ ...message, messageId: fixtureMessageId(start + index) })); }
 
+async function assertSessionInfoActions(panel) {
+  const layout = await panel.evaluate((element) => {
+    const panelBounds = element.getBoundingClientRect();
+    const button = element.querySelector(".session-info-actions > button");
+    const widthControl = element.querySelector(".chat-width-control");
+    const text = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    const range = document.createRange(); range.selectNodeContents(text);
+    const textLines = [...new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)))];
+    return { textLines, whiteSpace: getComputedStyle(button).whiteSpace, panelLeft: panelBounds.left, panelRight: panelBounds.right, viewport: innerWidth, controls: [button, widthControl].map((control) => { const bounds = control.getBoundingClientRect(); return { left: bounds.left, right: bounds.right, top: bounds.top, width: control.clientWidth, contentWidth: control.scrollWidth }; }) };
+  });
+  assert.equal(layout.whiteSpace, "nowrap");
+  assert.equal(layout.textLines.length, 1);
+  assert.ok(layout.panelLeft >= 0 && layout.panelRight <= layout.viewport);
+  for (const control of layout.controls) {
+    assert.ok(control.left > layout.panelLeft && control.right < layout.panelRight);
+    assert.ok(control.contentWidth <= control.width + 1);
+  }
+  if (layout.viewport > 760) assert.ok(Math.abs(layout.controls[0].top - layout.controls[1].top) <= 1);
+}
+
 async function assertDialogChrome(dialog, { input = false } = {}) {
   const metrics = await dialog.evaluate((card) => { const style = getComputedStyle(card); const title = card.querySelector("h2"); const buttons = [...card.querySelectorAll(".dialog-actions > button")]; return { padding: style.padding, gap: style.gap, radius: Number.parseFloat(style.borderRadius), titleSize: title ? Number.parseFloat(getComputedStyle(title).fontSize) : 0, buttonHeights: buttons.map((button) => button.getBoundingClientRect().height) }; });
   assert.equal(metrics.padding, "16px");
@@ -669,7 +689,7 @@ try {
   assert.equal(disconnectedMobileLayout.overflow, "visible");
   await activePage.close();
   const hiddenReasoningPage = await page.context().newPage();
-  await hiddenReasoningPage.route("**/api/ui", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ theme: "ark-dark", hideReasoning: true }) }));
+  await hiddenReasoningPage.route("**/api/ui", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ theme: "ark-dark", hideReasoning: true, markdownLineBreaks: true }) }));
   await hiddenReasoningPage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
     const server = webSocket.connectToServer();
     webSocket.onMessage((message) => server.send(message));
@@ -929,12 +949,29 @@ try {
   assert.ok(footerTooltips.includes("Fork session"));
   await page.getByTitle("Session information").click();
   const sessionInfoPanel = page.locator(".session-info-panel");
+  await assertSessionInfoActions(sessionInfoPanel);
   await sessionInfoPanel.getByRole("button", { name: "Copy session URL" }).click();
+  await sessionInfoPanel.getByRole("button", { name: "Session URL copied", exact: true }).waitFor();
+  await assertSessionInfoActions(sessionInfoPanel);
+  await sessionInfoPanel.screenshot({ path: "/tmp/pi-ark-session-information-desktop.png" });
   const copiedSessionUrl = await page.evaluate(() => navigator.clipboard.readText());
   const copiedSessionTarget = new URL(copiedSessionUrl);
   assert.equal(copiedSessionTarget.searchParams.get("page"), "agent");
   assert.equal(copiedSessionTarget.searchParams.get("workspace"), linkedWorkspace);
   assert.equal(copiedSessionTarget.searchParams.get("session"), linkedSession);
+  const sessionInfoViewport = page.viewportSize();
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.waitForFunction(() => document.querySelector(".sidebar").getBoundingClientRect().right <= 1);
+    const copySessionButton = sessionInfoPanel.getByRole("button", { name: "Copy session URL", exact: true });
+    await copySessionButton.waitFor();
+    await assertSessionInfoActions(sessionInfoPanel);
+    await copySessionButton.click();
+    await sessionInfoPanel.getByRole("button", { name: "Session URL copied", exact: true }).waitFor();
+    await assertSessionInfoActions(sessionInfoPanel);
+    await sessionInfoPanel.screenshot({ path: `/tmp/pi-ark-session-information-${width}.png` });
+  }
+  await page.setViewportSize(sessionInfoViewport);
   await page.getByTitle("Session information").click();
   const sessionHeaderButtons = page.locator(".sessions-section .sidebar-header-actions > button");
   assert.deepEqual(await sessionHeaderButtons.evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label"))), ["Show archived sessions", "Open Pi-Ark session link", "New session group", "New session"]);

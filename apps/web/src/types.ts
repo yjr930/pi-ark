@@ -197,6 +197,7 @@ export type ThemeId = "ark-dark" | "graphite" | "midnight" | "paper" | "snow";
 export interface UiSettings {
   theme: ThemeId;
   hideReasoning: boolean;
+  markdownLineBreaks: boolean;
 }
 
 export interface ReleaseInfo {

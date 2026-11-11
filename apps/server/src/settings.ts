@@ -14,6 +14,7 @@ export interface GlobalAgentDefaultsInput {
 export interface GlobalSettingsInput extends GlobalAgentDefaultsInput {
   theme: ArkTheme;
   hideReasoning: boolean;
+  markdownLineBreaks?: boolean;
   provider: string;
   model: string;
   thinkingLevel: ModelThinkingLevel;
@@ -68,6 +69,7 @@ export class SettingsService {
     return {
       theme: arkConfig.ui.theme,
       hideReasoning: arkConfig.ui.hideReasoning,
+      markdownLineBreaks: arkConfig.ui.markdownLineBreaks,
       ...arkConfig.preferences,
       provider,
       model: modelId,
@@ -236,7 +238,7 @@ export class SettingsService {
     await this.manager.flush();
     const errors = this.manager.drainErrors();
     if (errors.length) throw new Error(errors.map(({ error }) => error.message).join("; "));
-    await saveGlobalArkSettings({ theme: input.theme, hideReasoning: input.hideReasoning });
+    await saveGlobalArkSettings({ theme: input.theme, hideReasoning: input.hideReasoning, markdownLineBreaks: input.markdownLineBreaks });
     return this.getGlobal();
   }
 }

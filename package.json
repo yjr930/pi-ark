@@ -1,6 +1,6 @@
 {
   "name": "pi-ark",
-  "version": "0.1.5-dev.31",
+  "version": "0.1.5-dev.32",
   "private": true,
   "description": "Workspace-oriented web interface for the pi coding agent",
   "type": "module",
@@ -17,6 +17,7 @@
     "check:behavior": "tsx scripts/check-conversation.ts && tsx scripts/check-compaction-stats.ts && tsx scripts/check-session-cache.ts && tsx scripts/check-session-status.ts && tsx scripts/check-attachments.ts && tsx scripts/check-auth-flow.ts && tsx scripts/check-model-preferences.ts && tsx scripts/check-session-actions.ts && tsx scripts/check-pi-ark-links.ts && tsx scripts/check-system-prompt.ts && tsx scripts/check-files.ts && tsx scripts/check-instances.ts && tsx scripts/check-notebook.ts && tsx scripts/check-subagents.ts",
     "check:notebook": "tsx scripts/check-notebook.ts",
     "check:ui": "node scripts/check-ui.mjs",
+    "check:markdown-ui": "node scripts/check-markdown-ui.mjs",
     "check:subagents": "tsx scripts/check-subagents.ts",
     "check:subagents-ui": "npm run build && node scripts/check-subagents-ui.mjs",
     "release:build": "node scripts/build-release.mjs",

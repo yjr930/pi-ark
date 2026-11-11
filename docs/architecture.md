@@ -102,7 +102,7 @@ docs/               产品、架构、使用和集成文档
 | Session list | `apps/web/src/components/SessionList.tsx` | 单行 Session、更新时间 tooltip、Notebook 入口、groups 和 Archived 区域 |
 | Notebook | `apps/web/src/components/Notebook.tsx` | Workspace 笔记加载、debounce 自动保存和保存状态 |
 | Files | `apps/web/src/components/Files.tsx` | 全宽目录导航、可调整的文件列表、path copy、文本阅读和 Markdown image path |
-| Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示 |
+| Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示，以及全局单次换行的显示设置 |
 | Terminal | `apps/web/src/components/Terminal.tsx` | xterm.js、FitAddon 和 Terminal WebSocket |
 | Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示 Global settings，保留页面状态，并按需加载 prompt preview 与 release 信息 |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
@@ -110,6 +110,8 @@ docs/               产品、架构、使用和集成文档
 | Theme | `apps/web/src/theme.ts` | Theme metadata、应用和本地初始化 |
 
 Files、Terminal 和 Settings 使用 React lazy loading。Chat 保持在主 bundle 中，Session 切换时可以立即建立 WebSocket。
+
+App 从 `/api/ui` 读取 `markdownLineBreaks`，并通过 React Context 将该设置传给共享的 Markdown renderer。Renderer 调用 `marked.parse(..., { breaks: markdownLineBreaks })`，使 conversations 与 Markdown files 使用相同的单次换行显示规则。该设置默认开启，控制 Markdown 的显示；原始文本、复制的 Markdown、Session JSONL 和 model context 保持原内容。
 
 ## Authentication
 
@@ -336,10 +338,12 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
-- Theme、reasoning visibility、Workspace registry 和共享 `preferences`（Global prompt append 和 Files preferences）：`PI_ARK_HOME/config.json`。
+- UI settings（`ui.theme`、`ui.hideReasoning` 和 `ui.markdownLineBreaks`）、Workspace registry 和共享 `preferences`（Global prompt append 和 Files preferences）：`PI_ARK_HOME/config.json`。
 - Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
+
+`ui.markdownLineBreaks` 是 boolean 字段，默认值为 `true`，对应 Settings 中的 Keep line breaks。读取历史配置时，缺少该字段的配置使用默认值。UI 保存入口在串行原子更新中保存新值；旧请求省略该字段时保留当前保存值，历史配置也缺少该字段时保存 `true`。提供该字段时，保存入口验证字段为 boolean，非法值返回 HTTP 400。`SettingsService.getGlobal()` 返回 `markdownLineBreaks`，兼容的 `saveGlobal()` 入口透传可选字段。
 
 API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。保存 credential 的断开操作调用 `ModelRuntime.logout(provider)`。Settings response 返回 credential 状态、来源和是否可以断开；credential 内容保留在服务端。
 
@@ -409,7 +413,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 | 路径 | 内容 |
 |---|---|
-| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、theme、reasoning visibility 和共享 preferences |
+| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、UI settings（`theme`、`hideReasoning` 和 `markdownLineBreaks`）和共享 preferences |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
@@ -448,7 +452,7 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 |---|---|---|
 | GET | `/api/auth/session` | 当前登录状态 |
 | POST | `/api/auth/logout` | 退出 |
-| GET/PUT | `/api/ui` | 读取或立即保存 Theme 与 reasoning visibility |
+| GET/PUT | `/api/ui` | 读取或立即保存 `theme`、`hideReasoning` 与 `markdownLineBreaks`；`markdownLineBreaks` 默认为 `true`，PUT 省略该字段时保留当前值 |
 
 ### Workspace 与 Files
 
@@ -467,7 +471,7 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 
 | Method | Path | 用途 |
 |---|---|---|
-| GET/PUT | `/api/settings/global` | Global defaults 与兼容的 credential 保存入口 |
+| GET/PUT | `/api/settings/global` | Global defaults（包括 `theme`、`hideReasoning` 和 `markdownLineBreaks`）与兼容的 credential 保存入口；PUT 的可选 `markdownLineBreaks` 透传到 UI 保存逻辑 |
 | PUT | `/api/settings/agent-defaults` | 立即保存 message queue、compaction 和 retry defaults |
 | GET | `/api/settings/models` | Provider catalog model list |
 | GET/PUT | `/api/settings/model-preferences` | 已认证 Provider 的模型清单、checkbox、default 和 thinking level |
@@ -590,9 +594,12 @@ npm run check:behavior
 npm run check:subagents
 npm run check:subagents-ui
 npm run check:ui
+npm run check:markdown-ui
 npm run release:build
 ```
 
 `check:subagents` 使用真实 SDK Session 与受控模型响应，覆盖并发限制、图片引用、结果截取、历史分支、停止、删除、恢复与工具注册。`check:subagents-ui` 构建项目，并自动创建临时 HTTPS 实例，使用临时数据目录与独立端口执行任务面板和双向导航的 Chromium 检查。设置 `PI_ARK_CHECK_FULL_UI=1` 后，该临时实例还会执行现有的 `check:ui` 脚本。
+
+`check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格。
 
 Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、Session 切换后的 draft/attachment/disclosure 恢复、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

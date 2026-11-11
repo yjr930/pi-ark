@@ -24,8 +24,8 @@ function closestThinkingLevel(levels: GlobalSettings["thinkingLevel"][], request
   return thinkingOrder.slice(requestedIndex).find((level) => levels.includes(level)) || [...thinkingOrder.slice(0, requestedIndex)].reverse().find((level) => levels.includes(level)) || levels[0] || "off";
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
-  return <button type="button" role="switch" aria-checked={checked} className={`settings-toggle ${checked ? "enabled" : ""}`} onClick={() => onChange(!checked)}><span /></button>;
+function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label?: string }) {
+  return <button type="button" role="switch" aria-label={label} aria-checked={checked} className={`settings-toggle ${checked ? "enabled" : ""}`} onClick={() => onChange(!checked)}><span /></button>;
 }
 
 export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: boolean; uiSettings: UiSettings; onUiSettingsChanged: (settings: UiSettings) => void }) {
@@ -76,7 +76,7 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     return () => { current = false; };
   }, []);
 
-  useEffect(() => { setGlobal((current) => current ? { ...current, ...uiSettings } : current); }, [uiSettings.theme, uiSettings.hideReasoning]);
+  useEffect(() => { setGlobal((current) => current ? { ...current, ...uiSettings } : current); }, [uiSettings.theme, uiSettings.hideReasoning, uiSettings.markdownLineBreaks]);
 
   useEffect(() => {
     if (!active) { setApiKey(""); setDisconnectOpen(false); setReleaseUpdateOpen(false); setReleaseRollbackOpen(false); }
@@ -91,7 +91,7 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     setSaving(true); setNotice(null);
     try {
       const [result, models] = await Promise.all([api.globalSettings(), api.modelPreferences()]);
-      setGlobal(result); setModelPreferences(models); setPromptDraft(result.agent.systemPrompt.append); onUiSettingsChanged({ theme: result.theme, hideReasoning: result.hideReasoning });
+      setGlobal(result); setModelPreferences(models); setPromptDraft(result.agent.systemPrompt.append); onUiSettingsChanged({ theme: result.theme, hideReasoning: result.hideReasoning, markdownLineBreaks: result.markdownLineBreaks });
       if (category === "maintenance") setRelease(await api.releaseInfo());
     } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot refresh settings" }); }
     finally { setSaving(false); }
@@ -134,9 +134,9 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
 
   function persistUiSettings(next: GlobalSettings, success: string): Promise<void> {
     const revision = ++uiSaveRevision.current;
-    setGlobal(next); applyTheme(next.theme); onUiSettingsChanged({ theme: next.theme, hideReasoning: next.hideReasoning }); setSaving(true); setNotice(null);
+    setGlobal(next); applyTheme(next.theme); onUiSettingsChanged({ theme: next.theme, hideReasoning: next.hideReasoning, markdownLineBreaks: next.markdownLineBreaks }); setSaving(true); setNotice(null);
     const task = uiSaveQueue.current.catch(() => undefined).then(async () => {
-      const saved = await api.saveUiSettings({ theme: next.theme, hideReasoning: next.hideReasoning });
+      const saved = await api.saveUiSettings({ theme: next.theme, hideReasoning: next.hideReasoning, markdownLineBreaks: next.markdownLineBreaks });
       if (revision === uiSaveRevision.current) { setGlobal((current) => current ? { ...current, ...saved } : current); onUiSettingsChanged(saved); setNotice({ kind: "success", text: success }); }
     }).catch(async (reason) => {
       if (revision === uiSaveRevision.current) {
@@ -350,7 +350,7 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
           <section className="settings-section">
             <div className="settings-section-title"><Palette size={17} /><div><h3>Appearance</h3><p>Theme and conversation visibility shared by every workspace and device using this service.</p></div></div>
             <div className="theme-options" aria-label="Theme">{themes.map((theme) => <button type="button" aria-pressed={global.theme === theme.id} title={theme.description} className={global.theme === theme.id ? "selected" : ""} onClick={() => selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><strong>{theme.name}</strong><Check size={13} className={global.theme === theme.id ? "" : "theme-check-hidden"} /></button>)}</div>
-            <div className="settings-rows"><div className="settings-row"><div><strong>Hide reasoning</strong><span>Hide reasoning content in every conversation while preserving it in Session history.</span></div><Toggle checked={global.hideReasoning} onChange={(checked) => void persistUiSettings({ ...global, hideReasoning: checked }, "Reasoning visibility saved.")} /></div></div>
+            <div className="settings-rows"><div className="settings-row"><div><strong>Hide reasoning</strong><span>Hide reasoning content in every conversation while preserving it in Session history.</span></div><Toggle checked={global.hideReasoning} onChange={(checked) => void persistUiSettings({ ...global, hideReasoning: checked }, "Reasoning visibility saved.")} /></div><div className="settings-row"><div><strong>Keep line breaks</strong><span>Show each new line in conversations and Markdown files on a new line. Turn off to join lines within a paragraph.</span></div><Toggle label="Keep line breaks" checked={global.markdownLineBreaks} onChange={(checked) => void persistUiSettings({ ...global, markdownLineBreaks: checked }, "Line break preference saved.")} /></div></div>
           </section>
           </div>
           <div className="settings-category" hidden={category !== "models"}>

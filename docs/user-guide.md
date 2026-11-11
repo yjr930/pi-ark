@@ -406,6 +406,8 @@ Theme 选择会立即预览，保存后对该 Pi-Ark 服务的浏览器生效。
 
 Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示。开启后，conversation 不显示 Reasoning 折叠项和内容；Session history 与模型使用的上下文继续保留原始 reasoning。该开关会立即保存，刷新页面后继续生效。
 
+Keep line breaks（按原文换行）默认开启：原文写成几行，普通文本就按几行显示。关闭后，同一段落内的普通换行会合并显示，使用空行可以分隔段落。该设置统一作用于会话正文、Reasoning、摘要和 Files 的 Markdown 预览，切换后立即保存，刷新后保留选择。
+
 ### Models & providers
 
 1. 在 Manage Provider 中选择需要认证或断开的 Provider。模型行右侧的星标继续决定新 Session 的 default。

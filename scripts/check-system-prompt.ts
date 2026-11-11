@@ -32,7 +32,20 @@ try {
   const coreInfo = await new PiCoreService().info(false);
   assert.equal(coreInfo.agentDir, agentDir);
   assert.match(coreInfo.corePath, /@earendil-works\/pi-coding-agent$/);
-  assert.deepEqual(await config.loadUiSettings(), { theme: "ark-dark", hideReasoning: false });
+  assert.deepEqual(await config.loadUiSettings(), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true });
+  assert.deepEqual(await config.saveGlobalArkSettings({ theme: "ark-dark", hideReasoning: false }), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true });
+  for (const markdownLineBreaks of [false, true, false]) {
+    const expected = { theme: "ark-dark" as const, hideReasoning: false, markdownLineBreaks };
+    assert.deepEqual(await config.saveGlobalArkSettings(expected), expected);
+    assert.deepEqual(await config.loadUiSettings(), expected);
+    assert.deepEqual(JSON.parse(await readFile(config.configPath, "utf8")).ui, expected);
+  }
+  assert.deepEqual(await config.saveGlobalArkSettings({ theme: "ark-dark", hideReasoning: false }), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: false });
+  assert.equal((await config.loadUiSettings()).markdownLineBreaks, false);
+  for (const markdownLineBreaks of ["false", 0, null, {}]) {
+    await assert.rejects(config.saveGlobalArkSettings({ theme: "ark-dark", hideReasoning: false, markdownLineBreaks: markdownLineBreaks as unknown as boolean }), { statusCode: 400 });
+  }
+  assert.equal((await config.loadUiSettings()).markdownLineBreaks, false);
   assert.equal(createGlobalSettingsManager(workspace.path).getSteeringMode(), "one-at-a-time");
   assert.equal(createGlobalSettingsManager(otherWorkspace.path).getSteeringMode(), "one-at-a-time");
   await config.ensureWorkspaceState(otherWorkspace);
@@ -40,14 +53,19 @@ try {
   const defaults = await config.loadGlobalPreferences();
   assert.deepEqual(defaults.agent, { systemPrompt: { append: "" } });
   assert.deepEqual(defaults.files, { showHiddenFiles: true, maxPreviewSizeMb: 10 });
+  await config.saveGlobalArkSettings({ theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true });
   await Promise.all([
+    config.saveGlobalArkSettings({ theme: "paper", hideReasoning: false, markdownLineBreaks: false }),
     config.saveGlobalArkSettings({ theme: "graphite", hideReasoning: true }),
     config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }, otherWorkspace]),
     config.saveGlobalSystemPrompt({ append: "Shared instructions" }),
     config.saveGlobalPreferences({ files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } }),
   ]);
   const saved = await config.loadConfig();
-  assert.deepEqual(saved.ui, { theme: "graphite", hideReasoning: true });
+  assert.deepEqual(saved.ui, { theme: "graphite", hideReasoning: true, markdownLineBreaks: false });
+  assert.deepEqual(saved.auth, { username: "check", passwordHash: "check" });
+  assert.deepEqual(saved.tls, { keyPath: "/tmp/key", certPath: "/tmp/cert" });
+  assert.deepEqual(JSON.parse(await readFile(config.configPath, "utf8")).ui, saved.ui);
   assert.equal(saved.workspaces[0].name, "Queued workspace");
   assert.deepEqual(saved.preferences, { agent: { systemPrompt: { append: "Shared instructions" } }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 } });
   assert.deepEqual(JSON.parse(await readFile(config.configPath, "utf8")).preferences, saved.preferences);

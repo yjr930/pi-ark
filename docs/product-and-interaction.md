@@ -179,7 +179,7 @@ Rollback 只改变 conversation branch，不修改 Workspace 文件。用户可�
 
 ### Session information
 
-Header 的 Session information 面板显示创建时间、更新时间、消息数量、context token、context window、context 使用百分比、input token 总量、output token 总量和费用，并提供 Copy session URL 与 Compact、Wide、Full conversation width 选项。
+Header 的 Session information 面板显示创建时间、更新时间、消息数量、context token、context window、context 使用百分比、input token 总量、output token 总量和费用，并提供 Copy session URL 与 Compact、Wide、Full conversation width 选项。复制按钮的文字保持单行，复制完成后的 Session URL copied 也保持单行。桌面端的面板宽度为 350px，窄屏中的面板按屏幕宽度调整；底部空间不足时，复制按钮和 conversation width 控件按整个控件换行排列。
 
 ## Files
 
@@ -201,12 +201,14 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限。Workspace 是启动�
 
 Settings 对所有 Workspace 使用同一份配置。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
 
-- Interface：Appearance，包含紧凑的主题色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）和 Hide reasoning。
+- Interface：Appearance，包含紧凑的主题色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）、Hide reasoning 和 Keep line breaks。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
 - Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及 status/logs/restart 等 service commands。
 - Account：Sign out。
+
+Keep line breaks（按原文换行）默认开启，会话和 Markdown 文件中的普通文本会按原文的单次换行显示。关闭后，同一段落内的普通换行合并显示，空行继续分隔段落。该设置在切换后立即保存并应用到当前页面，刷新后保留选择。
 
 Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和提示词草稿。模型数据独立加载；effective prompt preview 在展开时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取设置。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
 

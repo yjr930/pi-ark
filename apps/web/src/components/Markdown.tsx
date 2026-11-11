@@ -1,11 +1,14 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { useMemo, type MouseEvent } from "react";
+import { createContext, useContext, useMemo, type MouseEvent } from "react";
 import { parseInternalSessionLink, sessionPermalink } from "../permalinks";
 
+export const MarkdownLineBreaksContext = createContext(true);
+
 export function Markdown({ source, className = "", resolveImage, onImageOpen }: { source: string; className?: string; resolveImage?: (source: string) => string; onImageOpen?: (source: string, alt: string) => void }) {
+  const markdownLineBreaks = useContext(MarkdownLineBreaksContext);
   const html = useMemo(() => {
-    const parsed = new DOMParser().parseFromString(marked.parse(source, { async: false }) as string, "text/html");
+    const parsed = new DOMParser().parseFromString(marked.parse(source, { async: false, breaks: markdownLineBreaks }) as string, "text/html");
     for (const link of parsed.querySelectorAll("a")) {
       const original = link.getAttribute("href") || "";
       const target = parseInternalSessionLink(original);
@@ -26,7 +29,7 @@ export function Markdown({ source, className = "", resolveImage, onImageOpen }: 
       link.rel = "noreferrer noopener";
     }
     return document.body.innerHTML;
-  }, [source, resolveImage]);
+  }, [source, resolveImage, markdownLineBreaks]);
 
   function openImage(event: MouseEvent<HTMLElement>) {
     if (!onImageOpen || !(event.target instanceof HTMLImageElement)) return;

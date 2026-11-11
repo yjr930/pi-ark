@@ -4,6 +4,7 @@ import { api } from "./api";
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog";
 import { Chat } from "./components/Chat";
 import { Login } from "./components/Login";
+import { MarkdownLineBreaksContext } from "./components/Markdown";
 import { NameDialog } from "./components/NameDialog";
 import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
@@ -24,7 +25,7 @@ export default function App() {
   const pendingInternalTarget = useRef<InternalSessionTarget | undefined>(undefined);
   const [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [uiSettings, setUiSettings] = useState<UiSettings>({ theme: "ark-dark", hideReasoning: false });
+  const [uiSettings, setUiSettings] = useState<UiSettings>({ theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true });
   const [workspaceId, setWorkspaceId] = useState("");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [statusesByWorkspace, setStatusesByWorkspace] = useState<Record<string, SessionStatusMap>>({});
@@ -201,7 +202,7 @@ export default function App() {
   if (auth === "loading") return <div className="app-loading"><Box size={28} /><span>Pi-Ark</span></div>;
   if (auth === "out") return <Login onLogin={() => { setAuth("in"); void loadWorkspaces(); }} />;
 
-  return <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} onClickCapture={(event) => {
+  return <MarkdownLineBreaksContext.Provider value={uiSettings.markdownLineBreaks}><div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} onClickCapture={(event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !(event.target instanceof Element)) return;
     const link = event.target.closest<HTMLAnchorElement>("a[data-pi-ark-link]");
     if (!link?.dataset.piArkLink) return;
@@ -241,5 +242,5 @@ export default function App() {
     </main>
     {addWorkspaceOpen && <AddWorkspaceDialog onClose={() => setAddWorkspaceOpen(false)} onAdded={workspaceAdded} />}
     {sessionLinkOpen && <NameDialog title="Open session link" description="Paste a Pi-Ark internal session or message link." label="Pi-Ark session link" submitLabel="Open session" icon={<Link2 size={18} />} onClose={() => setSessionLinkOpen(false)} onSubmit={openInternalSessionLink} />}
-  </div>;
+  </div></MarkdownLineBreaksContext.Provider>;
 }
