@@ -17,9 +17,13 @@ try {
   assert.doesNotMatch(success.stdout, /::error/);
   await assert.rejects(run("console.error('fixture failure'); process.exitCode=7"), (error) => error.code === 7 && error.stdout.includes("Native CI command failed") && error.stdout.includes("fixture failure"));
   await assert.rejects(run("console.log('fixture pending'); setInterval(()=>{},1000)", { PI_ARK_CI_COMMAND_TIMEOUT_MS: "2000" }), (error) => error.code === 1 && error.stdout.includes("Native CI command failed") && error.stdout.includes("fixture pending") && error.stdout.includes("Command timed out after 2000 ms"));
+  await assert.rejects(run("console.error('x'.repeat(20000)+'__LAST_FAILURE__'); process.exitCode=5"), (error) => {
+    const annotation = error.stdout.split("::error title=Native CI command failed::")[1];
+    return error.code === 5 && annotation?.includes("__LAST_FAILURE__") && annotation.length < 4096;
+  });
   await assert.rejects(run("console.log('unreached')", { PI_ARK_CI_COMMAND_TIMEOUT_MS: "invalid" }), /must be a positive integer/);
   const logs = await readdir(join(temporary, "dist/native-ci"));
-  assert.equal(logs.length, 3);
+  assert.equal(logs.length, 4);
   const records = await Promise.all(logs.map((name) => readFile(join(temporary, "dist/native-ci", name), "utf8")));
   assert.ok(records.some((text) => text.includes("fixture pending") && text.includes("Command timed out after 2000 ms")));
 } finally {

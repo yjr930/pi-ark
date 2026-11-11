@@ -319,3 +319,5 @@ try {
   }
   await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
+// Fixture PTY exits are checked above; end the isolated check after cleanup.
+process.exit(0);
