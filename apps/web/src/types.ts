@@ -58,6 +58,7 @@ export interface AgentMessage {
   toolCallId?: string;
   isError?: boolean;
   stopReason?: string;
+  errorMessage?: string;
   entryId?: string;
   messageId?: string;
   provider?: string;

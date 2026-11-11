@@ -367,7 +367,7 @@ AI 运行期间，commentary、tool call 和 tool result 显示在带 Running �
 
 Text item 直接显示普通文字、图片和 reasoning。含普通 text 或 image 的已完成 assistant item 在内容末尾默认显示 Copy Markdown、Fork session 和 Info；对应的流式 item 显示 Info。操作行的左侧显示消息时间，格式为 `YYYY-MM-DD HH:mm:ss`，使用浏览器所在的时区；操作按钮保留在右侧。只包含 reasoning 和 toolCall 的 message 不显示这些操作。点击 Info 后，信息栏显示 model、context、input/output token、source Message ID 与 `pi-ark://` link；流式输出期间的信息栏只显示当前可用的信息。User header 提供内部链接与 Rollback。
 
-Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面会显示紧凑的单行 Response interrupted warning。对应工具活动仍然可以通过折叠框查看。
+Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面会显示紧凑的 Response interrupted warning。对应工具活动仍然可以通过折叠框查看。该 turn 因 provider error 结束时，warning 会显示保存的错误原因；内容为空的失败回复在 AI 标题下直接显示错误。Automatic retry 进行期间，页面显示当前 attempt 和错误原因。
 
 连续的工具调用按可见内容分组，默认显示最后 3 个调用，点击 `show more tool call` 可显示较早的调用，点击 `show less tool call` 可恢复折叠。一个 message 中的多个调用分别计数。开启 Hide reasoning 后，隐藏的 thinking block（包括只包含 thinking 的独立 message）前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，包含普通正文或图片的 message 按原样显示。分组保留原始消息及其 permalink，并随 Session UI cache 恢复展开状态；较早调用的 permalink 会在首次访问时展开对应分组。
 

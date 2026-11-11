@@ -3,7 +3,7 @@ import type { AgentMessage, ContentBlock } from "./types";
 export type ConversationSegment =
   | { type: "message"; message: AgentMessage; key: string; aiStart?: boolean }
   | { type: "collapsed"; messages: AgentMessage[]; finalMessage: AgentMessage; key: string; toolMessages: number; duration: string; active: boolean; aiStart?: boolean }
-  | { type: "warning"; key: string; title: string };
+  | { type: "warning"; key: string; title: string; detail?: string };
 
 function blocks(content: AgentMessage["content"]): ContentBlock[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : content || [];
@@ -73,8 +73,9 @@ export function buildConversationSegments(messages: AgentMessage[], active: bool
       response.slice(finalOutput).forEach((item, itemIndex) => responseSegments.push({ type: "message", message: item, key: `final-${turnStart}-${itemIndex}` }));
     } else if (!currentTurn && lastTool >= 0 && response.length > 0) {
       const lastMessage = response[response.length - 1];
+      const failure = [...response].reverse().find((message) => message.role === "assistant" && message.stopReason === "error" && message.errorMessage);
       responseSegments.push({ type: "collapsed", messages: response, finalMessage: lastMessage, key: `run-${turnStart}`, toolMessages: response.filter(hasToolActivity).length, duration: durationLabel(response, lastMessage), active: false });
-      responseSegments.push({ type: "warning", key: `warning-${turnStart}`, title: "Response interrupted" });
+      responseSegments.push({ type: "warning", key: `warning-${turnStart}`, title: "Response interrupted", ...(failure?.errorMessage ? { detail: failure.errorMessage } : {}) });
     } else response.forEach((item, itemIndex) => responseSegments.push({ type: "message", message: item, key: `response-${turnStart}-${itemIndex}` }));
     const firstResponseSegment = responseSegments.find((segment) => segment.type !== "warning");
     if (firstResponseSegment) firstResponseSegment.aiStart = true;

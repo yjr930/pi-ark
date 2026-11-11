@@ -54,6 +54,16 @@ compactedSessionFixture.appendMessage({ role: "user", content: "Question after c
 compactedSessionFixture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Answer after compact" }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 20, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 28, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - 1000 });
 const compactedSessionFixturePath = compactedSessionFixture.getSessionFile();
 if (!compactedSessionFixturePath) throw new Error("Cannot create compacted browser Session fixture");
+const failedSessionFixture = SessionManager.create(workspacePath, sessionFixtureDirectory);
+failedSessionFixture.appendSessionInfo("Failed model fixture");
+failedSessionFixture.appendMessage({ role: "user", content: "First failing run", timestamp: Date.now() - 7000 });
+failedSessionFixture.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "failed-read-call", name: "read", arguments: { path: "README.md" } }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 12, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: Date.now() - 6000 });
+failedSessionFixture.appendMessage({ role: "toolResult", toolCallId: "failed-read-call", toolName: "read", content: [{ type: "text", text: "Failed fixture tool result" }], isError: false, timestamp: Date.now() - 5000 });
+failedSessionFixture.appendMessage({ role: "assistant", content: [], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "error", errorMessage: "Connection error: fetch failed", timestamp: Date.now() - 4000 });
+failedSessionFixture.appendMessage({ role: "user", content: "继续", timestamp: Date.now() - 3000 });
+failedSessionFixture.appendMessage({ role: "assistant", content: [], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "error", errorMessage: "Provider authentication failed: 401", timestamp: Date.now() - 2000 });
+const failedSessionFixturePath = failedSessionFixture.getSessionFile();
+if (!failedSessionFixturePath) throw new Error("Cannot create failed browser Session fixture");
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });
@@ -189,6 +199,49 @@ try {
   await page.getByText("Old history question 1", { exact: true }).waitFor();
   assert.equal(await historyPageButton.count(), 0);
 
+  const failedSessionRow = page.locator(".session-list-item").filter({ hasText: "Failed model fixture" });
+  await failedSessionRow.waitFor();
+  let failedSocketRoute;
+  await page.routeWebSocket(new RegExp(`/ws/agent/[^/]+/${failedSessionFixture.getSessionId()}(?:\\?|$)`), (webSocket) => {
+    failedSocketRoute = webSocket;
+    const server = webSocket.connectToServer();
+    webSocket.onMessage((message) => server.send(message));
+    server.onMessage((message) => webSocket.send(message));
+  });
+  await failedSessionRow.locator(".session-open").click();
+  const failedInterruptedWarning = page.locator(".turn-warning").filter({ hasText: "Response interrupted" });
+  await failedInterruptedWarning.waitFor();
+  assert.equal(await failedInterruptedWarning.locator(".turn-warning-copy span").textContent(), "Connection error: fetch failed");
+  const failedAssistantError = page.locator(".feed-assistant-error").filter({ hasText: "Provider authentication failed: 401" });
+  await failedAssistantError.waitFor();
+  const failedAssistantErrorBox = await failedAssistantError.boundingBox();
+  assert.ok(failedAssistantErrorBox && failedAssistantErrorBox.height > 20);
+  const failedTurn = page.locator(".ai-feed-segment").filter({ has: failedAssistantError });
+  assert.equal(await failedTurn.locator(".ai-turn-header").count(), 1);
+  assert.equal(await failedAssistantError.locator("span").textContent(), "Provider authentication failed: 401");
+  assert.ok(failedSocketRoute, "Failed Session must be connected before the retry check");
+  failedSocketRoute.send(JSON.stringify({ type: "agent-event", event: { type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 500, errorMessage: "Reconnecting to provider" } }));
+  const retryingWarning = page.locator(".turn-warning.retrying");
+  await retryingWarning.waitFor({ timeout: 3000 });
+  assert.equal(await retryingWarning.locator(".turn-warning-copy strong").textContent(), "Retrying after error (attempt 1 of 3)");
+  assert.equal(await retryingWarning.locator(".turn-warning-copy span").textContent(), "Reconnecting to provider");
+  failedSocketRoute.send(JSON.stringify({ type: "agent-event", event: { type: "auto_retry_end", success: true, attempt: 1 } }));
+  failedSocketRoute.send(JSON.stringify({ type: "agent-event", event: { type: "agent_settled", aborted: false } }));
+  await retryingWarning.waitFor({ state: "detached", timeout: 3000 });
+  await page.locator(".chat-header .status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
+  await page.screenshot({ path: join(screenshots, "chat-error-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(".mobile-bar").waitFor();
+  const mobileSidebarClose = page.getByRole("button", { name: "Close sidebar" });
+  if (await mobileSidebarClose.count()) await mobileSidebarClose.click({ position: { x: 380, y: 400 } });
+  assert.equal(await page.locator(".sidebar-scrim").count(), 0);
+  await page.waitForTimeout(300);
+  await page.locator(".chat-header .status-dot").filter({ hasText: "Ready" }).waitFor();
+  const failedMobileBox = await failedAssistantError.boundingBox();
+  assert.ok(failedMobileBox && failedMobileBox.x >= 0 && failedMobileBox.x + failedMobileBox.width <= 390.5);
+  await page.screenshot({ path: join(screenshots, "chat-error-390.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
   const fixtureSessionRow = page.locator(".session-list-item").filter({ hasText: "Browser UI fixture" });
   await fixtureSessionRow.waitFor();
   mockedSessionStatuses = [{ id: sessionFixture.getSessionId(), state: "running", statusRevision: 1, updateRevision: 0 }];
@@ -231,7 +284,11 @@ try {
   await page.getByText("Answer after compact", { exact: true }).waitFor({ timeout: 500 });
   await page.locator(".status-dot").filter({ hasText: "Refreshing conversation" }).waitFor({ timeout: 500 });
   assert.equal(await page.locator(".session-loading").count(), 0);
-  await page.locator(".status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
+  await page.locator(".chat-header .status-dot").filter({ hasText: "Error" }).waitFor({ timeout: 3000 });
+  assert.equal(await page.locator(".chat-header .status-dot").getAttribute("title"), "Fixture agent error");
+  assert.equal(await page.locator(".chat-header .status-dot > i").getAttribute("class"), "error");
+  mockedSessionStatuses = [{ id: compactedSessionFixture.getSessionId(), state: "ready", statusRevision: 2, updateRevision: 2 }, { id: sessionFixture.getSessionId(), state: "ready", statusRevision: 5, updateRevision: 2 }];
+  await page.locator(".chat-header .status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
   await fixtureSessionRow.locator(".session-open").click();
   await page.getByText("Final browser answer", { exact: true }).waitFor({ timeout: 500 });
   await page.locator(".status-dot").filter({ hasText: "Refreshing conversation" }).waitFor({ timeout: 500 });
@@ -1387,4 +1444,5 @@ try {
   await rm(readableFileFixturePath, { force: true });
   await rm(sessionFixturePath, { force: true });
   await rm(compactedSessionFixturePath, { force: true });
+  await rm(failedSessionFixturePath, { force: true });
 }

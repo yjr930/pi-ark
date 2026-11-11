@@ -99,7 +99,7 @@ Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完�
 
 正在执行的 turn 将 commentary、tool call 和 tool result 放入带 Running 状态和工具消息数量的 run collapse。没有该 Session 的已保存 disclosure 状态时，Running 默认展开，最新的非工具 assistant output 保持可见。Agent settled 后，该 run collapse 自动折叠并显示用时和工具消息数量，最后一条非工具内容保持展开。用户随后手动改变的折叠状态在 Session 切换后恢复。
 
-Agent settled 且缺少最后一条非工具内容的历史 turn 在 run collapse 后显示紧凑的单行 Response interrupted warning。
+Agent settled 且缺少最后一条非工具内容的历史 turn 在 run collapse 后显示紧凑的 Response interrupted warning。该 turn 因 provider error 结束时，warning 在标题下方显示 Session 保存的 errorMessage；内容为空的失败 assistant message 在 AI 标题下显示同一错误，而不是空白回复。Automatic retry 进行期间，conversation 底部显示带 attempt 和错误原因的 Retrying warning，retry 完成后清除。运行结束后，Session status 为 error 时，chat header 的状态显示 Error，并在 tooltip 中给出保存的错误原因。
 
 ### 工具展示
 
