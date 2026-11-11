@@ -7,11 +7,12 @@ import Fastify from "fastify";
 import { AgentService } from "./agents.js";
 import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, type ArkUiSettings, type GlobalPreferences } from "./config.js";
+import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveTerminalSettings, type TerminalSettings, type ArkUiSettings, type GlobalPreferences } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { PiCoreService } from "./pi-core.js";
 import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput, type ModelPreferencesInput } from "./settings.js";
-import { openTerminal } from "./terminal.js";
+import { TerminalService } from "./terminal.js";
+import { discoverTerminalProfiles } from "./terminal-shells.js";
 import { WorkspaceService } from "./workspaces.js";
 import { readWorkspaceNotebook, saveWorkspaceNotebook } from "./workspace-notebook.js";
 
@@ -23,6 +24,8 @@ const [key, cert] = await Promise.all([readFile(config.tls.keyPath), readFile(co
 const app = Fastify({ logger: true, https: { key, cert }, bodyLimit: 1024 * 1024 });
 const auth = new AuthService(config.auth.username, config.auth.passwordHash);
 const workspaces = new WorkspaceService(config.workspaces);
+const terminals = new TerminalService(workspaces);
+app.addHook("onClose", async () => terminals.dispose());
 const settings = await SettingsService.create(config.workspaces[0]?.path || process.cwd());
 const piCore = new PiCoreService();
 const authFlows = new AuthFlowService((providerId, interaction) => settings.loginSubscription(providerId, interaction));
@@ -88,6 +91,7 @@ app.delete<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId", 
   const workspace = workspaces.remove(request.params.workspaceId);
   try { await saveWorkspaceDefinitions(workspaces.list()); }
   catch (error) { workspaces.restore(workspace); throw error; }
+  terminals.closeWorkspace(workspace.id);
   return reply.code(204).send();
 });
 app.get("/api/settings/global", async () => settings.getGlobal());
@@ -108,6 +112,11 @@ app.put<{ Body: GlobalSettingsInput }>("/api/settings/global", async (request) =
 app.put<{ Body: GlobalAgentDefaultsInput }>("/api/settings/agent-defaults", async (request) => settings.saveAgentDefaults(request.body));
 app.get("/api/settings/system-prompt", async () => agents.getGlobalSystemPrompt(workspaces.list()[0] || { id: "global-preview", name: "Global preview", path: process.cwd() }));
 app.put<{ Body: GlobalPreferences["agent"]["systemPrompt"] }>("/api/settings/system-prompt", async (request) => saveGlobalSystemPrompt(request.body));
+function terminalSettingsResponse(terminal: TerminalSettings) {
+  return { settings: terminal, profiles: discoverTerminalProfiles({ env: { ...process.env, ...terminal.env } }), platform: process.platform };
+}
+app.get("/api/settings/terminal", async () => terminalSettingsResponse((await loadGlobalPreferences()).terminal));
+app.put<{ Body: TerminalSettings }>("/api/settings/terminal", async (request) => terminalSettingsResponse(await saveTerminalSettings(request.body)));
 app.get("/api/settings/preferences", async () => loadGlobalPreferences());
 app.put<{ Body: { files: GlobalPreferences["files"] } }>("/api/settings/preferences", async (request) => saveGlobalPreferences(request.body));
 app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/api/workspaces/:workspaceId/files", async (request) => {
@@ -134,6 +143,17 @@ app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/ap
   const download = await workspaces.downloadFile(workspaces.get(request.params.workspaceId), request.query.path);
   reply.header("X-Content-Type-Options", "nosniff").header("Content-Length", download.size).header("Content-Disposition", contentDispositionFilename(download.name)).type("application/octet-stream");
   return reply.send(download.content);
+});
+
+app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/terminals", async (request) => ({ terminals: terminals.list(request.params.workspaceId) }));
+app.post<{ Params: { workspaceId: string }; Body: { cols?: number; rows?: number } }>("/api/workspaces/:workspaceId/terminals", async (request, reply) => {
+  workspaces.get(request.params.workspaceId);
+  const preferences = await loadGlobalPreferences();
+  return reply.code(201).send(terminals.create(request.params.workspaceId, preferences.terminal, request.body || {}));
+});
+app.delete<{ Params: { workspaceId: string; terminalId: string } }>("/api/workspaces/:workspaceId/terminals/:terminalId", async (request, reply) => {
+  terminals.close(request.params.workspaceId, request.params.terminalId);
+  return reply.code(204).send();
 });
 
 app.get<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId/notebook", async (request) => readWorkspaceNotebook(workspaces.get(request.params.workspaceId)));
@@ -215,9 +235,27 @@ app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { mes
 });
 
 app.get<{ Params: { workspaceId: string } }>("/ws/terminal/:workspaceId", { websocket: true }, (socket, request) => {
-  const workspace = workspaces.get(request.params.workspaceId);
-  const close = openTerminal(socket, workspace.path);
-  socket.on("close", close);
+  const pending: Buffer[] = [];
+  const bufferInput = (raw: Buffer) => pending.push(raw);
+  socket.on("message", bufferInput);
+  void loadGlobalPreferences().then((preferences) => {
+    socket.off("message", bufferInput);
+    if (socket.readyState === socket.OPEN) {
+      terminals.openTemporary(request.params.workspaceId, socket, preferences.terminal);
+      for (const raw of pending) socket.emit("message", raw);
+    }
+  }).catch((error) => {
+    socket.off("message", bufferInput);
+    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Terminal connection failed" }));
+    socket.close();
+  });
+});
+app.get<{ Params: { workspaceId: string; terminalId: string }; Querystring: { offset?: string } }>("/ws/terminal/:workspaceId/:terminalId", { websocket: true }, (socket, request) => {
+  try { terminals.connect(request.params.workspaceId, request.params.terminalId, socket, request.query.offset ?? "0"); }
+  catch (error) {
+    socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Terminal connection failed" }));
+    socket.close(1008, "Terminal connection rejected");
+  }
 });
 
 const serverDir = dirname(fileURLToPath(import.meta.url));
@@ -252,6 +290,7 @@ app.get("/", async (_request, reply) => serveWebAsset("", reply));
 app.get<{ Params: { "*": string } }>("/*", async (request, reply) => serveWebAsset(request.params["*"], reply));
 
 const shutdown = async () => {
+  terminals.dispose();
   await agents.dispose();
   await app.close();
 };

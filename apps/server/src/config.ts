@@ -1,6 +1,8 @@
 import { readFile, mkdir, writeFile, access, rename, copyFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { normalizeTerminalSettings, resolveTerminalShell, validateTerminalSettings, type TerminalSettings } from "./terminal-shells.js";
+export type { TerminalSettings, TerminalShell, TerminalProfile } from "./terminal-shells.js";
 
 export interface WorkspaceDefinition {
   id: string;
@@ -24,6 +26,7 @@ export interface ArkConfig {
 export interface GlobalPreferences {
   agent: { systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
+  terminal: TerminalSettings;
 }
 
 export const arkHome = resolve(process.env.PI_ARK_HOME || join(homedir(), ".pi-ark"));
@@ -108,7 +111,7 @@ export async function saveWorkspaceDefinitions(workspaces: WorkspaceDefinition[]
 
 function normalizeGlobalPreferences(input?: Partial<GlobalPreferences>): GlobalPreferences {
   const size = input?.files?.maxPreviewSizeMb;
-  return { agent: { systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } }, files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 } };
+  return { agent: { systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } }, files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 }, terminal: normalizeTerminalSettings(input?.terminal) };
 }
 
 export async function ensureWorkspaceState(workspace: WorkspaceDefinition): Promise<string> {
@@ -130,6 +133,13 @@ export async function saveGlobalPreferences(input: { files: GlobalPreferences["f
     return { ...current, preferences: { ...preferences, files: { ...input.files } } };
   });
   return next.preferences;
+}
+
+export async function saveTerminalSettings(input: TerminalSettings): Promise<TerminalSettings> {
+  const terminal = validateTerminalSettings(input);
+  resolveTerminalShell(terminal);
+  const next = await updateGlobalConfig((current) => ({ ...current, preferences: { ...normalizeGlobalPreferences(current.preferences), terminal } }));
+  return next.preferences.terminal;
 }
 
 export async function saveGlobalSystemPrompt(input: GlobalPreferences["agent"]["systemPrompt"]): Promise<GlobalPreferences> {

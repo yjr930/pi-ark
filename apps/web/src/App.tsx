@@ -35,6 +35,7 @@ export default function App() {
   const [leafEntryId, setLeafEntryId] = useState(initialPermalink.current.leafEntryId);
   const [page, setPage] = useState<Page>(initialPermalink.current.page);
   const [settingsVisited, setSettingsVisited] = useState(initialPermalink.current.page === "settings");
+  const [terminalWorkspaces, setTerminalWorkspaces] = useState<string[]>([]);
   const [sidebar, setSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("pi-ark-sidebar-collapsed") === "true");
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(460, Math.max(220, Number(localStorage.getItem("pi-ark-sidebar-width")) || 280)));
@@ -86,6 +87,10 @@ export default function App() {
   useEffect(() => {
     if (page === "agent" && sessionId && document.visibilityState === "visible") setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, sessionId) }));
   }, [page, sessionId, workspaceId]);
+
+  useEffect(() => {
+    if (page === "terminal" && workspaceId) setTerminalWorkspaces((current) => current.includes(workspaceId) ? current : [...current, workspaceId]);
+  }, [page, workspaceId]);
 
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const selectedSession = sessions.find((item) => item.id === sessionId) || (workspace && sessionId ? { id: sessionId, cwd: workspace.path, created: new Date().toISOString(), modified: new Date().toISOString(), messageCount: 0, firstMessage: "", pinned: false, archived: false, groups: [] } : undefined);
@@ -188,6 +193,7 @@ export default function App() {
   }
 
   function workspaceClosed(closed: Workspace) {
+    setTerminalWorkspaces((current) => current.filter((id) => id !== closed.id));
     setWorkspaces((current) => {
       const remaining = current.filter((item) => item.id !== closed.id);
       setWorkspaceId((selected) => {
@@ -236,8 +242,8 @@ export default function App() {
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} />}
         {workspace && page === "files" && <Files workspace={workspace} />}
-        {workspace && page === "terminal" && <Terminal workspace={workspace} />}
       </Suspense>
+      {workspaces.filter((item) => terminalWorkspaces.includes(item.id) || (page === "terminal" && workspaceId === item.id)).map((item) => <div className="terminal-page-host" key={item.id} hidden={page !== "terminal" || workspaceId !== item.id} data-terminal-workspace={item.id}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading terminal</div>}><Terminal workspace={item} active={page === "terminal" && workspaceId === item.id} /></Suspense></div>)}
       {(settingsVisited || page === "settings") && <div className="settings-page-host" hidden={page !== "settings"}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading settings</div>}><Settings active={page === "settings"} uiSettings={uiSettings} onUiSettingsChanged={(next) => { setUiSettings(next); applyTheme(next.theme); }} /></Suspense></div>}
     </main>
     {addWorkspaceOpen && <AddWorkspaceDialog onClose={() => setAddWorkspaceOpen(false)} onAdded={workspaceAdded} />}

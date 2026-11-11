@@ -56,12 +56,12 @@ docs/               产品、架构、使用和集成文档
 2. 将 `PI_CODING_AGENT_DIR` 指向该专用目录，使 pi SDK 使用相同的 settings、credential 和 resource files。
 3. 读取 Global config 与 TLS key/certificate。
 4. 创建 HTTPS Fastify service；HTTP request body 上限为 1 MB，WebSocket payload 上限为 28 MB。
-5. 创建 Auth、Workspace、Settings、Pi-Ark release、OAuth flow 和 Agent services。
+5. 创建 Auth、Workspace、Terminal、Settings、Pi-Ark release、OAuth flow 和 Agent services。
 6. 注册 HTTP routes、Agent WebSocket 和 Terminal WebSocket。
 7. 注册静态 Web asset fallback。
 8. 监听配置的 HTTPS 地址。
 
-收到 SIGINT 或 SIGTERM 时，Server 先释放 Agent runtime，再关闭 Fastify。
+收到 SIGINT 或 SIGTERM 时，Server 先释放全部 Terminal 资源，再释放 Agent runtime，最后关闭 Fastify。Fastify 的 onClose hook 同样执行 Terminal 的资源释放。
 
 ## Server 模块
 
@@ -86,7 +86,8 @@ docs/               产品、架构、使用和集成文档
 | Global settings | `apps/server/src/settings.ts` | Provider、model、thinking、queue、compaction、retry 和 credential login |
 | OAuth flow | `apps/server/src/auth-flows.ts` | Subscription login 的事件、prompt、answer 和 cancel 状态 |
 | Pi-Ark release | `apps/server/src/pi-core.ts` | Pi-Ark 与 bundled pi core 版本信息、GitHub Releases 查询、完整 release 更新、回退和延迟重启 |
-| Terminal | `apps/server/src/terminal.ts` | node-pty、input/output、resize 和 process exit |
+| Terminal | `apps/server/src/terminal.ts` | 按 Workspace 管理多 Tab 的 PTY、内存输出历史、订阅、增量重连与资源释放 |
+| Terminal shells | `apps/server/src/terminal-shells.ts` | Terminal 配置归一化、可执行程序探测、跨平台 shell 解析与 UTF-8 环境 |
 
 ## Web 模块
 
@@ -103,8 +104,11 @@ docs/               产品、架构、使用和集成文档
 | Notebook | `apps/web/src/components/Notebook.tsx` | Workspace 笔记加载、debounce 自动保存和保存状态 |
 | Files | `apps/web/src/components/Files.tsx` | 全宽目录导航、可调整的文件列表、path copy、文本阅读和 Markdown image path |
 | Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示，以及全局单次换行的显示设置 |
-| Terminal | `apps/web/src/components/Terminal.tsx` | xterm.js、FitAddon 和 Terminal WebSocket |
-| Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示 Global settings，保留页面状态，并按需加载 prompt preview 与 release 信息 |
+| Terminal | `apps/web/src/components/Terminal.tsx` | Workspace 的 Tab 列表、创建与关闭、选中状态、连接状态及工具栏 |
+| Terminal client | `apps/web/src/terminal-client.ts` | 每个 Tab 的 xterm.js、FitAddon、WebSocket、UTF-16 offset 重连、剪贴板与选区复制 |
+| Terminal appearance | `apps/web/src/terminal-preferences.ts` | 浏览器字体偏好、默认中文字体列表、localStorage 与偏好变更事件 |
+| Terminal settings | `apps/web/src/components/TerminalSettings.tsx` | 按需加载 Server shell 配置、草稿与保存队列、Refresh 草稿保留及浏览器字体编辑 |
+| Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示设置，保留页面状态，并按需加载 prompt preview、Terminal 配置与 release 信息 |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
 | Permalinks | `apps/web/src/permalinks.ts` | Browser URL 与 `pi-ark://` link 的生成和解析 |
 | Theme | `apps/web/src/theme.ts` | Theme metadata、应用和本地初始化 |
@@ -143,6 +147,26 @@ Global config 中的 Workspace registry 是浏览器可以访问的目录清单�
 文本、Markdown 和图片共用 Workspace 的 `files.maxPreviewSizeMb` 预览上限。默认值是 10 MB，保存范围是 1–100 MB；包含 NUL byte 的 binary file 不进入文本预览。PNG、JPEG、GIF 和 WebP 可以作为选中文件或 Markdown image 预览。下载 endpoint 使用 stream 返回原始文件，不受预览大小和文件类型限制。
 
 Directory suggestions 只返回服务账号可以读取的目录和直接子目录，每次最多返回 100 个结果。
+
+## Terminal runtime
+
+### Server 的 Tab 生命周期
+
+`TerminalService` 按 Workspace ID 保存 Tab registry，每个 Tab 包含独立的 node-pty 进程、`TerminalInfo`、输出分块与 WebSocket subscribers。创建时校验 Workspace，以对应目录作为 cwd，并使用当时保存的 Global Terminal 设置启动程序。标题按 Workspace 的创建顺序显示为 `Terminal 1` 等可读名称。
+
+PTY 的每次输出追加一个分块，并记录该分块起点和输出后的 UTF-16 总长度。Server 在当前进程的运行生命周期内保留完整的输出历史，重连时根据 offset 查找并拼接所需的后续内容。WebSocket 断开时注销订阅，PTY 继续运行和记录输出。自然退出将状态更新为 `exited` 并保存 exit code，Tab 与历史继续保留到显式关闭。
+
+显式关闭 Tab 时，Server 从 registry 移除该 Tab，广播 `closed`，注销订阅，关闭 sockets，并释放仍在运行的 PTY 和输出分块。Workspace 关闭成功后清理该 Workspace 的所有 Terminal；Server shutdown 清理全部 Terminal。Tab 的进程和历史使用 Server 的内存保存，生命周期随当前 Server 进程结束。
+
+### 浏览器的 Terminal 页面缓存
+
+`App.tsx` 按已访问的 Workspace 保持独立的 Terminal 容器，并为每个容器使用独立的 Suspense。离开 Terminal 或切换 Workspace 时，通过 `hidden` 隐藏已挂载的容器。每个 Tab 的 xterm DOM 和 WebSocket 保持挂载，切回后直接显示保留状态（输出、阅读位置与选区）。关闭 Tab 或 Workspace 时卸载对应组件并释放浏览器资源。
+
+首次打开 Workspace 的 Terminal 时，页面读取 Server 的 Tab 列表；列表为空时自动创建首个 Tab。关闭最后一个 Tab 后显示空状态，并提供 `New terminal` 和 `Refresh tabs`。当前 Terminal 页面激活时，在窗口获得焦点、文档恢复可见和每 10 秒时同步 Tab 列表，处理其他浏览器创建或关闭的 Tab。
+
+同一个 xterm 发生连接中断时，`TerminalClient` 以已接收的 UTF-16 offset 重新连接，并对返回数据按 offset 去重；自动重连使用从 500 ms 增长到 10 秒的等待时间，并提供 Retry。浏览器刷新后，从 Server 重新取得 Tab 列表，为各 Tab 创建 xterm，并从 offset `0` 回放历史。选中 Tab 的标识保存在浏览器 localStorage 中。
+
+Terminal 的粘贴使用系统、浏览器和 xterm 的默认行为。工具栏的 Paste 通过 `navigator.clipboard.readText()` 读取文字，并调用 xterm 的 `paste()`；工具栏的 Copy 与复制快捷键（Ctrl+Shift+C 或 Cmd+C）使用当前选区，并通过 `navigator.clipboard.writeText()` 写入剪贴板。输入法组合文字期间，custom key handler 继续交由 xterm 处理按键。Fit 在当前可见 Tab 上计算尺寸，并将行列数通过 `resize` 同步到 Server。
 
 ## Agent runtime
 
@@ -338,7 +362,7 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
-- UI settings（`ui.theme`、`ui.hideReasoning` 和 `ui.markdownLineBreaks`）、Workspace registry 和共享 `preferences`（Global prompt append 和 Files preferences）：`PI_ARK_HOME/config.json`。
+- UI settings（`ui.theme`、`ui.hideReasoning` 和 `ui.markdownLineBreaks`）、Workspace registry 和共享 `preferences`（Global prompt append、Files preferences 和 Terminal shell 设置）：`PI_ARK_HOME/config.json`。
 - Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
@@ -350,6 +374,16 @@ API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。�
 模型 checkbox 使用 `SettingsManager.getEnabledModels()/setEnabledModels()`。SettingsService 通过 pi 的 `resolveModelScopeWithDiagnostics()` 解析 exact reference、glob 和 thinking suffix；Session model API、模型切换校验和新 Session 创建使用同一 scope。全部当前可用模型均勾选时，Pi-Ark 将 `enabledModels` 保存为 `undefined`，沿用 pi 的“全部可用模型”语义。模型偏好保存要求至少一个当前可用模型，并要求 default 属于已勾选模型。
 
 断开 Provider 后，SettingsService 从断开前的已勾选模型中保留仍可用的模型。没有剩余已勾选模型且还有其他可用模型时，SettingsService 选择第一个可用模型，并同步 default 与 thinking level。
+
+### Terminal 设置
+
+Server shell 配置保存在 `PI_ARK_HOME/config.json` 的 `preferences.terminal` 中，字段为 `shell`、`executable`、`args` 与 `env`。`shell` 接受 `auto | bash | zsh | fish | pwsh | powershell | git-bash | wsl | custom`；`executable` 是自定义程序的绝对路径，`args` 是附加参数的字符串数组，`env` 是字符串值的环境变量对象。缺失字段使用默认值（`shell: "auto"`、`executable: ""`、`args: []` 与 `env: {}`）。保存时校验配置结构及所选程序的可用性，自定义程序校验绝对路径和可执行状态；Windows 的自定义程序使用 `.exe` 或 `.com` 文件。
+
+`discoverTerminalProfiles()` 根据 PATH 与平台的常见安装路径探测程序，并返回每个 profile 的 `id`、`label`、`executable`、`args` 与 `available`。Settings 选择器展示可用的 profiles，并提供 Auto 与 Custom executable。Auto 在 Windows 上优先使用 `pwsh`，其次使用 `powershell`；macOS 优先使用可执行的绝对 `SHELL` 路径，其次使用 `/bin/zsh`；Linux 优先使用可执行的绝对 `SHELL` 路径，其次使用 `/bin/bash`。
+
+程序启动使用 node-pty 的 executable 与 args 参数，用户填写的 `args` 逐个追加到 profile 的默认参数后。PowerShell profiles 默认提供 `-NoLogo`，启动 PowerShell 时再追加 `-NoExit -Command` 与 UTF-8 初始化命令，设置 Console 的输入编码、输出编码和 `$OutputEncoding`，随后保留交互 shell。Unix 根据 `LC_ALL`、`LC_CTYPE` 和 `LANG` 确定当前字符编码，结合 `locale -a` 的可用列表保留有效的 UTF-8 locale，或选择平台的可用 UTF-8 locale。最终环境包含 `TERM=xterm-256color` 和 `COLORTERM=truecolor`，用户的 `env` 最后覆盖继承的环境变量。
+
+Server shell 配置由所有 Workspace 共用，在创建新 Tab 时读取。浏览器外观使用 `fontFamily` 与 `fontSize`，保存在 localStorage 中，并通过偏好变更事件立即更新已打开的 xterm。默认字号为 13 px，范围为 10–30 px；默认字体列表包含 Sarasa Mono SC、Noto Sans Mono CJK SC、Microsoft YaHei 和 PingFang SC 等中文字体的候选名称，浏览器根据本机安装情况选择字体。
 
 ### Subscription OAuth
 
@@ -378,16 +412,19 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
     "agent": {
       "systemPrompt": { "append": "" }
     },
-    "files": { "showHiddenFiles": true, "maxPreviewSizeMb": 10 }
+    "files": { "showHiddenFiles": true, "maxPreviewSizeMb": 10 },
+    "terminal": { "shell": "auto", "executable": "", "args": [], "env": {} }
   }
 }
 ```
 
-缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。所有 Workspace 使用同一份配置；历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词和文件偏好。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append。两个写入入口共享 Global config 的串行原子写入，并保留彼此负责的字段。
+缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。所有 Workspace 使用同一份配置；历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词、文件偏好与 Terminal 设置。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append；Terminal PUT 使用 `TerminalSettings` 更新 `preferences.terminal`。这些写入入口共享 Global config 的串行原子写入，各入口保留其他设置字段。
 
 ### Settings 的页面缓存
 
-Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、提示词草稿、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，release 信息在首次进入 Maintenance 时加载。Refresh settings 主动取得最新数据。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
+Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Interface、Models & providers、Agent behavior、Files、Terminal、Maintenance 和 Account。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
+
+Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的内容；选择普通 profile 且其他字段保持已保存内容时立即保存。Terminal 使用独立的保存队列与请求序号，保留请求期间的新编辑内容。该类别的 Refresh settings 等待已有保存队列，再请求 Server 的设置和 profiles，并保留尚未保存的草稿。其他类别的 Refresh settings 读取 Global settings 和模型数据，Maintenance 同时刷新 release 信息。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
 
 ### Pi-Ark release 管理
 
@@ -413,7 +450,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 | 路径 | 内容 |
 |---|---|
-| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、UI settings（`theme`、`hideReasoning` 和 `markdownLineBreaks`）和共享 preferences |
+| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、UI settings（`theme`、`hideReasoning` 和 `markdownLineBreaks`）和共享 preferences（提示词、Files 与 Terminal shell） |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
@@ -436,6 +473,8 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 ### Browser-local preferences
 
 浏览器 localStorage 保存侧栏状态和宽度、Workspace 展开状态、conversation width、Files 文件列表宽度和最近应用的 theme。`pi-ark-files-browser-width` 保存桌面 Files separator 调整后的文件列表宽度；移动端的上下堆叠布局不使用该宽度。
+
+Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fontSize": 13 }`，使用 `pi-ark-terminal-active:<window.location.pathname>:<workspaceId>` 保存每个 Workspace 最近选择的 Terminal Tab 标识。字体偏好变更通过当前页面的自定义事件和同源浏览器标签页的 storage event 同步。xterm 的显示状态保存在当前页面的已挂载组件中，Tab 的完整输出历史由 Server 的内存保存。
 
 ## HTTP API
 
@@ -467,6 +506,31 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 | GET | `/api/workspaces/:workspaceId/download` | 原始文件 stream download；不执行 preview limit |
 | GET/PUT | `/api/workspaces/:workspaceId/notebook` | 读取或自动保存 Workspace Notebook |
 
+### Terminal
+
+| Method | Path | 用途 |
+|---|---|---|
+| GET | `/api/workspaces/:workspaceId/terminals` | 返回 `{ terminals: TerminalInfo[] }` |
+| POST | `/api/workspaces/:workspaceId/terminals` | Body 为 `{ cols?: number, rows?: number }`，创建 Tab 并返回 HTTP 201 与 `TerminalInfo` |
+| DELETE | `/api/workspaces/:workspaceId/terminals/:terminalId` | 关闭 Tab，释放 PTY 与输出，返回 HTTP 204 |
+
+这些入口均校验 Workspace，Terminal 标识按 Workspace 查询。创建时默认使用 100 列与 30 行，列数和行数分别接受大于等于 2 与大于等于 1 的整数。返回的 `TerminalInfo` 使用以下结构：
+
+```ts
+interface TerminalInfo {
+  id: string;
+  title: string;
+  createdAt: string;
+  status: "running" | "exited";
+  exitCode?: number;
+  shell: string;
+  cols: number;
+  rows: number;
+}
+```
+
+`createdAt` 是 ISO 时间，`shell` 是实际启动的可执行程序路径。
+
 ### Settings
 
 | Method | Path | 用途 |
@@ -479,7 +543,8 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 | DELETE | `/api/settings/providers/:providerId/credential` | 删除指定 Provider 的保存 credential |
 | GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |
 | GET/PUT | `/api/settings/system-prompt` | 读取 effective prompt preview，或保存 Global append |
-| GET/PUT | `/api/settings/preferences` | GET 返回归一化的共享 preferences；PUT 使用仅含 `files` 的 payload 更新 Files preferences |
+| GET/PUT | `/api/settings/preferences` | GET 返回归一化的共享 preferences（包含 `terminal`）；PUT 使用仅含 `files` 的 payload 更新 Files preferences |
+| GET/PUT | `/api/settings/terminal` | GET 与 PUT 均返回 `{ settings, profiles, platform }`；PUT body 为 `{ shell, executable, args, env }`，保存 Global Terminal 设置 |
 | GET | `/api/settings/release` | Pi-Ark、bundled pi core、安装状态、路径、命令和 latest release |
 | POST | `/api/settings/release/update` | 安装并切换到 latest Pi-Ark release |
 | POST | `/api/settings/release/rollback` | 切换到 previous Pi-Ark release |
@@ -537,9 +602,31 @@ Server messages：
 
 ### Terminal
 
-Path：`/ws/terminal/:workspaceId`
+Path：`/ws/terminal/:workspaceId/:terminalId?offset=0`
 
-Browser messages：`input` 和 `resize`。Server messages：`output`、`exit` 和 `error`。
+`offset` 默认为 `0`，表示浏览器已经接收的输出字符串的 UTF-16 长度。Server 校验 Workspace 与 Terminal 的归属，并在连接后发送 `ready`；其中 `data` 从请求的 offset 开始，`offset` 是当前完整输出的 UTF-16 总长度。新输出携带输出后的总长度，浏览器按 offset 接续和去重。
+
+Browser messages：
+
+```ts
+{ type: "input", data: string }
+{ type: "resize", cols: number, rows: number }
+```
+
+Server messages：
+
+```ts
+{ type: "ready", terminal: TerminalInfo, data: string, offset: number }
+{ type: "output", data: string, offset: number }
+{ type: "exit", exitCode: number }
+{ type: "closed" }
+{ type: "error", message: string }
+{ type: "error", code: "INVALID_OFFSET", message: string, offset: number }
+```
+
+PTY 自然退出时发送 `exit`，随后继续保留 Tab 和连接；重新连接已退出的 Tab 时，先发送包含历史的 `ready`，再发送 `exit`。显式关闭 Tab 时发送 `closed` 并关闭所有订阅连接。offset 需要是位于历史长度范围内的非负整数；非法请求收到 `INVALID_OFFSET` 和当前总长度，随后连接以关闭码 `1008` 结束。Workspace 或 Terminal 的连接查询失败时，Server 发送 `error`，并使用关闭码 `1008`。
+
+兼容入口 `/ws/terminal/:workspaceId` 和 `openTerminal` 导出继续提供按连接创建的临时 PTY，关闭 socket 时释放该进程。Web 的多 Tab 页面使用包含 Terminal 标识的新入口。
 
 ## Release 构建与安装
 
@@ -595,11 +682,15 @@ npm run check:subagents
 npm run check:subagents-ui
 npm run check:ui
 npm run check:markdown-ui
+npm run check:terminal
+npm run check:terminal-ui
 npm run release:build
 ```
 
 `check:subagents` 使用真实 SDK Session 与受控模型响应，覆盖并发限制、图片引用、结果截取、历史分支、停止、删除、恢复与工具注册。`check:subagents-ui` 构建项目，并自动创建临时 HTTPS 实例，使用临时数据目录与独立端口执行任务面板和双向导航的 Chromium 检查。设置 `PI_ARK_CHECK_FULL_UI=1` 后，该临时实例还会执行现有的 `check:ui` 脚本。
 
 `check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格。
+
+`check:terminal` 使用临时配置与实际 PTY，覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。
 
 Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、Session 切换后的 draft/attachment/disclosure 恢复、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

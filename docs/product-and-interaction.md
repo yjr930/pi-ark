@@ -42,7 +42,7 @@ Pi-Ark 是面向个人或受控团队环境的 pi coding agent Web UI。服务�
 
 Rename 只修改侧栏显示名称。Workspace ID 和目录路径保持不变。
 
-Close 从 Global registry 中取消注册。确认对话框明确显示 Workspace 名称和路径；项目文件、附件和 Session 继续保留在服务器目录中。
+Close 从 Global registry 中取消注册。确认对话框明确显示 Workspace 名称和路径；项目文件、附件和 Session 继续保留在服务器目录中。关闭 Workspace 时，Server 释放该 Workspace 的 Terminal 进程和输出，浏览器释放对应的 Terminal 页面。
 
 ### 空 Workspace 状态
 
@@ -191,40 +191,49 @@ Markdown 文件使用与 conversation 相同的安全 Markdown renderer，并支
 
 ## Terminal
 
-Terminal 页面使用 xterm.js，并在 Workspace 目录中启动 PTY。Header 显示连接状态和 Fit terminal 操作；容器尺寸变化时，终端自动调整行列数。
+Terminal 页面使用 xterm.js，每个 Tab 在 Workspace 目录中启动独立的 PTY。首次进入当前 Workspace 的 Terminal 时，页面读取已有的 Tab；列表为空时自动创建首个 Tab。Tab 栏的加号提供 New terminal tab，每个 Tab 显示可读标题和 Running 或 Exited 状态，Exited 同时显示已知的 exit code。Tab 上的关闭按钮释放对应进程和输出；关闭最后一个 Tab 后，页面显示 No terminal tabs，并提供 New terminal 与 Refresh tabs。
 
-Terminal 命令使用 Pi-Ark 服务账号的系统权限。Workspace 是启动目录，并不构成操作系统 sandbox。
+页面顶部显示 Workspace 路径，并提供工具栏操作（Copy、Paste 和 Fit）。Copy 在存在选区时可用，Paste 在当前 Tab 已连接且正在运行时可用；连接状态显示在 Tab 栏下方。普通连接中断后，页面自动重连，并提供 Retry；重新连接时继续接收尚未收到的输出。容器尺寸变化时，终端自动调整行列数；Fit 主动适配当前容器。
+
+粘贴使用系统、浏览器和 xterm 的默认行为，工具栏的 Paste 通过浏览器剪贴板读取文字并交给 xterm 粘贴。Ctrl+Shift+C 或 Cmd+C 复制当前选区，Ctrl+C 沿用终端程序的中断行为。输入法组合文字期间，按键由输入法和 xterm 处理。
+
+App 按已访问的 Workspace 保持 Terminal 页面及各 Tab 的 xterm DOM 挂载。切换 Tab、页面或 Workspace 时隐藏对应的终端界面，返回后立即显示保留的状态（输出、阅读位置和选区）。Server 在当前运行生命周期内保留所有 Tab 的独立进程和完整输出；浏览器刷新后重新连接这些 Tab 并回放历史。shell 自然退出后，Tab 和输出保留到显式关闭；关闭 Workspace 或 Server shutdown 时释放相关资源。
+
+Settings → Terminal 提供共享的 Server shell 设置，以及当前浏览器的字体设置。Server 自动发现可用的 shell profiles，支持以下选择（Auto、Bash、Zsh、Fish、PowerShell、Windows PowerShell、Git Bash、WSL 和自定义程序）。Auto 在 Windows 上优先使用 PowerShell（pwsh），其次使用 Windows PowerShell；在 macOS 上使用有效的 `SHELL`，其次使用 `/bin/zsh`；在 Linux 上使用有效的 `SHELL`，其次使用 `/bin/bash`。PowerShell 启动时设置 UTF-8 编码，Unix 继承有效的 UTF-8 locale，并支持环境变量覆盖。默认字体列表包含中文字体的候选名称，浏览器使用本机已安装的字体渲染文字。
+
+Terminal 命令使用 Pi-Ark 服务账号的系统权限，并以 Workspace 目录作为启动目录。
 
 ## Settings
 
 ### 类别导航与全局配置
 
-Settings 对所有 Workspace 使用同一份配置。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
+Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Terminal 的字体设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
 
 - Interface：Appearance，包含紧凑的主题色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）、Hide reasoning 和 Keep line breaks。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
+- Terminal：Server shell profile、自定义程序的绝对路径、附加参数、环境变量、浏览器字体和键盘操作说明。
 - Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及 status/logs/restart 等 service commands。
 - Account：Sign out。
 
 Keep line breaks（按原文换行）默认开启，会话和 Markdown 文件中的普通文本会按原文的单次换行显示。关闭后，同一段落内的普通换行合并显示，空行继续分隔段落。该设置在切换后立即保存并应用到当前页面，刷新后保留选择。
 
-Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和提示词草稿。模型数据独立加载；effective prompt preview 在展开时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取设置。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
+Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和草稿（提示词与 Terminal shell 设置）。模型数据独立加载；effective prompt preview 在展开时加载；Terminal shell 设置在首次进入 Terminal 类别时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取当前类别需要的数据；在 Terminal 类别中刷新时，页面更新 Server 配置与 profiles，同时保留尚未保存的草稿和刷新期间的新编辑内容。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
 
 模型 checkbox 使用填色表示启用，使用空白状态表示关闭。切换非默认模型的启用状态时，页面保留当前的 default model 和 Default thinking level。关闭 default model 时，页面选择模型列表中第一个仍启用的模型作为新 default，并将 thinking level 调整为新 default 支持的等级。最后一个启用的模型保持启用，并显示 Select at least one model 提示。
 
-Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；模型 checkbox、default model、default thinking level 和 Agent defaults 在选择后保存。Manage Provider 选择器用于切换当前管理的 Provider；新 Session 的 default 由模型行右侧的星标决定。API key 与 Global system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。pi 保存 API key 和 OAuth credential，浏览器接收 credential 状态与来源。使用保存 credential 的 Provider 显示 Disconnect；确认后，Pi-Ark 删除该 credential，并从仍可用的已勾选模型中保留 default，或选择第一个仍可用模型。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面省略该输入项。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，使新的登录 flow 可以继续。
+Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；模型 checkbox、default model、default thinking level 和 Agent defaults 在选择后保存。Manage Provider 选择器用于切换当前管理的 Provider；新 Session 的 default 由模型行右侧的星标决定。API key 与 Global system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的配置；选择普通 shell profile 且其他字段保持已保存内容时，选择结果立即保存。pi 保存 API key 和 OAuth credential，浏览器接收 credential 状态与来源。使用保存 credential 的 Provider 显示 Disconnect；确认后，Pi-Ark 删除该 credential，并从仍可用的已勾选模型中保留 default，或选择第一个仍可用模型。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面省略该输入项。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，使新的登录 flow 可以继续。
 
 Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent 和 pi-ai。更新过程保留 Global data 与 Workspace data，将 `current` symlink 切换到新 release，并在延迟重启前保留上一 release。Roll back 将 `current` 和 `previous` 对调。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
 
 ### 配置的生效方式
 
-Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。
+Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
 
 ## 桌面与移动布局
 
-桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。Session draft、attachments 与 disclosure 状态使用最多五个 Session 的 memory cache，不写入 localStorage。
+桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。Session draft、attachments 与 disclosure 状态使用最多五个 Session 的 memory cache，不写入 localStorage。Terminal 的字体设置和每个 Workspace 最近选择的 Tab 也保存在 localStorage，Terminal 的 xterm 界面状态保存在当前页面的内存中。
 
 移动端使用 drawer sidebar 和顶部 mobile bar。drawer 打开时，scrim 覆盖 drawer 之外的完整应用内容，其中包括页面 header、composer 和其他浮动控件；drawer 位于 scrim 上方。点击页面入口或 Session 后，drawer 自动关闭。Composer、对话框和 Settings actions 使用适合窄屏的布局。
 

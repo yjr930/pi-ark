@@ -1,16 +1,19 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Star, Unplug } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Star, TerminalSquare, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { applyTheme, themes } from "../theme";
 import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, UiSettings, GlobalPreferences } from "../types";
 import { Select } from "./Select";
 import { SubscriptionLogin } from "./SubscriptionLogin";
+import { TerminalSettings } from "./TerminalSettings";
+import type { TerminalSettingsHandle } from "./TerminalSettings";
 
 const categories = [
   { id: "interface", label: "Interface", description: "Appearance and conversation visibility.", icon: Palette },
   { id: "models", label: "Models & providers", description: "Credentials, available models, and defaults for new Sessions.", icon: Cpu },
   { id: "agent", label: "Agent behavior", description: "Shared instructions and conversation defaults.", icon: SlidersHorizontal },
   { id: "files", label: "Files", description: "File browsing and preview preferences.", icon: Eye },
+  { id: "terminal", label: "Terminal", description: "Server shell profiles and browser font preferences.", icon: TerminalSquare },
   { id: "maintenance", label: "Maintenance", description: "Version, installation, and service management.", icon: PackageOpen },
   { id: "account", label: "Account", description: "Your current browser session.", icon: LogOut },
 ] as const;
@@ -50,6 +53,8 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [terminalBusy, setTerminalBusy] = useState(false);
+  const terminalSettingsRef = useRef<TerminalSettingsHandle>(null);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const globalSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const uiSaveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -88,6 +93,7 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
   }, [active, category]);
 
   async function refreshSettings() {
+    if (category === "terminal") { setNotice(null); await terminalSettingsRef.current?.refresh(); return; }
     setSaving(true); setNotice(null);
     try {
       const [result, models] = await Promise.all([api.globalSettings(), api.modelPreferences()]);
@@ -336,15 +342,18 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
   if (loading) return <section className="settings-page"><div className="page-loading"><LoaderCircle size={20} />Loading settings</div></section>;
 
   return <section className="settings-page">
-    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces</p></div><button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={saving} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button></header>
+    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces, plus browser appearance</p></div><button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={saving || (category === "terminal" && terminalBusy)} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button></header>
     <div className="settings-layout">
       <nav className="settings-tabs" aria-label="Settings categories">
         <span className="settings-nav-label">Preferences</span>
         {categories.map((item) => <button type="button" key={item.id} className={category === item.id ? "active" : ""} aria-current={category === item.id ? "page" : undefined} onClick={() => { setCategory(item.id); setNotice(null); }}><item.icon size={16} /><span>{item.label}</span></button>)}
       </nav>
       <main className="settings-content" ref={contentRef} onScroll={(event) => { if (active) scrollPositions.current[category] = event.currentTarget.scrollTop; }}>
-        <div className="settings-content-heading"><span>Global settings</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
+        <div className="settings-content-heading"><span>{category === "terminal" ? "Server and browser settings" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
         {notice && <div role="status" className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={15} /> : <CircleAlert size={15} />}{notice.text}</div>}
+        <div className="settings-category" hidden={category !== "terminal"}>
+          <TerminalSettings ref={terminalSettingsRef} active={active && category === "terminal"} onBusyChange={setTerminalBusy} />
+        </div>
         {global && <>
           <div className="settings-category" hidden={category !== "interface"}>
           <section className="settings-section">

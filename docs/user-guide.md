@@ -185,7 +185,7 @@ PI_ARK_NEW_PASSWORD='new-password' pi-ark-dev password --no-restart
 
 ### 关闭与重新打开 Workspace
 
-选择 Close 并确认后，Workspace 从侧栏和 Global registry 中移除。服务器目录、项目文件、附件和 Session 保持原状。
+选择 Close 并确认后，Workspace 从侧栏和 Global registry 中移除。服务器目录、项目文件、附件和 Session 保持原状。Pi-Ark 同时关闭该 Workspace 的所有 Terminal Tab，并释放对应的进程和输出。
 
 再次通过 Add workspace 添加相同目录后，原有 Session 和 settings 会重新出现。
 
@@ -382,15 +382,36 @@ Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧�
 
 ## Terminal 页面
 
-Terminal 连接后在当前 Workspace 目录中启动 shell。连接状态显示在页面 header；Fit terminal 可以重新适配当前容器大小。
+首次打开 Terminal 时，Pi-Ark 恢复当前 Workspace 的已有 Tab；列表为空时自动创建首个 Tab。每个 Tab 在 Workspace 目录中运行独立的 shell，Tab 栏显示 Running 或 Exited 状态，退出后同时显示已知的 exit code。
 
-Terminal 使用 Pi-Ark 服务账号的系统权限。运行命令前应确认服务账号权限和当前 Workspace 路径。
+- 点击 Tab 栏中的加号（New terminal tab）创建新 Tab。
+- 点击 Tab 标题切换终端；焦点位于 Tab 标题时，可以使用左右方向键切换，也可以使用 Home 或 End 选择首个或末个 Tab。
+- 点击 Tab 的关闭按钮结束对应进程并清理输出；关闭最后一个 Tab 后，点击空状态中的 New terminal 可以重新创建，Refresh tabs 可以读取当前列表。
+- 选择终端中的文字后，点击 Copy，或使用复制快捷键（Ctrl+Shift+C 或 Cmd+C）复制选区。
+- 使用系统或浏览器的默认粘贴方式将文字粘贴到终端，也可以点击工具栏中的 Paste。
+- Ctrl+C 沿用终端程序的中断行为。
+- 点击 Fit（Fit terminal）主动适配当前容器，页面尺寸变化时也会自动适配。
+- 连接中断后，页面自动尝试重连；状态栏中的 Retry 可以主动重新连接。
+
+切换 Tab、页面或 Workspace 后返回，Pi-Ark 会立即显示保留的终端界面，包括原来的状态（输出、阅读位置和选区）。Server 在当前运行生命周期内保存每个 Tab 的进程和完整输出，浏览器刷新后重新连接并恢复历史。shell 自然退出后，可以继续查看该 Tab 的输出，直到显式关闭；关闭 Workspace 或 Server shutdown 时，Pi-Ark 释放相关 Terminal 资源。
+
+打开 Settings → Terminal，可以配置新 Tab 使用的 shell，并调整当前浏览器的字体。Terminal 使用 Pi-Ark 服务账号的系统权限，页面顶部显示当前 Workspace 路径。
 
 ## Settings
 
-Settings 对所有 Workspace 使用统一的配置。桌面端从左侧选择类别，移动端从顶部横向导航选择类别。普通选择、开关和完成输入的数值会立即保存。API key 和 Global system prompt append 使用对应区域内的 Save 与 Cancel。
+Settings 的 Server 设置对所有 Workspace 使用统一的配置，Terminal 的字体设置保存在当前浏览器中。桌面端从左侧选择类别，移动端从顶部横向导航选择类别。类别按以下顺序显示：
 
-首次进入 Settings 后，浏览器保留已经加载的设置、所选类别、提示词草稿和各类别的滚动位置。切换页面后返回可以继续操作。Refresh settings 会主动重新读取设置。Effective prompt preview 在展开时读取，Maintenance 的版本信息在进入该类别时读取。离开 Settings 后，页面会清空尚未提交的 API key。
+1. Interface
+2. Models & providers
+3. Agent behavior
+4. Files
+5. Terminal
+6. Maintenance
+7. Account
+
+普通选择、开关和完成输入的数值会立即保存。需要确认的内容（API key、Global system prompt append 与 Terminal 的复杂 shell 字段）使用对应区域内的 Save 与 Cancel。
+
+首次进入 Settings 后，浏览器保留已经加载的设置、所选类别、各类别的滚动位置，以及尚未保存的草稿（提示词与 Terminal shell 设置）。切换页面后返回可以继续操作。Refresh settings 会主动重新读取设置。Effective prompt preview 在展开时读取，Terminal shell 配置与 Maintenance 的版本信息在首次进入对应类别时读取。离开 Settings 后，页面会清空尚未提交的 API key。
 
 ### Interface
 
@@ -422,20 +443,6 @@ Keep line breaks（按原文换行）默认开启：原文写成几行，普通�
 
 支持 subscription OAuth 的 Provider 会显示 Use subscription account。登录区可能显示授权链接、device code、文本输入、选择项或进度。Device code 可以使用旁边的 Copy 按钮复制。OpenAI 的 Sign in with ChatGPT 会自动使用当前 Pi-Ark 安装实例的 UUID，用户不需要输入该标识。同一个 Provider 重新开始登录时，Pi-Ark 会取消此前仍在等待的登录；页面刷新后可以直接重新开始。
 
-### Maintenance
-
-Pi-Ark release 区域显示以下信息：
-
-- Pi-Ark version 与 bundled pi core version。
-- Release 或 development checkout 的 install mode。
-- Stable 或 development channel、latest release 和 previous release。
-- Install path、Global data path、Pi-Ark agent data path 和 pi core package path。
-- Update、rollback、status、logs 和 restart 命令。
-
-Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-Ark 下载当前 Linux architecture 的完整 artifact，在安装前运行 dependency preflight，保留当前 release 为 `previous`，原子切换 `current`，然后重启 service。Roll back 将 `current` 与 `previous` 对调。两个操作都保留 Global data 与 Workspace data。
-
-Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开。
-
 ### Agent behavior → System prompt
 
 在 Global append content 中编辑共享的说明，并点击 Save system prompt。Cancel 恢复已保存的内容。保存空文本可以清除全局追加内容。该设置在新建或重新打开 Session 时生效。
@@ -464,6 +471,44 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 
 Show hidden files 控制所有 Workspace 的普通 dotfile 是否进入 Files 列表，切换后立即保存。Maximum preview size 控制文本、Markdown 和支持图片的预览上限，默认是 10 MB，可设置范围是 1–100 MB；输入完成并离开输入框后保存，超过该值的文件仍可下载。
 
+### Terminal
+
+Terminal 类别位于 Files 之后、Maintenance 之前。Server shell 区域显示 Server platform，并提供 Shell profile 选择器。该配置由所有 Workspace 和浏览器共享，保存后在新建 Tab 时生效；已有 Tab 继续使用启动时的 shell。
+
+Auto 按服务器的操作系统选择 shell：
+
+- Windows：优先使用 PowerShell（pwsh），其次使用 Windows PowerShell。
+- macOS：优先使用有效的 `SHELL`，其次使用 `/bin/zsh`。
+- Linux：优先使用有效的 `SHELL`，其次使用 `/bin/bash`。
+
+Shell profile 同时列出服务器上已发现的可用程序（Bash、Zsh、Fish、PowerShell、Windows PowerShell、Git Bash 和 WSL）。其他字段保持已保存内容时，选择普通 profile 会立即保存。需要指定程序或附加配置时，按以下步骤操作：
+
+1. 使用自定义程序时，选择 Custom executable，并在 Custom shell executable 中填写服务器上可执行文件的绝对路径，例如 `/bin/bash` 或 `C:\Program Files\PowerShell\7\pwsh.exe`。
+2. 在 Additional shell arguments (JSON array) 中填写字符串数组，例如 `["-l"]`；`[]` 使用 profile 的默认参数。每个字符串作为独立的附加参数传入程序。
+3. 在 Environment variables 中按每行 `KEY=VALUE` 填写环境变量。值按原文保存，支持空格和额外的等号，例如 `MY_VARIABLE=value=with=equals`。
+4. 点击 Save shell settings 保存，或点击 Cancel 恢复已保存的值。
+5. 返回 Terminal 并创建新 Tab，以使用保存后的配置。
+
+PowerShell 启动时将输入与输出编码设置为 UTF-8，Unix 会继承有效的 UTF-8 locale；Environment variables 中的值覆盖继承的环境变量。Terminal 配置首次进入时加载，之后保留在页面缓存中。在该类别点击 Refresh settings 会更新 Server 配置与可用 profiles，同时保留尚未保存的草稿；Cancel 可以切换到刷新后的已保存内容。
+
+Browser appearance 区域的 Font family 与 Font size 保存在当前浏览器中，修改后立即应用到已打开的 Terminal Tab。Font family 使用以逗号分隔的字体名称，支持带引号的字体名称；默认列表包含中文字体的候选名称（Sarasa Mono SC、Noto Sans Mono CJK SC、Microsoft YaHei 和 PingFang SC），浏览器使用本机已安装的字体。Font size 默认是 13 px，可设置为 10–30 px。Reset font defaults 恢复默认的字体列表和字号。
+
+Keyboard shortcuts 区域说明系统的默认粘贴行为，以及工具栏的 Copy 和 Paste 操作。复制选区可以使用 Ctrl+Shift+C 或 Cmd+C，Ctrl+C 沿用终端程序的中断行为。
+
+### Maintenance
+
+Pi-Ark release 区域显示以下信息：
+
+- Pi-Ark version 与 bundled pi core version。
+- Release 或 development checkout 的 install mode。
+- Stable 或 development channel、latest release 和 previous release。
+- Install path、Global data path、Pi-Ark agent data path 和 pi core package path。
+- Update、rollback、status、logs 和 restart 命令。
+
+Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-Ark 下载当前 Linux architecture 的完整 artifact，在安装前运行 dependency preflight，保留当前 release 为 `previous`，原子切换 `current`，然后重启 service。Roll back 将 `current` 与 `previous` 对调。两个操作都保留 Global data 与 Workspace data。
+
+Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开。
+
 ### Account
 
 点击 Sign out 结束当前浏览器的登录会话。
@@ -480,6 +525,8 @@ Show hidden files 控制所有 Workspace 的普通 dotfile 是否进入 Files �
 - Workspaces 展开状态。
 - Conversation width。
 - 最近应用的 theme。
+- Terminal 的字体列表和字号。
+- 每个 Workspace 最近选择的 Terminal Tab。
 
 移动端通过顶部菜单按钮打开 drawer sidebar。drawer 打开后，遮罩覆盖页面 header、composer 和 drawer 之外的其他应用内容；点击遮罩可以关闭 drawer。Chat 主列限制在屏幕宽度内，状态栏、conversation、sticky User row、Running 和 composer 不会向屏幕右侧溢出。
 
@@ -544,7 +591,7 @@ Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/a
 
 ### Terminal 显示 Disconnected
 
-检查 `/ws/terminal/...` 连接、node-pty 安装状态和服务账号的 shell 权限。
+点击 Terminal 状态栏的 Retry，并检查浏览器到 `/ws/terminal/:workspaceId/:terminalId` 的连接、node-pty 安装状态和服务账号的 shell 权限。需要更换 shell 时，在 Settings → Terminal 保存配置后创建新 Tab。
 
 ### System prompt preview 未更新
 

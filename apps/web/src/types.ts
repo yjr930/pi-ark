@@ -231,7 +231,42 @@ export interface GlobalSettings extends UiSettings, GlobalPreferences {
   providers: ProviderOption[];
 }
 
+export type TerminalShell = "auto" | "bash" | "zsh" | "fish" | "pwsh" | "powershell" | "git-bash" | "wsl" | "custom";
+
+export interface TerminalSettings {
+  shell: TerminalShell;
+  executable: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+export interface TerminalProfile {
+  id: TerminalShell;
+  label: string;
+  executable: string;
+  args: string[];
+  available: boolean;
+}
+
+export interface TerminalSettingsResponse {
+  settings: TerminalSettings;
+  profiles: TerminalProfile[];
+  platform: string;
+}
+
+export interface TerminalInfo {
+  id: string;
+  title: string;
+  createdAt: string;
+  status: "running" | "exited";
+  exitCode?: number;
+  shell: string;
+  cols: number;
+  rows: number;
+}
+
 export interface GlobalPreferences {
   agent: { systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
+  terminal: TerminalSettings;
 }
