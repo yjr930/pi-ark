@@ -16,29 +16,61 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 
 ## 环境要求
 
-- Node.js 22.19 或更新版本。
-- npm。
-- OpenSSL。
-- node-pty 所需的本机构建环境。
-- 服务账号可以访问的 Workspace 目录。
+- Node.js 22.19 或更新版本，Node architecture 与安装包一致。
+- Linux：Bash、tar；默认的系统安装使用 systemd，`--portable` 使用当前用户的后台进程。
+- macOS：系统 Bash 与 tar。
+- Windows 10/11 x64：Git for Windows 提供的 Git Bash，以及系统内置的 PowerShell。
+- 运行 Pi-Ark 的账号可以访问的 Workspace 目录。
 - 可用的 provider API key 或 subscription account。
+
+Release 安装包包含 production dependencies 和当前平台的 native node-pty。源码开发还需要 npm、Python 和对应平台的 C++ 编译工具，详见[使用手册](docs/user-guide.md#环境要求)。Setup 使用随安装包提供的 JavaScript 依赖生成 TLS certificate。
 
 ## 快速开始
 
-从 GitHub Releases 下载与服务器 architecture 对应的 artifact，然后执行：
+从 GitHub Releases 下载与操作系统及 architecture 对应的安装包：Linux x64/arm64、macOS Intel x64/Apple Silicon arm64 使用 `.tar.gz`，Windows x64 使用 `.zip`。以下示例先安装，再通过稳定 CLI 配置 Workspace 并启动。
+
+### Linux
+
+默认安装使用 systemd：
 
 ```bash
-tar -xzf pi-ark-<version>-linux-<architecture>.tar.gz
-cd pi-ark-<version>-linux-<architecture>
+VERSION="<version>"
+ARCH="x64"
+tar -xzf "pi-ark-${VERSION}-linux-${ARCH}.tar.gz"
+cd "pi-ark-${VERSION}-linux-${ARCH}"
 sudo node scripts/install-release.mjs --no-start
-sudo -u pi-ark env PI_ARK_HOME=/var/lib/pi-ark /opt/pi-ark/current/scripts/pi-ark.mjs setup \
-  --username ark \
-  --password 'choose-a-password' \
-  --workspace /absolute/path/to/workspace
+sudo -u pi-ark node /opt/pi-ark/bin/pi-ark.mjs setup --username ark --password "choose-a-password" --workspace "/absolute/path/to/workspace"
 sudo systemctl enable --now pi-ark.service
 ```
 
-Installer 默认使用不可变的 `/opt/pi-ark/releases/<version>`、`/opt/pi-ark/current`、`/var/lib/pi-ark` 和专用的 `pi-ark` service account。现有安装可以通过 `--migrate-data <path>` 迁移 Global data。
+Installer 默认使用 `/opt/pi-ark/releases/<version>`、`/opt/pi-ark/current`、`/var/lib/pi-ark` 和专用的 `pi-ark` service account。现有安装可以通过 `--migrate-data <path>` 迁移 Global data。当前用户安装可使用 `node scripts/install-release.mjs --portable --no-start`，稳定 CLI 位于 `~/.local/share/pi-ark/bin/pi-ark.mjs`。
+
+### macOS
+
+在 shell 中执行（Apple Silicon 使用 `arm64`，Intel 使用 `x64`）：
+
+```bash
+VERSION="<version>"
+ARCH="arm64"
+tar -xzf "pi-ark-${VERSION}-darwin-${ARCH}.tar.gz"
+node "pi-ark-${VERSION}-darwin-${ARCH}/scripts/install-release.mjs" --no-start
+node "$HOME/Library/Application Support/Pi-Ark/app/bin/pi-ark.mjs" setup --username ark --password "choose-a-password" --workspace "$HOME/path/to/workspace"
+node "$HOME/Library/Application Support/Pi-Ark/app/bin/pi-ark.mjs" start
+```
+
+### Windows
+
+在 PowerShell 中执行：
+
+```powershell
+$Version = "<version>"
+Expand-Archive -LiteralPath "pi-ark-$Version-win32-x64.zip" -DestinationPath "." -Force
+node ".\pi-ark-$Version-win32-x64\scripts\install-release.mjs" --no-start
+node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" setup --username ark --password "choose-a-password" --workspace "$HOME\path\to\workspace"
+node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" start
+```
+
+macOS 与 Windows 默认使用当前用户的 portable 安装；后台进程在关闭启动终端后继续运行。稳定入口位于 `<prefix>/bin/pi-ark.mjs`，同目录还提供 POSIX launcher 与 Windows `.cmd`，可以使用完整路径或自行将该目录加入 PATH。各平台的默认 data directory 与完整操作见[使用手册](docs/user-guide.md#安装与初始化)。
 
 Setup 创建 Global config 和自签名 TLS certificate，并默认在 `https://127.0.0.1:31415` 提供服务。`PI_ARK_AGENT_DIR` 可以单独修改 Pi-Ark 专用的 pi agent data directory；默认位置是 `PI_ARK_HOME/pi-agent`。
 
@@ -48,7 +80,7 @@ Setup 创建 Global config 和自签名 TLS certificate，并默认在 `https://
 
 ```bash
 npm install
-npm run setup -- --username ark --password 'choose-a-password' --workspace /absolute/path/to/workspace
+npm run setup -- --username ark --password "choose-a-password" --workspace "."
 npm run dev
 ```
 
@@ -62,6 +94,9 @@ Vite 默认位于 `http://localhost:5173`，并将 API 和 WebSocket 转发到�
 npm run build
 npm run check
 npm run check:behavior
+npm run check:setup
+npm run check:platform
+npm run check:release -- "path/to/extracted-artifact"
 npm run check:subagents
 npm run check:subagents-ui
 npm run check:ui
@@ -73,23 +108,29 @@ npm start
 
 修改登录密码：
 
-```bash
-pi-ark password
+```text
+node "<prefix>/bin/pi-ark.mjs" password
 ```
 
-`pi-ark passwd` 是同一命令的简写。自动化环境可以使用 `PI_ARK_NEW_PASSWORD`，`--no-restart` 可以延后服务重启。
+`passwd` 是同一命令的简写。自动化环境可以使用 `PI_ARK_NEW_PASSWORD`，`--no-restart` 可以延后服务重启。
 
-Release 安装还提供以下命令：
+Release 安装提供以下命令；下例中的 `node "<prefix>/bin/pi-ark.mjs"` 使用安装器输出的稳定入口：
 
-```bash
-pi-ark update
-pi-ark rollback
-pi-ark status
-pi-ark logs
-pi-ark restart
+```text
+node "<prefix>/bin/pi-ark.mjs" start
+node "<prefix>/bin/pi-ark.mjs" stop
+node "<prefix>/bin/pi-ark.mjs" restart
+node "<prefix>/bin/pi-ark.mjs" status
+node "<prefix>/bin/pi-ark.mjs" logs
+node "<prefix>/bin/pi-ark.mjs" update
+node "<prefix>/bin/pi-ark.mjs" rollback
 ```
 
-双实例部署使用对应的 command name：主力开发版使用 `pi-ark-dev`，备用正式版使用 `pi-ark-backup`。
+`serve` 在前台运行；portable 的 `start` 在后台运行，`logs --follow` 持续显示新日志。Linux 的系统安装同时提供 `/usr/local/bin/pi-ark`。
+
+双实例部署使用对应的 command name：主力开发版使用 `pi-ark-dev`，备用正式版使用 `pi-ark-backup`；稳定入口的文件名相应为 `pi-ark-dev.mjs` 与 `pi-ark-backup.mjs`。
+
+Release workflow 在 `main` 或 `release/**` 分支的相关实现路径更新时，为上述平台构建原生安装包并执行安装 smoke；创建 `v*` tag 时发布 GitHub Release，也可以通过 `workflow_dispatch` 手动运行。
 
 ## 数据位置
 

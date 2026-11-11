@@ -1,15 +1,44 @@
 import { execFileSync } from "node:child_process";
-import { cp, lstat, mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
-import { arch, platform } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { atomicJson, delay, healthRequest, installationDefaults, migratedPath, optionalJson, readJson, shellQuote, stageRelease, switchRelease, systemdQuote, validateVersion } from "./platform.mjs";
 
 const args = process.argv.slice(2);
-const option = (name, fallback) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : fallback; };
-if (process.getuid?.() !== 0) throw new Error("The system installer must run as root");
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(`Pi-Ark release installer
+
+Usage: node scripts/install-release.mjs [options]
+
+  --portable                  Install for the current user (default on macOS and Windows)
+  --prefix <path>             Installation directory
+  --data-dir <path>           Global data directory
+  --instance <name>           Instance identity (default: default)
+  --base-path <path>          Public URL prefix
+  --port <number>             Listen port
+  --no-start                  Complete installation before setup and start
+  --migrate-data <path>       Copy existing Global data during initialization
+  --user <name>               Linux system service user
+  --group <name>              Linux system service group
+  --service-name <name>       Linux systemd service unit
+  --cli-name <name>           Installed CLI name
+  --deferred-restart <seconds> Schedule a Linux systemd restart
+  --help                      Display installation options
+`);
+  process.exit(0);
+}
+const option = (name, fallback) => {
+  const index = args.indexOf(name);
+  if (index < 0) return fallback;
+  if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${name} requires a value`);
+  return args[index + 1];
+};
 const source = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const manifest = JSON.parse(await readFile(join(source, "RELEASE.json"), "utf8"));
-if (manifest.platform !== platform() || manifest.architecture !== arch()) throw new Error("Release metadata does not match this host");
+const manifest = await readJson(join(source, "RELEASE.json"));
+validateVersion(manifest.version);
+if (manifest.platform !== process.platform || manifest.architecture !== process.arch) throw new Error("Release metadata does not match this host");
+const portable = args.includes("--portable") || process.platform !== "linux";
+if (!portable && process.getuid?.() !== 0) throw new Error("The system installer must run as root; use --portable for a current-user installation");
 const instance = String(option("--instance", "default")).trim().toLowerCase();
 if (!/^[a-z0-9_-]+$/.test(instance)) throw new Error("Instance must contain only letters, numbers, underscores, and hyphens");
 const rawBasePath = String(option("--base-path", "")).trim();
@@ -20,10 +49,14 @@ const serviceName = option("--service-name", `pi-ark${defaultSuffix}.service`);
 const cliName = option("--cli-name", `pi-ark${defaultSuffix}`);
 if (!/^pi-ark(?:-[a-z0-9_-]+)?\.service$/.test(serviceName)) throw new Error("Invalid service name");
 if (!/^pi-ark(?:-[a-z0-9_-]+)?$/.test(cliName)) throw new Error("Invalid CLI name");
-const prefix = resolve(option("--prefix", instance === "default" ? "/opt/pi-ark" : `/opt/pi-ark-${instance}`));
-const dataDir = resolve(option("--data-dir", instance === "default" ? "/var/lib/pi-ark" : `/var/lib/pi-ark-${instance}`));
+const defaults = installationDefaults({ instance, portable });
+const prefix = resolve(option("--prefix", defaults.prefix));
+const dataDir = resolve(option("--data-dir", defaults.dataDir));
+const dataRelative = relative(join(prefix, "releases"), dataDir);
+if (dataRelative === "" || (!isAbsolute(dataRelative) && dataRelative !== ".." && !dataRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`))) throw new Error("Data directory must be outside the releases directory");
 const serviceUser = option("--user", "pi-ark");
 const serviceGroup = option("--group", serviceUser);
+if (!portable && (!/^[a-z_][a-z0-9_-]*\$?$/.test(serviceUser) || !/^[a-z_][a-z0-9_-]*\$?$/.test(serviceGroup))) throw new Error("Invalid service user or group");
 const sourceData = option("--migrate-data", undefined);
 const listenPortRaw = option("--port", undefined);
 const listenPort = listenPortRaw === undefined ? undefined : Number(listenPortRaw);
@@ -31,79 +64,79 @@ if (listenPort !== undefined && (!Number.isInteger(listenPort) || listenPort < 1
 const deferredRestartRaw = option("--deferred-restart", undefined);
 const deferredRestart = deferredRestartRaw === undefined ? undefined : Number(deferredRestartRaw);
 if (deferredRestart !== undefined && (!Number.isInteger(deferredRestart) || deferredRestart < 1 || deferredRestart > 300)) throw new Error("Deferred restart must be an integer from 1 to 300 seconds");
-const destination = join(prefix, "releases", manifest.version);
-if (listenPort !== undefined) {
-  const configSource = sourceData ? join(resolve(sourceData), "config.json") : join(dataDir, "config.json");
-  if (!(await lstat(configSource).then(() => true).catch(() => false))) throw new Error("--port requires an existing config.json or --migrate-data source; use setup --port for a fresh installation");
-}
+if (portable && deferredRestart !== undefined) throw new Error("--deferred-restart is available for systemd installations");
 
-if (serviceUser !== "root") {
+if (!portable && serviceUser !== "root") {
   try { execFileSync("id", [serviceUser], { stdio: "ignore" }); }
   catch { execFileSync("useradd", ["--system", "--home-dir", dataDir, "--create-home", "--shell", "/usr/sbin/nologin", serviceUser], { stdio: "inherit" }); }
 }
-await mkdir(join(prefix, "releases"), { recursive: true, mode: 0o755 });
+await mkdir(prefix, { recursive: true, mode: 0o755 });
 await mkdir(dataDir, { recursive: true, mode: 0o700 });
-if (sourceData && resolve(sourceData) !== dataDir) {
-  const targetEntries = await lstat(join(dataDir, "config.json")).then(() => true).catch(() => false);
-  if (!targetEntries) {
-    await cp(resolve(sourceData), dataDir, { recursive: true, force: false });
-    const configPath = join(dataDir, "config.json");
-    const config = JSON.parse(await readFile(configPath, "utf8"));
-    if (config.tls?.keyPath?.startsWith(resolve(sourceData))) config.tls.keyPath = join(dataDir, config.tls.keyPath.slice(resolve(sourceData).length));
-    if (config.tls?.certPath?.startsWith(resolve(sourceData))) config.tls.certPath = join(dataDir, config.tls.certPath.slice(resolve(sourceData).length));
-    await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+if (sourceData && resolve(sourceData) !== dataDir && !await optionalJson(join(dataDir, "config.json"))) {
+  await cp(resolve(sourceData), dataDir, { recursive: true, force: false, dereference: process.platform === "win32", verbatimSymlinks: process.platform !== "win32" });
+  const configPath = join(dataDir, "config.json");
+  const config = await readJson(configPath);
+  if (config.tls) {
+    config.tls.keyPath = migratedPath(config.tls.keyPath, sourceData, dataDir);
+    config.tls.certPath = migratedPath(config.tls.certPath, sourceData, dataDir);
   }
+  await atomicJson(configPath, config);
 }
 if (listenPort !== undefined) {
   const configPath = join(dataDir, "config.json");
-  const config = JSON.parse(await readFile(configPath, "utf8"));
-  config.listen.port = listenPort;
-  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  const config = await optionalJson(configPath);
+  if (config) { config.listen.port = listenPort; await atomicJson(configPath, config); }
 }
-if (source !== destination) {
-  await rm(destination, { recursive: true, force: true });
-  await cp(source, destination, { recursive: true, preserveTimestamps: true });
-}
-execFileSync(process.execPath, [join(destination, "scripts/pi-ark.mjs"), "verify", "--release", destination], { stdio: "inherit" });
+const destination = await stageRelease(source, prefix, manifest.version);
+execFileSync(process.execPath, [join(source, "scripts/pi-ark.mjs"), "verify", "--release", destination], { stdio: "inherit", windowsHide: true });
+await switchRelease(prefix, destination);
 
-const currentLink = join(prefix, "current");
-let oldCurrent;
-try { oldCurrent = await realpath(currentLink); } catch { /* first install */ }
-if (oldCurrent && oldCurrent !== destination) {
-  const temporaryPrevious = `${join(prefix, "previous")}.${process.pid}.tmp`;
-  await rm(temporaryPrevious, { force: true });
-  await symlink(oldCurrent, temporaryPrevious);
-  await rename(temporaryPrevious, join(prefix, "previous"));
-  await writeFile(join(prefix, "pending-release.json"), JSON.stringify({ current: destination, previous: oldCurrent }) + "\n");
-}
-const temporaryCurrent = `${currentLink}.${process.pid}.tmp`;
-await rm(temporaryCurrent, { force: true });
-await symlink(destination, temporaryCurrent);
-await rename(temporaryCurrent, currentLink);
-
-if (serviceUser !== "root") execFileSync("chown", ["-R", `${serviceUser}:${serviceGroup}`, dataDir, prefix], { stdio: "inherit" });
-const unit = `[Unit]\nDescription=Pi-Ark Web Agent (${instance})\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${serviceUser}\nGroup=${serviceGroup}\nWorkingDirectory=${currentLink}\nEnvironment=NODE_ENV=production\nEnvironment=PI_ARK_HOME=${dataDir}\nEnvironment=PI_ARK_AGENT_DIR=${join(dataDir, "pi-agent")}\nEnvironment=PI_ARK_INSTALL_PREFIX=${prefix}\nEnvironment=PI_ARK_INSTANCE=${instance}\nEnvironment=PI_ARK_BASE_PATH=${basePath}\nEnvironment=PI_ARK_SERVICE_NAME=${serviceName}\nEnvironment=PI_ARK_CLI_NAME=${cliName}\nExecStartPre=${currentLink}/scripts/pi-ark.mjs verify --release ${currentLink}\nExecStart=${currentLink}/scripts/pi-ark.mjs serve\nRestart=always\nRestartSec=5\nTimeoutStopSec=60\nKillSignal=SIGTERM\nUMask=0077\nLimitNOFILE=65535\n\n[Install]\nWantedBy=multi-user.target\n`;
-await writeFile(join("/etc/systemd/system", serviceName), unit);
-const cliPath = join("/usr/local/bin", cliName);
-const cliEnvironment = { PI_ARK_HOME: dataDir, PI_ARK_AGENT_DIR: join(dataDir, "pi-agent"), PI_ARK_INSTALL_PREFIX: prefix, PI_ARK_INSTANCE: instance, PI_ARK_BASE_PATH: basePath, PI_ARK_SERVICE_NAME: serviceName, PI_ARK_CLI_NAME: cliName };
-const cliLauncher = `#!/usr/bin/env node\nObject.assign(process.env, ${JSON.stringify(cliEnvironment)});\nawait import(${JSON.stringify(pathToFileURL(join(currentLink, "scripts/pi-ark.mjs")).href)});\n`;
-await rm(cliPath, { force: true });
+const cliEnvironment = { NODE_ENV: "production", PI_ARK_NODE_PATH: process.execPath, PI_ARK_HOME: dataDir, PI_ARK_AGENT_DIR: join(dataDir, "pi-agent"), PI_ARK_INSTALL_PREFIX: prefix, PI_ARK_INSTANCE: instance, PI_ARK_BASE_PATH: basePath, PI_ARK_SERVICE_NAME: serviceName, PI_ARK_CLI_NAME: cliName, PI_ARK_PORTABLE: portable ? "1" : "0", ...(listenPort === undefined ? {} : { PI_ARK_PORT: String(listenPort) }) };
+const existingInstall = await optionalJson(join(prefix, "install.json"));
+if (listenPort === undefined && existingInstall?.environment?.PI_ARK_PORT) cliEnvironment.PI_ARK_PORT = existingInstall.environment.PI_ARK_PORT;
+await atomicJson(join(prefix, "install.json"), { mode: portable ? "portable" : "systemd", nodePath: process.execPath, instance, dataDir, cliName, serviceName, environment: cliEnvironment });
+const bin = join(prefix, "bin");
+await mkdir(bin, { recursive: true });
+await cp(join(source, "scripts/platform.mjs"), join(bin, "platform.mjs"));
+const cliPath = join(bin, `${cliName}.mjs`);
+const cliLauncher = `#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\nimport { join } from "node:path";\nimport { readReleaseState } from "./platform.mjs";\nObject.assign(process.env, ${JSON.stringify(cliEnvironment)});\nconst state = await readReleaseState(${JSON.stringify(prefix)});\nif (!state.current) throw new Error("Pi-Ark has no current installed release");\nawait import(pathToFileURL(join(state.current, "scripts/pi-ark.mjs")).href);\n`;
 await writeFile(cliPath, cliLauncher, { mode: 0o755 });
-execFileSync("systemctl", ["daemon-reload"], { stdio: "inherit" });
-if (!args.includes("--no-start")) {
-  execFileSync("systemctl", ["enable", serviceName], { stdio: "inherit" });
-  if (deferredRestart !== undefined) {
-    const timerUnit = `${serviceName.replace(/\.service$/, "")}-deferred-restart-${Date.now()}`;
-    execFileSync("systemd-run", ["--unit", timerUnit, "--on-active", `${deferredRestart}s`, "/bin/systemctl", "restart", serviceName], { stdio: "inherit" });
-    console.log(`${serviceName} restart scheduled in ${deferredRestart} seconds`);
-  } else {
-    execFileSync("systemctl", ["restart", serviceName], { stdio: "inherit" });
-    execFileSync("systemctl", ["is-active", "--quiet", serviceName]);
-    const config = JSON.parse(await readFile(join(dataDir, "config.json"), "utf8"));
-    const healthHost = ["0.0.0.0", "::"].includes(config.listen.host) ? "127.0.0.1" : config.listen.host;
-    execFileSync("curl", ["--fail", "--silent", "--show-error", "--insecure", "--retry", "30", "--retry-delay", "1", "--retry-connrefused", `https://${healthHost}:${config.listen.port}/api/health`], { stdio: "inherit" });
+const posixLauncher = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(cliPath)} "$@"\n`;
+await writeFile(join(bin, cliName), posixLauncher, { mode: 0o755 });
+// cmd.exe expands percent expressions even inside quotes; double them in literal installed paths.
+const cmdLiteral = (value) => value.replaceAll("%", "%%");
+await writeFile(join(bin, `${cliName}.cmd`), `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\n"${cmdLiteral(process.execPath)}" "%~dp0${cliName}.mjs" %*\r\n`);
+
+if (!portable) {
+  const currentLink = join(prefix, "current");
+  const unitEnvironment = Object.entries(cliEnvironment).map(([name, value]) => `Environment=${systemdQuote(`${name}=${value}`)}`).join("\n");
+  const unit = `[Unit]\nDescription=Pi-Ark Web Agent (${instance})\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${serviceUser}\nGroup=${serviceGroup}\nWorkingDirectory=${systemdQuote(currentLink)}\n${unitEnvironment}\nExecStartPre=${systemdQuote(process.execPath)} ${systemdQuote(cliPath)} verify --release ${systemdQuote(currentLink)}\nExecStart=${systemdQuote(process.execPath)} ${systemdQuote(cliPath)} serve\nRestart=always\nRestartSec=5\nTimeoutStopSec=60\nKillSignal=SIGTERM\nUMask=0077\nLimitNOFILE=65535\n\n[Install]\nWantedBy=multi-user.target\n`;
+  await writeFile(join("/etc/systemd/system", serviceName), unit);
+  const globalCliPath = join("/usr/local/bin", cliName);
+  await rm(globalCliPath, { force: true });
+  await writeFile(globalCliPath, posixLauncher, { mode: 0o755 });
+  if (serviceUser !== "root") execFileSync("chown", ["-R", `${serviceUser}:${serviceGroup}`, dataDir, prefix], { stdio: "inherit" });
+  execFileSync("systemctl", ["daemon-reload"], { stdio: "inherit" });
+  if (!args.includes("--no-start")) {
+    execFileSync("systemctl", ["enable", serviceName], { stdio: "inherit" });
+    if (deferredRestart !== undefined) {
+      const timerUnit = `${serviceName.replace(/\.service$/, "")}-deferred-restart-${Date.now()}`;
+      execFileSync("systemd-run", ["--unit", timerUnit, "--on-active", `${deferredRestart}s`, "/bin/systemctl", "restart", serviceName], { stdio: "inherit" });
+      console.log(`${serviceName} restart scheduled in ${deferredRestart} seconds`);
+    } else {
+      execFileSync("systemctl", ["restart", serviceName], { stdio: "inherit" });
+      execFileSync("systemctl", ["is-active", "--quiet", serviceName]);
+      const config = await readJson(join(dataDir, "config.json"));
+      let healthy = false;
+      for (let attempt = 0; attempt < 30 && !healthy; attempt += 1) { healthy = await healthRequest(config); if (!healthy) await delay(1000); }
+      if (!healthy) throw new Error("Pi-Ark startup health check failed");
+    }
   }
+} else if (!args.includes("--no-start")) {
+  if (await optionalJson(join(dataDir, "config.json"))) execFileSync(process.execPath, [cliPath, "restart"], { stdio: "inherit", windowsHide: true });
+  else console.log(`Run ${JSON.stringify(process.execPath)} ${JSON.stringify(cliPath)} setup --username <name> --password <password> --workspace <path> before starting`);
 }
 console.log(`Pi-Ark ${manifest.version} installed at ${destination}`);
-console.log(`Pi-Ark instance: ${instance} (${serviceName}, ${basePath || "/"})`);
+console.log(`Pi-Ark instance: ${instance} (${portable ? "portable" : serviceName}, ${basePath || "/"})`);
 console.log(`Pi-Ark data directory: ${dataDir}`);
+console.log(`CLI: ${JSON.stringify(process.execPath)} ${JSON.stringify(cliPath)} <command>`);

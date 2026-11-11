@@ -2,50 +2,151 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
+      - "release/**"
     tags:
       - "v*"
+    paths:
+      - "apps/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04
+            platform: linux
             architecture: x64
           - runner: ubuntu-24.04-arm
+            platform: linux
             architecture: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            architecture: x64
+          - runner: macos-15
+            platform: darwin
+            architecture: arm64
+          - runner: windows-latest
+            platform: win32
+            architecture: x64
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      PI_ARK_TARGET_PLATFORM: ${{ matrix.platform }}
+      PI_ARK_TARGET_ARCH: ${{ matrix.architecture }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
+          architecture: ${{ matrix.architecture }}
           cache: npm
+      - name: Verify native runner platform and architecture
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { arch, machine, platform } from 'node:os';
+          assert.equal(platform(), process.env.PI_ARK_TARGET_PLATFORM);
+          assert.equal(arch(), process.env.PI_ARK_TARGET_ARCH);
+          assert.equal(({ x86_64: 'x64', AMD64: 'x64', arm64: 'arm64', aarch64: 'arm64' })[machine()], arch());
+          console.log(`Native build host: ${platform()}/${machine()}, Node ${process.version} (${arch()})`);
+          NODE
+      - name: Install Windows native node-pty build prerequisite
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $component = 'Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre'
+          $ready = & $vswhere -latest -products '*' -requires $component -property installationPath
+          if (-not $ready) {
+            $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if (-not $installation) { throw 'Visual Studio C++ build tools are required for node-pty' }
+            $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+            $arguments = @('modify', '--installPath', "`"$installation`"", '--add', $component, '--quiet', '--norestart', '--nocache')
+            $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
+            if ($process.ExitCode -notin @(0, 3010)) { throw "Visual Studio prerequisite installation failed: $($process.ExitCode)" }
+          }
       - run: npm ci
       - run: npm run check
       - run: npm run check:behavior
       - run: npm run build
-      - run: PI_ARK_SKIP_BUILD=1 PI_ARK_TARGET_ARCH=${{ matrix.architecture }} npm run release:build
-      - uses: actions/upload-artifact@v4
+      - name: Build native release archive
+        id: release_build
+        run: npm run release:build
+        env:
+          PI_ARK_SKIP_BUILD: "1"
+      - name: Extract and smoke the actual release archive
+        env:
+          PI_ARK_SMOKE_ROLLBACK: "1"
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { mkdtemp, readFile, rm } from 'node:fs/promises';
+          import { join } from 'node:path';
+          const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+          const name = `pi-ark-${version}-${process.platform}-${process.arch}`;
+          const windows = process.platform === 'win32';
+          const archive = join(process.cwd(), 'dist/release', `${name}.${windows ? 'zip' : 'tar.gz'}`);
+          const extracted = await mkdtemp(join(process.env.RUNNER_TEMP, 'pi-ark-release-extracted-'));
+          const tar = windows ? join(process.env.SystemRoot || 'C:\\Windows', 'System32/tar.exe') : 'tar';
+          try {
+            execFileSync(tar, ['-xf', archive, '-C', extracted], { stdio: 'inherit' });
+            execFileSync(process.execPath, ['scripts/check-release.mjs', join(extracted, name)], { stdio: 'inherit', timeout: 600000 });
+          } finally {
+            await rm(extracted, { recursive: true, force: true });
+          }
+          NODE
+      - name: Upload release archive
+        if: always() && steps.release_build.outcome == 'success'
+        uses: actions/upload-artifact@v4
         with:
-          name: pi-ark-linux-${{ matrix.architecture }}
-          path: dist/release/*.tar.gz
+          name: pi-ark-${{ matrix.platform }}-${{ matrix.architecture }}
+          path: |
+            dist/release/*.tar.gz
+            dist/release/*.zip
           if-no-files-found: error
+      - name: Preserve native build and smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ matrix.platform }}-${{ matrix.architecture }}
+          path: |
+            ${{ runner.temp }}/pi-ark-release-smoke-*/diagnostics/*.log
+            ~/.npm/_logs/*.log
+            ~/AppData/Local/npm-cache/_logs/*.log
+            ~/AppData/Local/Temp/dd_*.log
+          if-no-files-found: warn
+          retention-days: 7
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: pi-ark-*
           path: artifacts
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.tar.gz
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
           generate_release_notes: true

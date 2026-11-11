@@ -2,25 +2,43 @@
 
 ## 环境要求
 
-- Node.js 22.19 或更新版本。
-- npm。
-- OpenSSL。
-- node-pty 所需的本机构建环境。
-- Pi-Ark 服务账号可以访问的 Workspace 目录。
-- 可用的 provider API key 或 subscription account。
+所有平台使用 Node.js 22.19 或更新版本，Node architecture 需要与安装包一致。
+
+| 平台 | Release 安装的运行前置 |
+|---|---|
+| Linux x64/arm64 | Bash、tar；默认系统安装还需要 systemd |
+| macOS Intel x64/Apple Silicon arm64 | 系统 Bash 与 tar |
+| Windows 10/11 x64 | Git for Windows 提供的 Git Bash，以及系统内置的 PowerShell |
+
+Linux 的 `--portable` 安装使用当前用户的后台进程。Windows 的 Agent 的 `bash` 工具使用 Git Bash，浏览器 Terminal 默认使用 PowerShell；macOS 与 Linux 的 Terminal 使用 `SHELL` 指定的 shell，或 `/bin/bash`。
+
+Release 安装包包含 production dependencies 与当前平台的 native node-pty。Setup 使用安装包中的 JavaScript 依赖生成 TLS certificate。运行账号需要能够访问所注册的 Workspace，并需要可用的 provider API key 或 subscription account。
+
+源码开发还需要 npm、Python 与 C++ 编译工具：Linux 使用 make 与 GCC/G++，macOS 使用 Xcode Command Line Tools，Windows 使用 Visual Studio Build Tools 的 C++ workload 与对应的 Spectre-mitigated runtime libraries。这些工具用于编译 node-pty 等 native dependencies。
 
 ## 安装与初始化
 
-从 GitHub Releases 下载与服务器 architecture 对应的 artifact（Linux x64 或 Linux arm64），然后执行：
+从 GitHub Releases 下载与本机对应的 artifact：
+
+| 操作系统与 architecture | 安装包名称 |
+|---|---|
+| Linux x64 | `pi-ark-<version>-linux-x64.tar.gz` |
+| Linux arm64 | `pi-ark-<version>-linux-arm64.tar.gz` |
+| macOS Intel x64 | `pi-ark-<version>-darwin-x64.tar.gz` |
+| macOS Apple Silicon arm64 | `pi-ark-<version>-darwin-arm64.tar.gz` |
+| Windows x64 | `pi-ark-<version>-win32-x64.zip` |
+
+### Linux 系统安装
+
+默认安装使用专用 service account 与 systemd：
 
 ```bash
-tar -xzf pi-ark-<version>-linux-<architecture>.tar.gz
-cd pi-ark-<version>-linux-<architecture>
+VERSION="<version>"
+ARCH="x64"
+tar -xzf "pi-ark-${VERSION}-linux-${ARCH}.tar.gz"
+cd "pi-ark-${VERSION}-linux-${ARCH}"
 sudo node scripts/install-release.mjs --no-start
-sudo -u pi-ark env PI_ARK_HOME=/var/lib/pi-ark /opt/pi-ark/current/scripts/pi-ark.mjs setup \
-  --username ark \
-  --password 'choose-a-password' \
-  --workspace /absolute/path/to/workspace
+sudo -u pi-ark node /opt/pi-ark/bin/pi-ark.mjs setup --username ark --password "choose-a-password" --workspace "/absolute/path/to/workspace"
 sudo systemctl enable --now pi-ark.service
 ```
 
@@ -33,9 +51,57 @@ Installer 创建以下运行结构：
 /usr/local/bin/pi-ark
 ```
 
-现有安装可以通过 `sudo node scripts/install-release.mjs --migrate-data /path/to/existing-data` 复制 Global config、TLS 和 pi agent data。Installer 默认创建专用的 `pi-ark` service account；所有已注册的 Workspace 都需要允许该账号访问。
+稳定 CLI 位于 `/opt/pi-ark/bin/pi-ark.mjs`，`/usr/local/bin/pi-ark` 使用该入口。现有安装可以通过 `sudo node scripts/install-release.mjs --migrate-data /path/to/existing-data` 复制 Global config、TLS 和 pi agent data。Installer 默认创建专用的 `pi-ark` service account；所有已注册的 Workspace 都需要允许该账号访问。
 
-同一个 hostname 的双实例可以使用以下独立布局：
+### macOS 当前用户安装
+
+在下载目录的 shell 中执行，将 `<version>` 替换为下载的版本。Apple Silicon 使用 `arm64`，Intel 使用 `x64`：
+
+```bash
+VERSION="<version>"
+ARCH="arm64"
+tar -xzf "pi-ark-${VERSION}-darwin-${ARCH}.tar.gz"
+node "pi-ark-${VERSION}-darwin-${ARCH}/scripts/install-release.mjs" --no-start
+node "$HOME/Library/Application Support/Pi-Ark/app/bin/pi-ark.mjs" setup --username ark --password "choose-a-password" --workspace "$HOME/path/to/workspace"
+node "$HOME/Library/Application Support/Pi-Ark/app/bin/pi-ark.mjs" start
+```
+
+### Windows 当前用户安装
+
+在下载目录的 PowerShell 中执行，将 `<version>` 替换为下载的版本：
+
+```powershell
+$Version = "<version>"
+Expand-Archive -LiteralPath "pi-ark-$Version-win32-x64.zip" -DestinationPath "." -Force
+node ".\pi-ark-$Version-win32-x64\scripts\install-release.mjs" --no-start
+node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" setup --username ark --password "choose-a-password" --workspace "$HOME\path\to\workspace"
+node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" start
+```
+
+### Portable 布局与稳定入口
+
+macOS 和 Windows 默认使用当前用户的 portable 安装；Linux 可以在解压目录执行以下命令：
+
+```bash
+node scripts/install-release.mjs --portable --no-start
+node "$HOME/.local/share/pi-ark/bin/pi-ark.mjs" setup --username ark --password "choose-a-password" --workspace "$HOME/path/to/workspace"
+node "$HOME/.local/share/pi-ark/bin/pi-ark.mjs" start
+```
+
+| 平台与安装模式 | 默认 prefix | 默认 Global data directory |
+|---|---|---|
+| Linux systemd | `/opt/pi-ark` | `/var/lib/pi-ark` |
+| Linux portable | `~/.local/share/pi-ark` | `~/.pi-ark` |
+| macOS portable | `~/Library/Application Support/Pi-Ark/app` | `~/Library/Application Support/Pi-Ark/data` |
+| Windows portable | `%LOCALAPPDATA%\Pi-Ark\app` | `%LOCALAPPDATA%\Pi-Ark\data` |
+
+安装器输出稳定 CLI 的完整 Node 调用命令。稳定入口位于 `<prefix>/bin/pi-ark.mjs`，同目录提供 POSIX launcher `pi-ark` 与 Windows `pi-ark.cmd`。可以使用完整路径，也可以自行将该 `bin` 目录加入 PATH。Portable 的 `start` 在后台启动，关闭启动终端后服务继续运行；`serve` 用于前台运行。
+
+首次安装使用 `--no-start`，随后执行 `setup` 配置登录信息与 Workspace，最后执行 `start`。Data directory 独立于 release directory，更新和回退会保留配置与 Workspace 数据。
+
+### 多实例与安装参数
+
+同一个 hostname 的 Linux 系统安装可以使用以下独立布局：
 
 ```text
 /opt/pi-ark-dev/       /var/lib/pi-ark-dev/       pi-ark-dev.service       /usr/local/bin/pi-ark-dev
@@ -49,29 +115,36 @@ Installer 使用以下参数创建实例：
 | `--instance <name>` | 设置 instance identity，并生成默认 service 与 CLI 名称 |
 | `--base-path <path>` | 设置 public URL path，例如 `/pi-ark` |
 | `--service-name <name>` | 设置 systemd service unit |
-| `--cli-name <name>` | 设置安装到 `/usr/local/bin` 的 CLI command |
+| `--cli-name <name>` | 设置稳定 CLI 的文件名；Linux 系统安装同时创建 `/usr/local/bin` command |
 | `--prefix <path>` | 设置 release installation prefix |
 | `--data-dir <path>` | 设置独立的 Global data directory |
 | `--port <number>` | 修改已有或迁移后的 Global config 中的 listen port |
-| `--deferred-restart <seconds>` | 使用 transient systemd timer 延后重启当前实例 |
+| `--deferred-restart <seconds>` | 在 Linux 系统安装中使用 transient systemd timer 延后重启当前实例 |
+| `--portable` | 在 Linux 中选择当前用户安装；macOS 与 Windows 默认使用该模式 |
+| `--no-start` | 完成安装后保留服务的当前运行状态，供首次 setup 或另行安排启动 |
+| `--migrate-data <path>` | 从已有目录复制 Global data，并更新对应的 TLS 路径 |
 
-`--port` 需要 data directory 或 `--migrate-data` source 已经包含 `config.json`；fresh installation 在后续 `setup --port <number>` 中设置 listen port。`PI_ARK_BASE_PATH` 不包含末尾的 `/`。Browser URL 使用包含末尾 `/` 的路径，例如 `/pi-ark/`。实例分别保存 Global settings、provider credentials、pi agent data 和 auth sessions。Workspace 中的 `.pi-ark` 目录可以由两个实例共享；同一个 Session 在同一时刻由一个实例操作。
+非 default instance 的默认目录名称添加 `-<instance>` 后缀，例如 macOS 的 `Pi-Ark-dev/app` 与 Windows 的 `Pi-Ark-dev\app`；Linux 的目录相应为 `/opt/pi-ark-dev` 或 `~/.local/share/pi-ark-dev`。稳定 CLI 的文件名相应为 `pi-ark-dev.mjs`。
+
+Fresh installation 在 `setup --port <number>` 中设置 listen port；installer 的 `--port` 更新已有配置，并将端口保存为后续 setup 的默认值。`PI_ARK_BASE_PATH` 不包含末尾的 `/`。Browser URL 使用包含末尾 `/` 的路径，例如 `/pi-ark/`。实例分别保存 Global settings、provider credentials、pi agent data 和 auth sessions。Workspace 中的 `.pi-ark` 目录可以由两个实例共享；同一个 Session 在同一时刻由一个实例操作。
 
 初始化命令支持以下参数：
 
 | 参数 | 作用 | 默认值 |
 |---|---|---|
-| `--username` | 登录用户名 | 必填 |
-| `--password` | 登录密码 | 必填 |
+| `--username` | 登录用户名，也可使用 `PI_ARK_USERNAME` | 必填 |
+| `--password` | 登录密码，也可使用 `PI_ARK_PASSWORD` | 必填 |
 | `--workspace` | 初始 Workspace 的绝对路径 | 当前目录 |
 | `--id` | 初始 Workspace ID | 目录名称 |
 | `--name` | 初始 Workspace 显示名称 | Workspace ID |
 | `--host` | HTTPS 监听地址 | `127.0.0.1` |
 | `--port` | HTTPS 监听端口 | `31415` |
 
-`PI_ARK_HOME` 可以修改 Pi-Ark data directory，默认位置是 `~/.pi-ark`。`PI_ARK_AGENT_DIR` 可以修改 Pi-Ark 专用的 pi agent data directory，默认位置是 `PI_ARK_HOME/pi-agent`。
+稳定 CLI 自动读取安装时保存的 data directory 与实例环境。源码命令可以使用 `PI_ARK_HOME` 修改 data directory，源码的默认位置是 `~/.pi-ark`。`PI_ARK_AGENT_DIR` 可以修改 Pi-Ark 专用的 pi agent data directory，默认位置是 `PI_ARK_HOME/pi-agent`。
 
-浏览器打开初始化命令输出的 HTTPS 地址。使用自签名证书时，首次访问需要在浏览器中确认该证书。
+自动化可以通过 `PI_ARK_USERNAME` 与 `PI_ARK_PASSWORD` 提供 setup 的登录信息。POSIX shell 使用 `export PI_ARK_PASSWORD="choose-a-password"`，PowerShell 使用 `$env:PI_ARK_PASSWORD = "choose-a-password"`，然后执行相同的 setup 命令并省略 `--password`。
+
+Setup 生成 RSA 3072-bit 的自签名 certificate，有效期为 825 天，SAN 包含 `localhost` 与 `127.0.0.1`。浏览器打开初始化命令输出的 HTTPS 地址。使用自签名证书时，首次访问需要在浏览器中确认该证书。
 
 ## 开发模式
 
@@ -79,7 +152,7 @@ Installer 使用以下参数创建实例：
 
 ```bash
 npm install
-npm run setup -- --username ark --password 'choose-a-password' --workspace /absolute/path/to/workspace
+npm run setup -- --username ark --password "choose-a-password" --workspace "."
 npm run dev
 ```
 
@@ -129,6 +202,9 @@ location ^~ /pi-ark-backup/ {
 npm run build
 npm run check
 npm run check:behavior
+npm run check:setup
+npm run check:platform
+npm run check:release -- "path/to/extracted-artifact"
 npm run check:ui
 npm run release:build
 npm start
@@ -144,22 +220,30 @@ npm start
 
 交互式修改密码：
 
-```bash
-pi-ark-dev password
+```text
+node "<prefix>/bin/pi-ark.mjs" password
 ```
 
-`pi-ark-dev passwd` 是相同命令的简写。该 command 更新 `/var/lib/pi-ark-dev/config.json` 并重启 `pi-ark-dev.service`。备用实例使用 `pi-ark-backup password`。
+`passwd` 是相同命令的简写。该 command 更新安装实例的 `config.json` 并重启对应的后台进程或 systemd service。Linux 双实例部署也可以使用 `pi-ark-dev password` 与 `pi-ark-backup password`。
 
 指定配置文件或延后重启：
 
-```bash
-pi-ark-dev password --config /path/to/config.json --no-restart
+```text
+node "<prefix>/bin/pi-ark.mjs" password --config "path/to/config.json" --no-restart
 ```
 
-自动化环境可以使用：
+自动化环境可以通过 `PI_ARK_NEW_PASSWORD` 提供新密码。POSIX shell 示例：
 
 ```bash
-PI_ARK_NEW_PASSWORD='new-password' pi-ark-dev password --no-restart
+export PI_ARK_NEW_PASSWORD="new-password"
+node "$HOME/Library/Application Support/Pi-Ark/app/bin/pi-ark.mjs" password --no-restart
+```
+
+Windows PowerShell 示例：
+
+```powershell
+$env:PI_ARK_NEW_PASSWORD = "new-password"
+node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" password --no-restart
 ```
 
 新密码至少包含 6 个字符。使用 `--no-restart` 后，需要在后续维护窗口重启服务，使内存中的认证服务读取新摘要。
@@ -382,7 +466,7 @@ Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧�
 
 ## Terminal 页面
 
-Terminal 连接后在当前 Workspace 目录中启动 shell。连接状态显示在页面 header；Fit terminal 可以重新适配当前容器大小。
+Terminal 连接后在当前 Workspace 目录中启动 shell。Windows 默认使用 PowerShell，macOS 与 Linux 使用 `SHELL` 指定的 shell 或 `/bin/bash`。连接状态显示在页面 header；Fit terminal 可以重新适配当前容器大小。
 
 Terminal 使用 Pi-Ark 服务账号的系统权限。运行命令前应确认服务账号权限和当前 Workspace 路径。
 
@@ -428,9 +512,11 @@ Pi-Ark release 区域显示以下信息：
 - Release 或 development checkout 的 install mode。
 - Stable 或 development channel、latest release 和 previous release。
 - Install path、Global data path、Pi-Ark agent data path 和 pi core package path。
-- Update、rollback、status、logs 和 restart 命令。
+- Update、rollback、status、logs 和 restart 的完整 Node 调用命令，指向安装目录中的稳定 CLI。
 
-Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-Ark 下载当前 Linux architecture 的完整 artifact，在安装前运行 dependency preflight，保留当前 release 为 `previous`，原子切换 `current`，然后重启 service。Roll back 将 `current` 与 `previous` 对调。两个操作都保留 Global data 与 Workspace data。
+Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-Ark 下载当前操作系统与 architecture 的完整 artifact，在安装前运行 dependency preflight，保留当前 release 为 `previous`，再切换 `current`。POSIX 使用 symlink 保存 release state，Windows 使用 `release-state.json` 保存绝对路径。Roll back 将 `current` 与 `previous` 对调。两个操作都保留 Global data 与 Workspace data。
+
+Web 更新或回退的响应返回后，Server 正常关闭。Portable 后台管理器或 Linux 系统安装的 supervisor 从当前 release 重新启动，并请求 `/api/health`；启动检查失败时，管理器恢复 previous release。
 
 Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开。
 
@@ -483,17 +569,29 @@ Show hidden files 控制所有 Workspace 的普通 dotfile 是否进入 Files �
 
 ## Service 管理与 release 更新
 
-```bash
-pi-ark-dev status
-pi-ark-dev logs
-pi-ark-dev restart
-pi-ark-dev update
-pi-ark-dev rollback
+使用安装器输出的稳定 CLI 完整路径。以下 `<prefix>` 对应安装时的应用目录，非 default instance 的 CLI 使用对应名称（例如 `pi-ark-dev.mjs`）：
+
+```text
+node "<prefix>/bin/pi-ark.mjs" start
+node "<prefix>/bin/pi-ark.mjs" stop
+node "<prefix>/bin/pi-ark.mjs" restart
+node "<prefix>/bin/pi-ark.mjs" status
+node "<prefix>/bin/pi-ark.mjs" logs
+node "<prefix>/bin/pi-ark.mjs" update
+node "<prefix>/bin/pi-ark.mjs" rollback
 ```
 
-`status` 显示 `pi-ark-dev.service` 状态，`logs` 持续显示该 service journal，`restart` 重启该 service。`update` 安装 GitHub latest release，`rollback` 恢复 previous release。管理备用实例时，将 command name 替换为 `pi-ark-backup`。
+Portable 的 `start` 在后台启动，`stop` 通过本机管理通道请求停止，`restart` 先停止再启动。关闭启动终端后，服务继续运行。`status` 显示运行状态、health、release 与数据路径；`logs` 显示已有日志，`logs --follow` 持续显示新增日志。使用 `serve` 可以在当前终端前台运行。
+
+例如，macOS 可以执行 `node "$HOME/Library/Application Support/Pi-Ark/app/bin/pi-ark.mjs" status`，Windows PowerShell 可以执行 `node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" status`。
+
+Linux 的系统安装通过 systemd 执行 start/stop/restart，`status` 显示 service 状态，`logs` 持续显示 service journal。双实例的 command name 分别为 `pi-ark-dev` 与 `pi-ark-backup`。
+
+`update` 安装 GitHub latest stable release，`rollback` 恢复 previous release，随后重新启动并执行 health check。`--no-restart` 可以将 release 切换与重启分开安排。两个操作都保留 Global data 与 Workspace data。
 
 ## 数据位置与备份
+
+安装状态位于 `<prefix>/install.json`，其中保存 Node 路径与实例环境。POSIX 的 `<prefix>/current` 与 `<prefix>/previous` 指向当前及上一 release；Windows 的 `<prefix>/release-state.json` 保存对应的绝对路径。Portable 的管理器状态位于 `<prefix>/run/daemon.json`，运行日志位于 `<prefix>/logs/pi-ark.log`。
 
 Global data：
 

@@ -11,7 +11,7 @@ interface TerminalInput {
 }
 
 export function openTerminal(socket: WebSocket, cwd: string): () => void {
-  const shell = process.env.SHELL || (os.platform() === "win32" ? "powershell.exe" : "/bin/bash");
+  const shell = os.platform() === "win32" ? "powershell.exe" : process.env.SHELL || "/bin/bash";
   const processPty: IPty = pty.spawn(shell, [], {
     name: "xterm-256color",
     cwd,
