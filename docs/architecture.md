@@ -591,7 +591,7 @@ macOS 与 Windows 默认使用 portable，Linux 通过 `--portable` 选择该模
 
 非 default instance 的应用目录名称使用 `-<instance>` 后缀，例如 `Pi-Ark-dev` 或 `pi-ark-dev`。Portable 使用当前用户的权限，并在关闭启动终端后继续运行。
 
-`scripts/platform.mjs` 负责平台默认路径、archive 名称与解压、release staging、release state 和 HTTPS health request。POSIX 将 `current` 与 `previous` 保存为 symlink；Windows 将二者的绝对路径保存到 `<prefix>/release-state.json`。`<prefix>/install.json` 记录安装模式、Node 路径、instance、data directory 和 CLI environment。
+`scripts/platform.mjs` 负责平台默认路径、archive 名称与解压、release staging、release state 和 HTTPS health request。POSIX 将 `current` 与 `previous` 保存为 symlink；Windows 将二者的绝对路径保存到 `<prefix>/release-state.json`；并发读取造成短暂的替换占用时，写入流程在 5 秒内重试原子 rename。`<prefix>/install.json` 记录安装模式、Node 路径、instance、data directory 和 CLI environment。
 
 安装器在 `<prefix>/bin/` 中创建稳定的 `pi-ark.mjs` 与配套的平台模块，另提供 POSIX launcher 和 Windows `.cmd`。非 default instance 使用对应的 CLI 名称。稳定入口加载安装时的环境和当前 release；用户可以使用完整的 Node 调用路径，或自行将该目录加入 PATH。
 

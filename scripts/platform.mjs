@@ -42,7 +42,14 @@ export async function atomicJson(path, value) {
   const temporary = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   try {
     await writeFile(temporary, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
-    await rename(temporary, path);
+    const deadline = Date.now() + 5000;
+    for (let attempt = 1; ; attempt += 1) {
+      try { await rename(temporary, path); break; }
+      catch (error) {
+        if (process.platform !== "win32" || !["EPERM", "EACCES", "EBUSY"].includes(error.code) || Date.now() >= deadline) throw error;
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, Math.min(attempt * 10, 100)));
+      }
+    }
   } finally { await rm(temporary, { force: true }); }
 }
 
