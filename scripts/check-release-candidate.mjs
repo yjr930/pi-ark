@@ -109,7 +109,7 @@ await assert.rejects(githubJson("/actions/runs", { repository, token: "", fetchI
 await assert.rejects(githubJson("https://example.com/credentials", { token: "secret" }), /Expected a GitHub API URL/);
 await assert.rejects(find({ fetchImpl: async () => response({ encoding: "base64", content: "invalid" }) }), /Cannot read candidate package.json: https:\/\/github.com\//);
 
-const workflow = await readFile(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+const workflow = (await readFile(new URL("../.github/workflows/release.yml", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
 assert.ok(workflow.includes("if: ${{ !startsWith(github.ref, 'refs/tags/') }}"));
 assert.ok(workflow.includes("if: success() && steps.release_build.outcome == 'success' && steps.release_smoke.outcome == 'success'"));
 const publish = workflow.slice(workflow.indexOf("  publish:"));
