@@ -80,20 +80,20 @@ jobs:
             $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
             if ($process.ExitCode -notin @(0, 3010)) { throw "Visual Studio prerequisite installation failed: $($process.ExitCode)" }
           }
-      - run: npm ci
-      - run: npm run check
-      - run: npm run check:behavior
-      - run: npm run build
+      - run: node scripts/check-ci-command.mjs npm ci
+      - run: node scripts/check-ci-command.mjs npm run check
+      - run: node scripts/check-ci-command.mjs npm run check:behavior
+      - run: node scripts/check-ci-command.mjs npm run build
       - name: Build native release archive
         id: release_build
-        run: npm run release:build
+        run: node scripts/check-ci-command.mjs npm run release:build
         env:
           PI_ARK_SKIP_BUILD: "1"
       - name: Extract and smoke the actual release archive
         env:
           PI_ARK_SMOKE_ROLLBACK: "1"
         run: |
-          node --input-type=module <<'NODE'
+          node scripts/check-ci-command.mjs node --input-type=module <<'NODE'
           import { execFileSync } from 'node:child_process';
           import { mkdtemp, readFile, rm } from 'node:fs/promises';
           import { join } from 'node:path';
@@ -124,11 +124,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: diagnostics-${{ matrix.platform }}-${{ matrix.architecture }}
-          path: |
-            ${{ runner.temp }}/pi-ark-release-smoke-*/diagnostics/*.log
-            ~/.npm/_logs/*.log
-            ~/AppData/Local/npm-cache/_logs/*.log
-            ~/AppData/Local/Temp/dd_*.log
+          path: dist/native-ci/*.log
           if-no-files-found: warn
           retention-days: 7
 
