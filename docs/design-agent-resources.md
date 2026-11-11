@@ -183,9 +183,9 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 
 ### 8.4 工具暴露
 
-`@playwright/mcp` 0.0.85 提供 61 个 `browser_*` 工具。首版决定整个 `playwright` server 使用 `codemode` 暴露：
+`@playwright/mcp` 0.0.85 的 README 列出 61 个 `browser_*` 工具，默认连接暴露 25 个核心工具（包括 `browser_navigate`、`browser_snapshot`、`browser_click`、`browser_type`、`browser_take_screenshot`、`browser_wait_for`）。首版决定整个 `playwright` server 使用 `codemode` 暴露：
 
-- 61 个工具不进入请求声明，MCP 相关声明只有 `codemode` 一个工具。
+- 连接后暴露的工具不进入请求声明，MCP 相关声明只有 `codemode` 一个工具。
 - 模型按 browser skill 的指导写脚本，通过 `tools.mcp__playwright__browser_*` 调用工具。
 - `direct` 与 `toolExposure` 方案作为备选，首版不采用。
 
