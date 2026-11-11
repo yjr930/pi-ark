@@ -121,6 +121,28 @@ export function migratedPath(path, source, destination) {
 export function shellQuote(value) { return `'${String(value).replaceAll("'", `'\\''`)}'`; }
 export function systemdQuote(value) { return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%").replaceAll("\n", "\\n")}"`; }
 
+// WorkingDirectory accepts a path directly; command-line quoting would become part of the path.
+export function systemdWorkingDirectory(path) {
+  if (!String(path).startsWith("/") || /[\0\r\n]/.test(path)) throw new Error("systemd working directory requires an absolute single-line path");
+  return String(path).replaceAll("%", "%%");
+}
+
+export function systemdServiceUnit({ prefix, nodePath, cliPath, environment, instance, serviceUser, serviceGroup }) {
+  const currentLink = join(prefix, "current");
+  const unitEnvironment = Object.entries(environment).map(([name, value]) => `Environment=${systemdQuote(`${name}=${value}`)}`).join("\n");
+  return `[Unit]\nDescription=Pi-Ark Web Agent (${instance})\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${serviceUser}\nGroup=${serviceGroup}\nWorkingDirectory=${systemdWorkingDirectory(currentLink)}\n${unitEnvironment}\nExecStartPre=${systemdQuote(nodePath)} ${systemdQuote(cliPath)} verify --release ${systemdQuote(currentLink)}\nExecStart=${systemdQuote(nodePath)} ${systemdQuote(cliPath)} serve\nRestart=always\nRestartSec=5\nTimeoutStopSec=60\nKillSignal=SIGTERM\nUMask=0077\nLimitNOFILE=65535\n\n[Install]\nWantedBy=multi-user.target\n`;
+}
+
+export async function verifySystemdUnit(prefix, serviceName, unit) {
+  if (!/^pi-ark(?:-[a-z0-9_-]+)?\.service$/.test(serviceName)) throw new Error("Invalid service name");
+  const staging = await mkdtemp(join(prefix, ".unit-check-"));
+  try {
+    const candidate = join(staging, serviceName);
+    await writeFile(candidate, unit);
+    execFileSync("systemd-analyze", ["verify", candidate], { stdio: "inherit" });
+  } finally { await rm(staging, { recursive: true, force: true }); }
+}
+
 export function extractArchive(archive, destination, platform = process.platform) {
   if (platform === "win32") {
     const literal = (value) => `'${value.replaceAll("'", "''")}'`;

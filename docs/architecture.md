@@ -687,7 +687,7 @@ System installer 默认使用以下布局：
 /usr/local/bin/pi-ark
 ```
 
-Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。systemd 在每次启动前执行 release preflight，并通过稳定 CLI 的 `serve` 命令运行 supervisor；supervisor 从 `current` 启动 Server，并处理 release 切换后的健康检查与恢复。
+Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。Linux 系统安装在完成 release preflight 后生成最终的候选 unit，将其写入 `<prefix>/.unit-check-*/<service-name>` 并执行 `systemd-analyze verify`，检查完成后清理候选目录；候选验证通过后才切换版本并写入真实 unit。`WorkingDirectory` 使用直接的绝对路径，并将 `%` 转义为 `%%`；`ExecStart` 参数与 `Environment` 值分别使用 systemd 的带引号语法。安装器在 `daemon-reload` 后确认 `LoadState=loaded`，然后执行所选的启动安排。systemd 在每次启动前执行 release preflight，并通过稳定 CLI 的 `serve` 命令运行 supervisor；supervisor 从 `current` 启动 Server，并处理 release 切换后的健康检查与恢复。
 
 ### 当前用户安装与后台管理
 
@@ -711,7 +711,7 @@ macOS 与 Windows 默认使用 portable，Linux 通过 `--portable` 选择该模
 
 Setup 通过 production dependency `selfsigned@5.5.0` 生成 RSA 3072-bit、825 天有效期的自签名 TLS certificate，SAN 为 `localhost` 与 `127.0.0.1`；private key 与 certificate 保存在 `PI_ARK_HOME/tls/`。登录信息可通过原有 setup 参数或 `PI_ARK_USERNAME` 与 `PI_ARK_PASSWORD` 环境变量提供。
 
-Multi-instance installation 通过 `PI_ARK_INSTANCE`、`PI_ARK_BASE_PATH`、`PI_ARK_SERVICE_NAME` 和 `PI_ARK_CLI_NAME` 描述当前实例。Installer 为非 default instance 生成 instance-aware CLI launcher，并在 Linux 系统安装中生成独立的 service unit。`--port` 更新已有 listen port，并保存后续 setup 的默认端口；Linux 系统安装的 `--deferred-restart` 创建 transient systemd timer，避免部署进程随当前 service restart 一起终止。
+Multi-instance installation 通过 `PI_ARK_INSTANCE`、`PI_ARK_BASE_PATH`、`PI_ARK_SERVICE_NAME` 和 `PI_ARK_CLI_NAME` 描述当前实例。Installer 为非 default instance 生成 instance-aware CLI launcher，并在 Linux 系统安装中生成独立的 service unit。`--port` 更新已有 listen port，并保存后续 setup 的默认端口；Linux 系统安装的 `--deferred-restart` 在完成候选 unit 验证和加载状态确认后创建 transient systemd timer，将重启安排在安装器返回之后。自替换的安装包预先在独立配置与数据目录中完成启动、health 与版本确认；当前 Agent 在登记 timer 后报告重启前的确认结果并结束本轮操作，服务随后重启。重启后的检查可以由用户或后续独立 Session 执行。
 
 Frontend 从 `document.baseURI` 推导 base path。所有 API、WebSocket、Files image 和 download URL 都经过同一个 base-path helper；Vite build 使用 relative asset URL。Nginx 在 public URL 上保留 base path，并通过带末尾 `/` 的 `proxy_pass` 将该前缀移除后发送给 Fastify。Fastify 的内部 routes 继续使用 `/api` 与 `/ws`。
 

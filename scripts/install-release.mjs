@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { atomicJson, delay, healthRequest, installationDefaults, migratedPath, optionalJson, readJson, shellQuote, stageRelease, switchRelease, systemdQuote, validateVersion } from "./platform.mjs";
+import { atomicJson, delay, healthRequest, installationDefaults, migratedPath, optionalJson, readJson, shellQuote, stageRelease, switchRelease, systemdServiceUnit, validateVersion, verifySystemdUnit } from "./platform.mjs";
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
@@ -89,16 +89,18 @@ if (listenPort !== undefined) {
 }
 const destination = await stageRelease(source, prefix, manifest.version);
 execFileSync(process.execPath, [join(source, "scripts/pi-ark.mjs"), "verify", "--release", destination], { stdio: "inherit", windowsHide: true });
-await switchRelease(prefix, destination);
 
 const cliEnvironment = { NODE_ENV: "production", PI_ARK_NODE_PATH: process.execPath, PI_ARK_HOME: dataDir, PI_ARK_AGENT_DIR: join(dataDir, "pi-agent"), PI_ARK_INSTALL_PREFIX: prefix, PI_ARK_INSTANCE: instance, PI_ARK_BASE_PATH: basePath, PI_ARK_SERVICE_NAME: serviceName, PI_ARK_CLI_NAME: cliName, PI_ARK_PORTABLE: portable ? "1" : "0", ...(listenPort === undefined ? {} : { PI_ARK_PORT: String(listenPort) }) };
 const existingInstall = await optionalJson(join(prefix, "install.json"));
 if (listenPort === undefined && existingInstall?.environment?.PI_ARK_PORT) cliEnvironment.PI_ARK_PORT = existingInstall.environment.PI_ARK_PORT;
-await atomicJson(join(prefix, "install.json"), { mode: portable ? "portable" : "systemd", nodePath: process.execPath, instance, dataDir, cliName, serviceName, environment: cliEnvironment });
 const bin = join(prefix, "bin");
+const cliPath = join(bin, `${cliName}.mjs`);
+const unit = portable ? undefined : systemdServiceUnit({ prefix, nodePath: process.execPath, cliPath, environment: cliEnvironment, instance, serviceUser, serviceGroup });
+if (!portable) await verifySystemdUnit(prefix, serviceName, unit);
+await switchRelease(prefix, destination);
+await atomicJson(join(prefix, "install.json"), { mode: portable ? "portable" : "systemd", nodePath: process.execPath, instance, dataDir, cliName, serviceName, environment: cliEnvironment });
 await mkdir(bin, { recursive: true });
 await cp(join(source, "scripts/platform.mjs"), join(bin, "platform.mjs"));
-const cliPath = join(bin, `${cliName}.mjs`);
 const cliLauncher = `#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\nimport { join } from "node:path";\nimport { readReleaseState } from "./platform.mjs";\nObject.assign(process.env, ${JSON.stringify(cliEnvironment)});\nconst state = await readReleaseState(${JSON.stringify(prefix)});\nif (!state.current) throw new Error("Pi-Ark has no current installed release");\nawait import(pathToFileURL(join(state.current, "scripts/pi-ark.mjs")).href);\n`;
 await writeFile(cliPath, cliLauncher, { mode: 0o755 });
 const posixLauncher = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(cliPath)} "$@"\n`;
@@ -108,15 +110,14 @@ const cmdLiteral = (value) => value.replaceAll("%", "%%");
 await writeFile(join(bin, `${cliName}.cmd`), `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\n"${cmdLiteral(process.execPath)}" "%~dp0${cliName}.mjs" %*\r\n`);
 
 if (!portable) {
-  const currentLink = join(prefix, "current");
-  const unitEnvironment = Object.entries(cliEnvironment).map(([name, value]) => `Environment=${systemdQuote(`${name}=${value}`)}`).join("\n");
-  const unit = `[Unit]\nDescription=Pi-Ark Web Agent (${instance})\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=${serviceUser}\nGroup=${serviceGroup}\nWorkingDirectory=${systemdQuote(currentLink)}\n${unitEnvironment}\nExecStartPre=${systemdQuote(process.execPath)} ${systemdQuote(cliPath)} verify --release ${systemdQuote(currentLink)}\nExecStart=${systemdQuote(process.execPath)} ${systemdQuote(cliPath)} serve\nRestart=always\nRestartSec=5\nTimeoutStopSec=60\nKillSignal=SIGTERM\nUMask=0077\nLimitNOFILE=65535\n\n[Install]\nWantedBy=multi-user.target\n`;
   await writeFile(join("/etc/systemd/system", serviceName), unit);
   const globalCliPath = join("/usr/local/bin", cliName);
   await rm(globalCliPath, { force: true });
   await writeFile(globalCliPath, posixLauncher, { mode: 0o755 });
   if (serviceUser !== "root") execFileSync("chown", ["-R", `${serviceUser}:${serviceGroup}`, dataDir, prefix], { stdio: "inherit" });
   execFileSync("systemctl", ["daemon-reload"], { stdio: "inherit" });
+  const loadState = execFileSync("systemctl", ["show", serviceName, "--property=LoadState", "--value"], { encoding: "utf8" }).trim();
+  if (loadState !== "loaded") throw new Error(`${serviceName} failed to load: ${loadState}`);
   if (!args.includes("--no-start")) {
     execFileSync("systemctl", ["enable", serviceName], { stdio: "inherit" });
     if (deferredRestart !== undefined) {

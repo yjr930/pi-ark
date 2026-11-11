@@ -158,7 +158,13 @@ npm run dev
 
 Vite 默认使用 `http://localhost:5173`，并将 API 和 WebSocket 请求转发给本地 Pi-Ark HTTPS 服务。
 
-日常迭代使用 `<next-version>-dev.<iteration>` 版本。双实例部署中的主力开发版从 `/opt/pi-ark-dev/releases/<dev-version>` 运行；备用正式版从 `/opt/pi-ark-backup/releases/<release-version>` 运行。日常流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起安装时使用 `--deferred-restart <seconds>`，当前 request 先返回，systemd 随后重启 `pi-ark-dev.service`。
+日常迭代使用 `<next-version>-dev.<iteration>` 版本。双实例部署中的主力开发版从 `/opt/pi-ark-dev/releases/<dev-version>` 运行；备用正式版从 `/opt/pi-ark-backup/releases/<release-version>` 运行。日常流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起安装时，按以下顺序完成自替换：
+
+1. 构建已提交源码的安装包，执行安装包的 `verify --release`，并使用独立的配置与数据目录确认安装包可以启动、`/api/health` 正常且实际运行版本符合预期。源码工作区提供 `npm run check:release -- "path/to/extracted-artifact"` 完成独立的安装与启动检查。
+2. 确认目标实例的 prefix、data directory、service account、listen 配置和恢复版本，沿用现有实例参数调用安装器。
+3. 安装器在切换版本与写入真实 service unit 前，使用 `systemd-analyze verify` 验证候选 unit；写入后执行 `daemon-reload`，确认 `LoadState=loaded`。
+4. 使用安装器的 `--deferred-restart <seconds>` 登记 transient systemd timer。安装器返回后，确认目标版本路径、保留的配置与 timer 的登记结果，向用户报告检查结果及重启安排。
+5. 当前 Agent 在重启前返回结果并结束本轮操作，随后由 systemd 重启服务。用户或后续独立 Session 可以查看重启后的运行状态。
 
 Nginx 在同一个 server block 中先配置具体的 instance path，再保留其他应用的 location。Pi-Ark upstream 使用 HTTPS，并转发 WebSocket headers：
 
@@ -708,9 +714,9 @@ node "<prefix>/bin/pi-ark.mjs" update
 node "<prefix>/bin/pi-ark.mjs" status
 ```
 
-非 default instance 使用对应的 CLI 文件名。指定版本的安装可以下载对应的正式安装包，再使用[安装与初始化](#安装与初始化)中的安装器参数保留该实例的 prefix 和 data directory。主力开发实例从自身 Session 安装时，使用 `--deferred-restart <seconds>` 安排 systemd timer。
+非 default instance 使用对应的 CLI 文件名。指定版本的安装可以下载对应的正式安装包，再使用[安装与初始化](#安装与初始化)中的安装器参数保留该实例的 prefix 和 data directory。主力开发实例从自身 Session 安装时，按[开发模式](#开发模式)中的自替换步骤完成重启前的确认，并使用 `--deferred-restart <seconds>` 安排 systemd timer，随后返回结果。
 
-上线后确认 `/api/health`、实际运行路径与 Settings → Global → Maintenance 中的运行版本。Linux 系统安装可以通过 systemd MainPID 定位实际的 Server 子进程，再核对该进程命令行中的 Server 入口与对应的 artifact。需要恢复上一版本时，执行稳定 CLI 的 `rollback`，再确认 health 与运行版本。发布工作区和实例安装状态分别保存，实例管理员按选定的上线安排执行更新。
+从独立的管理终端执行更新时，上线后确认 `/api/health`、实际运行路径与 Settings → Global → Maintenance 中的运行版本。Linux 系统安装可以通过 systemd MainPID 定位实际的 Server 子进程，再核对该进程命令行中的 Server 入口与对应的 artifact。需要恢复上一版本时，执行稳定 CLI 的 `rollback`，再确认 health 与运行版本。发布工作区和实例安装状态分别保存，实例管理员按选定的上线安排执行更新。
 
 ## 数据位置与备份
 
