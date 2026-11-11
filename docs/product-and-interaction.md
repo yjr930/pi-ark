@@ -115,7 +115,7 @@ Tool item 在没有已保存 disclosure 状态时默认关闭；active Running �
 
 Compact 的收起高度为普通 tool row 的 3 倍。收起时显示 Duration、Before、After、System prompt、Summary、Retained 和 Saved；After 与各组成的 token 用量使用 pi SDK 估算，并以 `≈` 标记。展开后显示 source Message ID、内部链接、压缩触发原因、生成摘要的 input/output token 用量，以及 pi 保存的 Markdown summary。耗时来自 Server 对后续压缩事件的记录。历史字段使用已有记录展示，空字段显示 `—`；System prompt 尚未记录时，After 显示已知部分并附加 `+ system`。compact 前的原始会话继续通过 earlier message 分页展示。
 
-页面中的短 Message ID 统一使用斜体，包括 User header、sticky User 和消息信息按钮。Tool call message 与 tool result message 继续保留各自的短 Message ID、source entry ID 和 permalink anchor。Permalink 指向其中任一 source message 时，外层 run collapse 和对应 tool item 自动展开。
+页面不再展示短 Message ID；User header、sticky User 与 source link 通过 aria-label 标识对应消息。Tool call message 与 tool result message 继续保留各自的 source entry ID 和 permalink anchor。Permalink 指向其中任一 source message 时，外层 run collapse 和对应 tool item 自动展开。
 
 ### Message 标识与链接
 

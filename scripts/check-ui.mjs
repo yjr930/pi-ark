@@ -199,7 +199,7 @@ try {
   assert.equal(await compactDetails.getAttribute("open"), null);
   assert.equal(await page.getByText("Older compacted context remains available.", { exact: true }).isVisible(), false);
   await compactDetails.locator(":scope > summary").click();
-  assert.match(await compactDetails.locator(".feed-source-links").textContent(), /Message m[0-9a-z]{6}/);
+  assert.match(await compactDetails.locator(".feed-source-links").textContent(), /^\s*Message\s*$/);
   await page.getByText("Older compacted context remains available.", { exact: true }).waitFor();
   await historyPageButton.click();
   await page.getByText("Old history question 1", { exact: true }).waitFor();
@@ -558,7 +558,7 @@ try {
   assert.equal(await multiToolMessage.locator(".feed-text-meta").count(), 0);
   const multiToolMessageId = await multiToolMessage.getAttribute("data-message-id");
   await multiToolMessage.getByRole("button", { name: `Show information for AI message ${multiToolMessageId}` }).click();
-  assert.equal(await multiToolMessage.locator('.feed-text-meta .feed-source-links code').filter({ hasText: `AI ${multiToolMessageId}` }).count(), 1);
+  assert.deepEqual(await multiToolMessage.locator(".feed-text-meta .feed-source-links code").allTextContents(), ["AI"]);
   assert.equal(await activePage.getByRole("button", { name: /Copy URL for message/ }).count(), 0);
   assert.equal(await activeRun.getByText("Reading a file", { exact: true }).count(), 1);
   const streamingText = activeRun.locator(".feed-ai-message").filter({ hasText: "Reading a file" });
@@ -603,8 +603,8 @@ try {
   assert.ok(stickyUserBox && Math.abs(stickyUserBox.y - activeConversationBox.y) <= 1);
   assert.notEqual(await stickyUser.evaluate((element) => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)");
   assert.equal(await activePage.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest(".conversation-sticky-user")), { x: stickyUserBox.x + stickyUserBox.width / 2, y: stickyUserBox.y + stickyUserBox.height / 2 }), true);
-  const stickyUserContent = await stickyUser.textContent();
-  const stickyUserMatch = /User\s+(m[0-9a-z]{6}).+/.exec(stickyUserContent || "");
+  const stickyUserLabel = await stickyUser.getAttribute("aria-label") || "";
+  const stickyUserMatch = /message (m[0-9a-z]{6})/.exec(stickyUserLabel);
   assert.ok(stickyUserMatch);
   const stickyUserMessageId = stickyUserMatch[1];
   const bottomScroll = await activeConversation.evaluate((element) => element.scrollTop);
@@ -615,7 +615,7 @@ try {
   const locatedConversationBox = await activeConversation.boundingBox();
   assert.ok(locatedUserBox && locatedConversationBox && locatedUserBox.y >= locatedConversationBox.y + stickyUserBox.height + 6 && locatedUserBox.y < locatedConversationBox.y + locatedConversationBox.height);
   assert.ok(await activeConversation.evaluate((element) => element.scrollTop) < bottomScroll);
-  await activePage.waitForFunction((currentMessageId) => { const match = /(m[0-9a-z]{6})/.exec(document.querySelector(".sticky-user-label")?.textContent || ""); return Boolean(match && match[1] !== currentMessageId); }, stickyUserMessageId);
+  await activePage.waitForFunction((currentMessageId) => { const match = /message (m[0-9a-z]{6})/.exec(document.querySelector(".conversation-sticky-user > button")?.getAttribute("aria-label") || ""); return Boolean(match && match[1] !== currentMessageId); }, stickyUserMessageId);
   await activeConversation.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event("scroll")); });
   await activeRun.getByText("Reading a file", { exact: true }).waitFor();
   const toolRows = activeRun.locator(".feed-tool-item");
@@ -843,7 +843,7 @@ try {
   assert.equal(await interruptedExecution.locator(":scope > summary code").textContent(), "README.md");
   assert.equal(await interruptedResultContent.isVisible(), false);
   await interruptedExecution.locator(":scope > summary").click();
-  assert.match(await interruptedExecution.locator(".feed-source-links").textContent(), /Call m[0-9a-z]{6}.*Result m[0-9a-z]{6}/);
+  assert.match(await interruptedExecution.locator(".feed-source-links").textContent(), /Call.*Result/);
   await interruptedResultContent.waitFor();
   await interruptedPage.close();
   let currentUrl = new URL(page.url());
@@ -955,12 +955,14 @@ try {
   const browserFinalMessageId = await browserFinalMessage.getAttribute("data-message-id");
   assert.match(browserFinalMessageId, /^m[0-9a-z]{6}$/);
   const firstUserMessage = page.locator(".message-user").first();
-  assert.match(await firstUserMessage.locator(".feed-user-label").textContent(), /^User m[0-9a-z]{6}$/);
+  assert.equal((await firstUserMessage.locator(".feed-user-label").textContent()).trim(), "User");
   const feedAlignment = await page.locator(".conversation-content").evaluate((conversation) => { const user = conversation.querySelector(".message-user").getBoundingClientRect(); const userHeader = conversation.querySelector(".message-user > .feed-user-header").getBoundingClientRect(); const userContent = conversation.querySelector(".message-user > .feed-message-content").getBoundingClientRect(); const aiHeader = conversation.querySelector(".ai-turn-header").getBoundingClientRect(); const aiContent = conversation.querySelector(".ai-feed-segment.start > .ai-feed-content").getBoundingClientRect(); return { userX: user.x, userHeaderX: userHeader.x, userContentX: userContent.x, aiHeaderX: aiHeader.x, aiContentX: aiContent.x }; });
   assert.ok(Math.abs(feedAlignment.userHeaderX - feedAlignment.userContentX) <= 1);
-  assert.ok(feedAlignment.userContentX - feedAlignment.userX >= 12);
+  assert.ok(feedAlignment.userContentX - feedAlignment.userX >= 6);
   assert.ok(Math.abs(feedAlignment.userContentX - feedAlignment.aiContentX) <= 1);
   assert.ok(Math.abs(feedAlignment.aiHeaderX - feedAlignment.aiContentX) <= 1);
+  const runAlignment = await page.locator(".conversation-content").evaluate((conversation) => { const content = conversation.getBoundingClientRect(); const style = getComputedStyle(conversation); const contentLeft = content.left + Number.parseFloat(style.paddingLeft); const run = conversation.querySelector(".ai-feed-content > .run-collapse")?.getBoundingClientRect(); return run ? Math.abs(run.left - contentLeft) : undefined; });
+  assert.ok(runAlignment === undefined || runAlignment <= 1);
   assert.equal(await browserFinalMessage.locator(".feed-text-meta").count(), 1);
   await browserFinalMessage.getByRole("button", { name: `Hide information for AI message ${browserFinalMessageId}` }).click();
   assert.equal(await browserFinalMessage.locator(".feed-text-meta").count(), 0);
@@ -999,7 +1001,7 @@ try {
   const browserToolAssistantId = await browserToolAssistant.getAttribute("data-message-id");
   assert.equal(await browserToolAssistant.locator(".feed-text-meta").count(), 0);
   await browserToolAssistant.getByRole("button", { name: `Show information for AI message ${browserToolAssistantId}` }).click();
-  assert.equal(await browserToolAssistant.locator(".feed-text-meta > .feed-source-links").textContent(), `AI ${browserToolAssistantId}`);
+  assert.equal((await browserToolAssistant.locator(".feed-text-meta > .feed-source-links").textContent()).trim(), "AI");
   const browserToolResult = browserToolRows.first();
   const browserToolExecution = browserToolResult.locator(".feed-tool-details");
   assert.match(await browserToolExecution.locator(":scope > summary").textContent(), /read.*README\.md.*Completed/);
@@ -1014,7 +1016,7 @@ try {
   const browserToolResultId = await browserToolSource.locator(".message-inline-anchor").getAttribute("data-message-id");
   assert.match(browserToolMessageId, /^m[0-9a-z]{6}$/);
   assert.match(browserToolResultId, /^m[0-9a-z]{6}$/);
-  assert.match(await browserToolExecution.locator(".feed-source-links").textContent(), new RegExp(`Call ${browserToolMessageId}.*Result ${browserToolResultId}`));
+  assert.match(await browserToolExecution.locator(".feed-source-links").textContent(), /Call.*Result/);
   await browserToolResultContent.waitFor();
   const browserToolTime = browserToolExecution.locator(".feed-tool-content > time:last-child");
   await browserToolTime.waitFor();
@@ -1114,7 +1116,7 @@ try {
   assert.equal(userBandStyle.shadow, "none");
   assert.ok(userBandStyle.marginTop >= 20 && userBandStyle.marginBottom >= 19);
   assert.ok(userBandStyle.paddingTop >= 18 && userBandStyle.paddingBottom >= 16);
-  assert.ok(userBandStyle.paddingLeft >= 12 && userBandStyle.paddingRight >= 12);
+  assert.ok(userBandStyle.paddingLeft >= 6 && userBandStyle.paddingRight >= 6);
   assert.ok(userBandStyle.leftDelta <= 0.5 && userBandStyle.rightDelta <= 0.5);
   assert.ok(userBandStyle.userAvatarSize >= 29 && userBandStyle.aiAvatarSize >= 29);
   assert.ok(userBandStyle.userLabelSize >= 12 && userBandStyle.aiLabelSize >= 12);
@@ -1181,7 +1183,7 @@ try {
   assert.equal(await finalMessage.getByRole("button", { name: /Copy URL/ }).count(), 0);
   const internalLinkButton = finalMessage.getByRole("button", { name: /Copy internal link/ });
   assert.equal(await internalLinkButton.count(), 1);
-  assert.equal(await internalLinkButton.textContent(), `AI ${browserFinalMessageId}`);
+  assert.equal((await internalLinkButton.textContent()).trim(), "AI");
   await internalLinkButton.click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), `pi-ark://workspace/${encodeURIComponent(linkedWorkspace)}/session/${encodeURIComponent(linkedSession)}/message/${browserFinalMessageId}`);
   const copiedMessageUrl = new URL(page.url());

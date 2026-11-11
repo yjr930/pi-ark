@@ -93,9 +93,9 @@ try {
   await chip.locator("code").click();
   await page.waitForFunction(() => navigator.clipboard.readText().then((text) => /pi-ark:\/\/workspace\/.+\/session\/.+\/message\/m[0-9a-z]{6}$/.test(text)));
   const copied = await page.evaluate(() => navigator.clipboard.readText());
-  assert.ok(copied.endsWith(await chip.locator(".message-short-id").textContent()));
-  const italic = await page.locator(".message-short-id:visible").evaluateAll((elements) => elements.map((element) => getComputedStyle(element).fontStyle));
-  assert.ok(italic.length >= 3 && italic.every((style) => style === "italic"));
+  const chipMessageId = await chip.evaluate((element) => element.closest("[data-message-id]")?.getAttribute("data-message-id") || "");
+  assert.ok(chipMessageId && copied.endsWith(chipMessageId));
+  assert.equal(await page.locator(".message-short-id").count(), 0);
   const toggleReasoning = async () => {
     await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
