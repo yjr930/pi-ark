@@ -10,7 +10,6 @@
 - 用户在 Global 与 Workspace 两个作用域管理自己的 skill。
 - 浏览器能力通过 MCP server 提供，内置一份 `playwright` server 配置，由用户控制启用。
 - 系统自带 skill 与 MCP server 的启用状态可在 Settings 页面修改，修改后对后续 Session 生效。
-- 识别 pi 的其他 skill 来源，并支持把可用 skill 迁入 pi-ark 管理目录。
 - 通用 MCP server 通过 `pi-ark mcp` 命令与 `mcp.json` 管理，Settings 页面只展示列表与启用开关。
 
 ## 2. 资源模型
@@ -22,17 +21,15 @@
 | Skill | 操作流程与领域说明 | 名称与描述进入 system prompt，正文按需读取 |
 | MCP server | 可执行工具 | 工具注册到 Session，按 exposure 决定模型可见性 |
 
-### 2.2 三类来源
+### 2.2 两类来源
 
 | 来源 | 作用域 | 存放位置 | 可编辑 | 启用控制 |
 |---|---|---|---|---|
 | Built-in | Global | 安装根目录 `skills/` | 否 | 是 |
 | User | Global | `PI_ARK_AGENT_DIR/skills/` | 是 | 是 |
 | User | Workspace | `<workspace>/.pi-ark/skills/` | 是 | 是 |
-| External | Global | `~/.agents/skills/`、`PI_ARK_AGENT_DIR/settings.json` 的 `skills`、Pi package | 否 | 是 |
-| External | Workspace | `<workspace>/.pi/skills/`、`<workspace>/.agents/skills/`、祖先目录的 `.agents/skills/` | 否 | 否，仅可迁移 |
 
-Built-in 与 User 来源由 pi-ark 管理，External 来源由 pi 或用户其他工具管理。
+Built-in 与 User 来源由 pi-ark 管理。
 
 ### 2.3 MCP server 来源
 
@@ -40,7 +37,6 @@ Built-in 与 User 来源由 pi-ark 管理，External 来源由 pi 或用户其�
 |---|---|---|
 | Built-in | `PI_ARK_AGENT_DIR/mcp.json` 的 `playwright` 条目 | pi-ark 初始化，用户只改启用 |
 | User | `PI_ARK_AGENT_DIR/mcp.json` 的其他条目 | 通过 `pi-ark mcp` 命令或直接编辑 `mcp.json` |
-| Project | `<workspace>/.pi/mcp.json` | 识别展示为 `Not loaded`，迁移通过 `pi-ark mcp` 命令把条目复制到全局配置 |
 
 ## 3. 目录与发布布局
 
@@ -65,15 +61,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
     "skills": {
       "disabledBuiltin": ["browser"],
       "disabledGlobal": ["pdf-tools"],
-      "disabledWorkspace": { "<workspace-id>": ["release-check"] },
-      "migrations": [
-        {
-          "name": "pdf-tools",
-          "from": "/root/workspace/trade_engine/.pi/skills/pdf-tools",
-          "to": "/root/workspace/trade_engine/.pi-ark/skills/pdf-tools",
-          "migratedAt": "2026-02-11T09:30:00.000Z"
-        }
-      ]
+      "disabledWorkspace": { "<workspace-id>": ["release-check"] }
     }
   }
 }
@@ -86,21 +74,18 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 
 MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 的 MCP extension 直接读取该文件。`enabled`、`exposure`、`toolExposure`、`timeout` 与 server 定义保存在一起，修改后由 `McpService` 写回该文件。
 
-项目级 MCP 条目的迁移记录写在 `preferences.mcp.migrations`，字段与 skills 的迁移记录一致。
-
 ## 5. 服务端模块
 
 | 模块 | 职责 |
 |---|---|
 | `ResourceRegistry` | 汇总发现结果、合并同名项、应用启停过滤、收集诊断 |
-| `SkillService` | 扫描 Built-in、Global、Workspace 与 External 来源，提供列表与迁移 |
+| `SkillService` | 扫描 Built-in、Global 与 Workspace 来源，提供列表 |
 | `McpService` | 读取 `pi mcp list --json` 的结果，写启用状态，监听配置变化，重载空闲 Session |
 | `createResourceLoader()` | 由 `AgentService` 抽出，供 Session、预览与 Settings 共用 |
 
 - `ResourceRegistry` 的行字段统一为 `name`、`kind`、`scope`、`source`、`enabled`、`location`、`diagnostics`。
 - Skill 的 `location` 是目录，MCP server 的 `location` 是启动命令或 URL。
 - `SkillService` 使用 `skillsOverride` 回调同时保存完整列表与实际生效列表。
-- `SkillService` 用 `loadSkillsFromDir()` 扫描 External 来源，结果只进入列表。
 
 ## 6. 加载与生效
 
@@ -226,10 +211,9 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 2. Global skills：复选框、名称、描述、来源标记、路径、查看正文。
 3. Workspace skills：顶部 Workspace 选择器，默认当前 Workspace，行结构与 Global 相同。
 
-来源标记取 `Built-in`、`Managed`、`External`、`Not loaded`，状态取 `Enabled`、`Disabled`、`Explicit only`、`Migrated`。
+来源标记取 `Built-in` 与 `Managed`，状态取 `Enabled`、`Disabled` 与 `Explicit only`。
 
 - Built-in 行只提供启用与查看，没有编辑与删除。
-- `Not loaded` 行不出现复选框，只提供 Migrate。
 - 页面顶部显示启用 skill 的 description 常驻长度与估算 token。
 - 正文预览由服务端读取，复用现有 Markdown 组件。
 - 创建与编辑通过 Terminal 完成，页面给出目录路径。
@@ -243,8 +227,6 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - exposure 以只读文本展示。
 - 页面不提供添加、编辑、删除与 OAuth 登录按钮，这些操作通过 `pi-ark mcp` 命令完成。
 - 需要登录的行显示 `Needs sign-in` 与命令 `pi-ark mcp login <server>`。
-- Project 来源的行显示 `Project` 与 `Not loaded`，不提供启用开关。
-- 项目级条目的迁移入口在 `pi-ark mcp` 子命令，界面显示来源与状态。
 - 浏览器未安装时，打开启用开关触发自动安装，行内显示进度与结果。
 - 连接状态取 `Starting`、`Connected`、`Needs sign-in`、`Failed`、`Disabled`。
 - 页面提供 `Refresh` 按钮，重新执行 `pi-ark mcp list --json` 更新列表与状态。
@@ -257,7 +239,6 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 |---|---|
 | `GET /api/skills?workspaceId=` | 返回 Built-in、Global、Workspace 三段列表、来源、状态与诊断 |
 | `PUT /api/skills/selection` | 保存 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace` |
-| `POST /api/skills/migrate` | 复制 External 来源到目标作用域并写入迁移记录 |
 | `POST /api/skills/reload` | 重建 loader 并重新加载空闲 Session |
 | `GET /api/mcp?workspaceId=` | 返回 server 列表、状态、工具数量与诊断 |
 | `PUT /api/mcp/servers/:name/state` | 保存启用状态 |
@@ -280,12 +261,8 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 
 1. 抽取 `createResourceLoader()`，加入 `additionalSkillPaths` 与 `skillsOverride` 支持。
 2. 增加 `SkillService` 与 Skills 页面，覆盖 Built-in、Global、Workspace 三段。
-3. 增加 External 来源扫描与迁移流程。
-4. 挂载 `createMcpExtension` 与 `createCodemodeExtension`，初始化 `mcp.json`。
-5. 增加 MCP 列表与启用开关、`pi-ark mcp` 命令透传、手动刷新、浏览器自动安装与推荐卡片。
-6. 加入 `browser` 内置 skill，与 MCP 页面联动显示依赖状态。
-7. 更新 `docs/product-and-interaction.md`、`docs/architecture.md`、`docs/user-guide.md` 与 `docs/index.md`。
+3. 挂载 `createMcpExtension` 与 `createCodemodeExtension`，初始化 `mcp.json`。
+4. 增加 MCP 列表与启用开关、`pi-ark mcp` 命令透传、手动刷新、浏览器自动安装与推荐卡片。
+5. 加入 `browser` 内置 skill，与 MCP 页面联动显示依赖状态。
+6. 更新 `docs/product-and-interaction.md`、`docs/architecture.md`、`docs/user-guide.md` 与 `docs/index.md`。
 
-## 13. 待定问题
-
-- 项目级条目迁移命令的具体形态。
