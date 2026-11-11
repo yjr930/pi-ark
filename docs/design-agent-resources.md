@@ -11,6 +11,7 @@
 - 浏览器能力通过 MCP server 提供，内置一份 `playwright` server 配置，由用户控制启用。
 - 系统自带 skill 与 MCP server 的启用状态可在 Settings 页面修改，修改后对后续 Session 生效。
 - 识别 pi 的其他 skill 来源，并支持把可用 skill 迁入 pi-ark 管理目录。
+- 用户在 Settings 中添加、编辑、删除自己的 MCP server，支持 stdio 与 HTTP 两类。
 
 ## 2. 资源模型
 
@@ -32,6 +33,14 @@
 | External | Workspace | `<workspace>/.pi/skills/`、`<workspace>/.agents/skills/`、祖先目录的 `.agents/skills/` | 否 | 否，仅可迁移 |
 
 Built-in 与 User 来源由 pi-ark 管理，External 来源由 pi 或用户其他工具管理。
+
+### 2.3 MCP server 来源
+
+| 来源 | 存放位置 | 管理方式 |
+|---|---|---|
+| Built-in | `PI_ARK_AGENT_DIR/mcp.json` 的 `playwright` 条目 | pi-ark 初始化，用户只改启用与 exposure |
+| User | `PI_ARK_AGENT_DIR/mcp.json` 的其他条目 | pi-ark 提供新建、编辑、删除与连接测试 |
+| Project | `<workspace>/.pi/mcp.json` | 识别展示，当前不参与加载 |
 
 ## 3. 目录与发布布局
 
@@ -75,13 +84,15 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - 停用清单保存时按当前扫描结果归一化，丢弃已不存在的名称。
 - 启用状态按 Workspace ID 存储，Workspace 移除后停用记录保留，重新注册同名 Workspace 时行为可预期。
 
+MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 的 MCP extension 直接读取该文件。`enabled`、`exposure`、`toolExposure`、`timeout` 与 server 定义保存在一起，修改后由 `McpService` 写回该文件。
+
 ## 5. 服务端模块
 
 | 模块 | 职责 |
 |---|---|
 | `ResourceRegistry` | 汇总发现结果、合并同名项、应用启停过滤、收集诊断 |
 | `SkillService` | 扫描 Built-in、Global、Workspace 与 External 来源，提供列表与迁移 |
-| `McpService` | 生成与读写 `mcp.json`，管理内置 `playwright` server，报告连接状态 |
+| `McpService` | 读写 `mcp.json`，管理内置与用户 server，提供新建、编辑、删除、连接测试与状态报告 |
 | `createResourceLoader()` | 由 `AgentService` 抽出，供 Session、预览与 Settings 共用 |
 
 - `ResourceRegistry` 的行字段统一为 `name`、`kind`、`scope`、`source`、`enabled`、`location`、`diagnostics`。
@@ -123,9 +134,20 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - 脚本失败时保留部分输出，按 `Script error` 调整参数后重试。
 - 工具不可用时，先确认 `playwright` server 已启用、浏览器运行时已安装。
 
-## 8. MCP 接入：浏览器能力
+## 8. MCP 接入
 
-### 8.1 内置 server 定义
+### 8.1 配置模型
+
+`PI_ARK_AGENT_DIR/mcp.json` 是 MCP server 的唯一配置文件。
+
+- stdio server 使用 `command`、`args`、`env`、`cwd`。
+- HTTP server 使用 `url`、`headers`、`oauth`。
+- 两类 server 都支持 `timeout`、`enabled`、`exposure`、`toolExposure` 与 `description`。
+- `env` 与 `headers` 的值支持 `${VAR}` 引用环境变量，也支持 `!command` 形式的取值命令。
+- server 名称只允许字母、数字、`_` 与 `-`。
+- SSE 传输不受支持。
+
+### 8.2 内置 server 定义
 
 `PI_ARK_AGENT_DIR/mcp.json` 由 pi-ark 初始化为以下内容，`enabled` 与 `exposure` 由 Settings 页面修改。
 
@@ -147,7 +169,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - 默认 `enabled: false`，用户首次启用时进入浏览器运行时检查。
 - `exposure` 默认 `codemode`，模型通过脚本调用工具，工具声明不常驻请求。
 
-### 8.2 工具暴露
+### 8.3 工具暴露
 
 `@playwright/mcp` 0.0.85 提供 61 个 `browser_*` 工具。首版决定整个 `playwright` server 使用 `codemode` 暴露：
 
@@ -155,7 +177,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - 模型按 browser skill 的指导写脚本，通过 `tools.mcp__playwright__browser_*` 调用工具。
 - `direct` 与 `toolExposure` 方案作为备选，首版不采用。
 
-### 8.3 浏览器运行时
+### 8.4 浏览器运行时
 
 - 浏览器二进制不进入 pi-ark 发布包，安装到服务用户的 `~/.cache/ms-playwright`。
 - 用户在 Settings 启用 `playwright` server 时，Server 检查缓存目录与浏览器版本。
@@ -165,7 +187,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - 安装失败时保留日志与重试按钮，server 保持停用。
 - Settings 页面在开始前展示下载体积与目标目录。
 
-### 8.4 截图与结果
+### 8.5 截图与结果
 
 - `browser_take_screenshot` 不带 `filename` 时把图片作为 image result 返回，并把文件写入输出目录。
 - `browser_take_screenshot` 带 `filename` 时把图片保存到指定文件，返回文件结果。
@@ -173,7 +195,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - pi-ark 的 Web 端已经能渲染 tool result 中的图片，点击可以放大。
 - 页面正文与快照文本按现有 tool result 展示，长文本保留折叠。
 
-### 8.5 安装流程中的推荐步骤
+### 8.6 安装流程中的推荐步骤
 
 - 安装器完成后输出提示，引导用户到 Settings 启用浏览器能力。
 - Web 首次登录后，Settings 的 MCP 页面显示推荐卡片：安装浏览器并启用 `playwright` server。
@@ -203,8 +225,21 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 页面分两段：
 
 1. Built-in servers：`playwright` 的推荐标记、启用开关、exposure 选择、浏览器运行时状态、安装按钮。
-2. User servers：名称、命令或 URL、启用开关、连接状态、工具数量、诊断。
+2. User servers：server 列表与 `Add server` 按钮。
 
+User server 列表的每行包含名称、类型（stdio 或 HTTP）、命令或 URL、启用开关、连接状态、工具数量、诊断，以及编辑与删除操作。
+
+Add server 表单字段：
+
+- 名称、类型、`description`。
+- stdio：`command`、`args`、`env`、`cwd`。
+- HTTP：`url`、`headers`。
+- 通用：`enabled`、`exposure`、`timeout`。
+
+- 保存前校验名称字符、必填字段与名称冲突。
+- `env` 与 `headers` 的 `${VAR}` 引用原样保存，界面提示变量需要在服务环境中存在。
+- 编辑后 Server 重建 loader 并重新连接该 server。
+- 删除用户 server 需要确认，内置 `playwright` 不提供删除。
 - 连接状态取 `Starting`、`Connected`、`Needs sign-in`、`Failed`、`Disabled`。
 - 浏览器运行时状态取 `Not installed`、`Installing`、`Installed`、`Failed`，并展示目标目录。
 - 未安装时提供 `Install browser` 按钮，开始前展示下载体积，安装中显示进度，失败时显示错误与 `Retry`。
@@ -220,13 +255,19 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 | `POST /api/skills/migrate` | 复制 External 来源到目标作用域并写入迁移记录 |
 | `POST /api/skills/reload` | 重建 loader 并重新加载空闲 Session |
 | `GET /api/mcp?workspaceId=` | 返回 Built-in 与 User server、状态、工具数量与诊断 |
+| `POST /api/mcp/servers` | 新建用户 server |
+| `PUT /api/mcp/servers/:name` | 保存 server 定义、启用状态与 exposure |
+| `DELETE /api/mcp/servers/:name` | 删除用户 server |
+| `POST /api/mcp/servers/:name/test` | 测试连接并返回工具列表与诊断 |
 | `GET /api/mcp/browser` | 返回浏览器安装状态、版本、目录与安装日志 |
-| `PUT /api/mcp/servers` | 保存 server 的启用状态与 exposure |
 | `POST /api/mcp/install-browser` | 执行浏览器运行时安装并返回结果 |
 
 ## 11. 诊断与升级
 
 - `mcp.json` 解析失败、server 连接失败、浏览器缺失时，诊断进入 Settings 页面与 Session 状态提示。
+- 用户 server 的命令无效、连接超时或认证需要登录时，诊断进入该 server 的行内提示。
+- server 名称与已有项冲突时拒绝保存。
+- 编辑或删除 server 后，Server 重建 loader 并重新连接。
 - `codemode` 未启用而 server 使用 `codemode` exposure 时，界面提示工具不可达。
 - Skill 名称冲突保留先发现的项，冲突项进入诊断。
 - 同名冲突下停用只作用于胜出的项。
@@ -239,10 +280,12 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 2. 增加 `SkillService` 与 Skills 页面，覆盖 Built-in、Global、Workspace 三段。
 3. 增加 External 来源扫描与迁移流程。
 4. 挂载 `createMcpExtension` 与 `createCodemodeExtension`，初始化 `mcp.json`。
-5. 增加 MCP 页面、浏览器运行时自动安装任务、安装器提示与安装推荐卡片。
+5. 增加 MCP 页面：内置 `playwright` 的安装与推荐卡片、用户 server 的增删改查与连接测试。
 6. 加入 `browser` 内置 skill，与 MCP 页面联动显示依赖状态。
 7. 更新 `docs/product-and-interaction.md`、`docs/architecture.md`、`docs/user-guide.md` 与 `docs/index.md`。
 
 ## 13. 待定问题
 
-- User MCP server 的添加与编辑是否在首版提供。
+- OAuth 登录在 Web 界面如何完成。
+- `env` 与 `headers` 中密钥的存储方式。
+- 项目级 `.pi/mcp.json` 是否在界面展示。
