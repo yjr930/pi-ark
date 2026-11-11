@@ -178,7 +178,8 @@ try {
   const changedParentConfiguration = { ...configuration, model: { ...model, id: "different-parent-model" }, tools: ["read_pi_ark_link"], systemPromptAppend: "Different parent instructions" };
   const repeatInput = { ...taskInput("repeat-child"), sessionId: first.sessionId };
   await assert.rejects(agents.subagents.run(workspace, parentSession, configuration, "duplicate-target", [repeatInput, repeatInput]), /same child Session twice/);
-  await assert.rejects(agents.subagents.run(workspace, parentSession, configuration, "unknown-target", [{ ...repeatInput, sessionId: crypto.randomUUID() }]), /existing child Session/);
+  await assert.rejects(agents.subagents.run(workspace, parentSession, configuration, "unknown-target", [{ ...repeatInput, sessionId: crypto.randomUUID() }]), /omit sessionId to create a new child Session/);
+  await assert.rejects(agents.subagents.run(workspace, parentSession, configuration, "placeholder-target", [{ ...repeatInput, sessionId: "none" }]), /Unknown child Session "none"; omit sessionId to create a new child Session/);
   const repeated = agents.subagents.run(workspace, parentSession, changedParentConfiguration, "repeat-child", [repeatInput], undefined, (run) => progress.push(structuredClone(run)));
   await waitFor(() => gates.has("repeat-child"), "existing child receives another delegation");
   assert.equal(session(first.sessionId), originalRuntime);
@@ -295,9 +296,9 @@ try {
   await assert.rejects(agents.prompt(workspace, invalidChild.sessionId, "interfere after reference failure"), /managed by its parent/);
 
   const parentB = await agents.create(workspace); const parentC = await agents.create(workspace);
-  await assert.rejects(agents.subagents.run(workspace, session(parentB.id), configuration, "wrong-parent", [repeatInput]), /existing child Session/);
+  await assert.rejects(agents.subagents.run(workspace, session(parentB.id), configuration, "wrong-parent", [repeatInput]), /omit sessionId to create a new child Session/);
   const otherWorkspace = { id: "other-workspace", name: "Other Workspace", path: join(directory, "other-workspace") };
-  await assert.rejects(agents.subagents.run(otherWorkspace, parentSession, configuration, "wrong-workspace", [repeatInput]), /existing child Session/);
+  await assert.rejects(agents.subagents.run(otherWorkspace, parentSession, configuration, "wrong-workspace", [repeatInput]), /omit sessionId to create a new child Session/);
   for (const id of [parentB.id, parentC.id]) session(id).sessionManager.appendMessage({ role: "user", content: "Parent request for global parallelism", timestamp: Date.now() });
   maximumActive = 0;
   const globalRuns = [parent.id, parentB.id, parentC.id].map((id, index) => agents.subagents.run(workspace, session(id), configuration, `global-${index}`, Array.from({ length: 4 }, (_, taskIndex) => taskInput(`global-${index}-${taskIndex}`))));

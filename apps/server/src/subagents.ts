@@ -94,7 +94,7 @@ export class SubagentService {
       if (input.sessionId === undefined) continue;
       if (targets.has(input.sessionId)) throw new Error("Cannot delegate to the same child Session twice in one call");
       const source = this.store.findTask(workspace, input.sessionId);
-      if (!source || source.run.parentSessionId !== parent.sessionId) throw new Error("Target must be an existing child Session of this parent in this Workspace");
+      if (!source || source.run.parentSessionId !== parent.sessionId) throw new Error(`Unknown child Session "${input.sessionId}"; omit sessionId to create a new child Session`);
       if (source.task.deleted || source.run.parentDeleted) throw new Error("Cannot delegate to a deleted Session");
       if (this.controls.has(this.key(workspace, input.sessionId)) || isSubagentActive(source.task.state)) throw new Error("The child Session already has an active delegation");
       targets.set(input.sessionId, source);

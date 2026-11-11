@@ -206,7 +206,7 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 
 ### Subagent
 
-普通 Session 通过 `subagent` 工具委派任务。输入为 `tasks` 数组，每个任务包含 `title`、`task`、`expectedResult`，以及可选的 `sessionId` 和 `references`（`link`、`purpose` 和可选的 `leafEntryId`）。省略 `sessionId` 时创建子 Session，提供 `sessionId` 时继续当前父 Session 在当前 Workspace 中已有的子 Session。工具结果返回每个任务的 `sessionId`，供后续委派使用。一次委派支持 1–8 个任务，每个父 Session 最多同时执行 4 个任务，服务实例最多同时执行 8 个任务。
+普通 Session 通过 `subagent` 工具委派任务。输入为 `tasks` 数组，每个任务包含 `title`、`task`、`expectedResult`，以及可选的 `sessionId` 和 `references`（`link`、`purpose` 和可选的 `leafEntryId`）。省略 `sessionId` 时创建子 Session，提供 `sessionId` 时继续当前父 Session 在当前 Workspace 中已有的子 Session。新建子 Session 时应当不写 `sessionId` 属性，`none`、`__new__` 这类占位值会被拒绝并返回提示。工具结果返回每个任务的 `sessionId`，供后续委派使用。一次委派支持 1–8 个任务，每个父 Session 最多同时执行 4 个任务，服务实例最多同时执行 8 个任务。
 
 `SubagentService` 使用进程内 SDK 为每个任务创建独立的持久化 Session，并复用 `AgentService` 的 runtime registry。创建与恢复使用相同的进行中 Promise，网页打开子 Session 时复用同一个 runtime。子 Session 继承父 Session 当次委派的配置（模型、thinking level 和 Global system prompt append），并追加任务角色说明。子 Session 使用独立的消息上下文，Workspace 文件目录由父子 Session 共享。父子 Session 在新建和恢复时统一启用文件工具（`read`、`bash`、`edit` 和 `write`）以及 `read_pi_ark_link`；父 Session 还启用 `subagent`，子 Session 的后续委派由父 Session 组织。再次委派复用已有的 runtime 与上下文，并沿用子 Session 自身的配置；每轮委派创建独立 run，历史的来源与结果链接继续保留。异步打开 Session 之前预留执行 control，校验目标的父子归属与活动状态；同一子 Session 的新轮次在旧轮次的清理之后继续保留自己的 control。对于已有委派记录且尚待 SDK 写出首条 assistant message 的子 Session，网页按需创建对应的 runtime，后续任务执行复用该 runtime。
 
