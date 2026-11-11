@@ -10,3 +10,4 @@ apps/*/dist/
 *.crt
 .DS_Store
 /test/demo_workspace/
+AGENTS.md
