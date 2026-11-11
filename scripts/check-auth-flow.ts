@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setImmediate as wait } from "node:timers/promises";
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { AuthService, hashPassword, instanceCookieSettings } from "../apps/server/src/auth.ts";
 import { AuthFlowService } from "../apps/server/src/auth-flows.ts";
 import { SettingsService } from "../apps/server/src/settings.ts";
 
@@ -57,4 +62,62 @@ const otherProvider = replacementService.start("anthropic");
 assert.equal(replacementService.get(replacement.id).status, "pending");
 replacementService.cancel(replacement.id);
 replacementService.cancel(otherProvider.id);
+
+function replyStub() {
+  const state: { cookie?: { name: string; value: string; options: Record<string, unknown> } } = {};
+  const reply = {
+    setCookie(name: string, value: string, options: Record<string, unknown>) { state.cookie = { name, value, options }; },
+    clearCookie() { state.cookie = undefined; },
+  } as unknown as FastifyReply;
+  return { reply, state };
+}
+
+function requestStub(token: string): FastifyRequest {
+  return { cookies: { [instanceCookieSettings().name]: token } } as unknown as FastifyRequest;
+}
+
+const authDirectory = await mkdtemp(join(tmpdir(), "pi-ark-auth-"));
+try {
+  const sessionFile = join(authDirectory, "auth-sessions.json");
+  const passwordHash = await hashPassword("correct horse battery staple");
+  const auth = new AuthService("ark", passwordHash, sessionFile);
+  await auth.initialize();
+  const failedLogin = replyStub();
+  assert.equal(await auth.login("ark", "wrong password", failedLogin.reply), false);
+  assert.equal(failedLogin.state.cookie, undefined);
+  const login = replyStub();
+  assert.equal(await auth.login("ark", "correct horse battery staple", login.reply), true);
+  assert.ok(login.state.cookie);
+  assert.equal(login.state.cookie.options.maxAge, 24 * 60 * 60);
+  const token = login.state.cookie.value;
+  assert.equal(auth.authenticated(requestStub(token)), true);
+  assert.equal((await readFile(sessionFile, "utf8")).includes(token), false);
+  if (process.platform !== "win32") assert.equal((await stat(sessionFile)).mode & 0o777, 0o600);
+
+  const restarted = new AuthService("ark", passwordHash, sessionFile);
+  await restarted.initialize();
+  assert.equal(restarted.authenticated(requestStub(token)), true);
+
+  const changedPasswordHash = await hashPassword("replacement password");
+  const changedPassword = new AuthService("ark", changedPasswordHash, sessionFile);
+  await changedPassword.initialize();
+  assert.equal(changedPassword.authenticated(requestStub(token)), false);
+
+  const replacementLogin = replyStub();
+  assert.equal(await changedPassword.login("ark", "replacement password", replacementLogin.reply), true);
+  const replacementToken = replacementLogin.state.cookie!.value;
+  assert.equal(changedPassword.authenticated(requestStub(replacementToken)), true);
+  await changedPassword.logout(requestStub(replacementToken), replyStub().reply);
+  const afterLogout = new AuthService("ark", changedPasswordHash, sessionFile);
+  await afterLogout.initialize();
+  assert.equal(afterLogout.authenticated(requestStub(replacementToken)), false);
+
+  await writeFile(sessionFile, JSON.stringify({ version: 0, fingerprint: "obsolete", sessions: {} }), { mode: 0o600 });
+  const recovered = new AuthService("ark", changedPasswordHash, sessionFile);
+  await recovered.initialize();
+  assert.equal(recovered.authenticated(requestStub(replacementToken)), false);
+} finally {
+  await rm(authDirectory, { recursive: true, force: true });
+}
+
 console.log("auth flow checks passed");

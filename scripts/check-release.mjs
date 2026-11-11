@@ -218,6 +218,9 @@ try {
   await terminal(selected.id);
   await runNode("restart", [cli, "restart"]);
   await waitHealth(true);
+  const persistedAuth = await http("/api/auth/session");
+  assert.equal(persistedAuth.status, 200, "Existing auth cookie must remain valid after restart");
+  assert.equal(JSON.parse(persistedAuth.text).username, username);
   await login();
   assert.equal((await json(`${api}/notebook`)).content, notebook);
   await runNode("stop", [cli, "stop"]);

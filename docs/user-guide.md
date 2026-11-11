@@ -160,7 +160,7 @@ Vite 默认使用 `http://localhost:5173`，并将 API 和 WebSocket 请求转�
 
 日常迭代使用 `<next-version>-dev.<iteration>` 版本。双实例部署中的主力开发版从 `/opt/pi-ark-dev/releases/<dev-version>` 运行；备用正式版从 `/opt/pi-ark-backup/releases/<release-version>` 运行。日常流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起安装时，按以下顺序完成自替换：
 
-1. 构建已提交源码的安装包，执行安装包的 `verify --release`，并使用独立的配置与数据目录确认安装包可以启动、`/api/health` 正常且实际运行版本符合预期。源码工作区提供 `npm run check:release -- "path/to/extracted-artifact"` 完成独立的安装与启动检查。
+1. 构建已提交源码的安装包，执行安装包的 `verify --release`，并使用独立的配置与数据目录确认安装包可以启动、`/api/health` 正常且实际运行版本符合预期。源码工作区提供 `npm run check:release -- "path/to/extracted-artifact"` 完成独立的安装、启动、重启与认证保持检查。
 2. 确认目标实例的 prefix、data directory、service account、listen 配置和恢复版本，沿用现有实例参数调用安装器。
 3. 安装器在切换版本与写入真实 service unit 前，使用 `systemd-analyze verify` 验证候选 unit；写入后执行 `daemon-reload`，确认 `LoadState=loaded`。
 4. 使用安装器的 `--deferred-restart <seconds>` 登记 transient systemd timer。安装器返回后，确认目标版本路径、保留的配置与 timer 的登记结果，向用户报告检查结果及重启安排。
@@ -219,7 +219,7 @@ npm start
 
 ## 登录与退出
 
-登录页使用初始化时配置的用户名和密码。登录成功后，浏览器获得 Secure、HttpOnly 和 SameSite=Strict cookie。
+登录页使用初始化时配置的用户名和密码。登录成功后，浏览器获得 Secure、HttpOnly 和 SameSite=Strict cookie。登录 session 以 token 哈希保存在 `PI_ARK_HOME/auth-sessions.json`，服务重启后当前浏览器继续使用已有登录，不需要重新输入密码。
 
 退出入口位于 Settings → Global → Account。退出后，当前浏览器 cookie 失效并返回登录页。
 
@@ -253,7 +253,7 @@ $env:PI_ARK_NEW_PASSWORD = "new-password"
 node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" password --no-restart
 ```
 
-新密码至少包含 6 个字符。使用 `--no-restart` 后，需要在后续维护窗口重启服务，使内存中的认证服务读取新摘要。
+新密码至少包含 6 个字符。使用 `--no-restart` 后，需要在后续维护窗口重启服务。新的 password hash 会使此前的 auth sessions 失效，浏览器需要重新登录。
 
 ## Workspace 操作
 
@@ -657,7 +657,7 @@ Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-A
 
 Web 更新或回退的响应返回后，Server 正常关闭。Portable 后台管理器或 Linux 系统安装的 supervisor 从当前 release 重新启动，并请求 `/api/health`；启动检查失败时，管理器恢复 previous release。
 
-Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开。
+Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开；认证 cookie 在 service 重启后继续有效。
 
 ### Account
 
@@ -824,6 +824,7 @@ Global data：
 ```text
 PI_ARK_HOME/
   config.json
+  auth-sessions.json
   tls/
   pi-agent/
     auth.json
@@ -847,7 +848,7 @@ Workspace data：
   sessions/
 ```
 
-备份时应同时保存 `PI_ARK_HOME` 和需要保留的 Workspace `.pi-ark` 目录。`auth.json`、TLS private key 和密码摘要属于敏感数据。
+备份时应同时保存 `PI_ARK_HOME` 和需要保留的 Workspace `.pi-ark` 目录。`auth.json`、`auth-sessions.json`、TLS private key 和密码摘要属于敏感数据。
 
 ## 常见问题
 

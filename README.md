@@ -13,7 +13,7 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 - 通过 xterm.js 和 node-pty 提供以 Workspace 为 cwd 的多 Tab Terminal，支持跨平台 shell 配置与中文字体，切换页面时保留终端界面，浏览器刷新后重连 Server 当前运行期间保留的进程和输出。
 - 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、Pi-Ark release update/rollback、全局 system prompt 和文件浏览设置。
 - 提供桌面可调整侧栏、移动端 drawer、五种 theme、全局 reasoning visibility、Session group、Workspace Notebook、permalink 和内部链接。
-- 使用 HTTPS、scrypt password、Secure cookie 和服务端 Workspace path guard。
+- 使用 HTTPS、scrypt password、持久化登录 session、Secure cookie 和服务端 Workspace path guard。
 
 ## 环境要求
 

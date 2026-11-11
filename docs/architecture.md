@@ -70,7 +70,7 @@ docs/               产品、架构、使用和集成文档
 |---|---|---|
 | Server composition | `apps/server/src/index.ts` | 启动、认证 hook、HTTP/WebSocket routes、静态资源和 shutdown |
 | Global config | `apps/server/src/config.ts` | 配置解析、data directory、共享 preferences 和串行原子写入 |
-| Authentication | `apps/server/src/auth.ts` | scrypt password、内存 session token 和 cookie |
+| Authentication | `apps/server/src/auth.ts` | scrypt password、持久化 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
 | Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments、自带工具注册和广播 |
 | Agent resources | `apps/server/src/resource-loader.ts` | 三个 skill 目录、`skillsOverride`、MCP 与 codemode extension 和 Session resource loader |
@@ -127,7 +127,7 @@ App 从 `/api/ui` 读取 `markdownLineBreaks`，并通过 React Context 将该�
 
 ## Authentication
 
-Password 使用 scrypt 保存为 `scrypt$salt$digest`。登录成功后，AuthService 生成随机 token，并在内存 Map 中记录 24 小时有效期。
+Password 使用 scrypt 保存为 `scrypt$salt$digest`。登录成功后，AuthService 生成随机 token，将 token 的 SHA-256 哈希与 24 小时后的 expiry 写入 `PI_ARK_HOME/auth-sessions.json`。文件使用 `0o600`，并通过同目录临时文件与 rename 原子替换。Server 启动时在注册 routes 前读取该文件，因此服务重启后浏览器已有 cookie 继续有效。
 
 Cookie 属性如下：
 
@@ -137,7 +137,7 @@ Cookie 属性如下：
 - Path `/`
 - Max-Age 24 小时
 
-每次成功认证的请求会延长内存有效期。服务进程重启会清空登录 session，浏览器需要重新登录。
+登录 session 使用固定的 24 小时有效期，与 cookie 的 Max-Age 一致。Logout 删除当前 token 并立即持久化。文件同时保存当前 username 与 password hash 的指纹；密码或用户名变化后，启动时丢弃全部旧 session。文件损坏或版本不匹配时，AuthService 以空 session 集合启动并重写文件。
 
 Fastify `onRequest` hook 保护所有 `/api/` 和 `/ws/` 路径；health 和 login routes 保持公开。WebSocket upgrade 使用相同的 cookie 认证。
 
@@ -507,6 +507,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 |---|---|
 | `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、UI settings（`theme`、`hideReasoning` 和 `markdownLineBreaks`）和共享 preferences（提示词、Files、Terminal shell 与 Skills 停用清单） |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
+| `PI_ARK_HOME/auth-sessions.json` | 登录 token 的 SHA-256 哈希、expiry 与 credential fingerprint |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
 | `PI_ARK_AGENT_DIR/mcp.json` | MCP server 定义、`args`、`enabled`、`exposure`、`toolExposure`、`timeout` 与 `description` |
@@ -717,7 +718,7 @@ PTY 自然退出时发送 `exit`，随后继续保留 Tab 和连接；重新连�
 
 构建脚本在 staging directory 中执行 `npm ci --omit=dev --include=optional`，并在对应 runner 上从源码编译 native dependencies。CI 的开发依赖安装同样使用源码编译，使 PTY 的行为检查与原生安装包使用相同的工具链。Windows 的 runner 使用 Visual Studio 2022 与 Python 3.12，通过 Node 调用 npm 的 JavaScript 入口，通过系统的 tar 创建 zip 并展开 npm workspace junctions。安装包使用方需要 Node.js 22.19 或更新版本；编译所需的 Python 与 C++ 工具属于源码构建环境。Linux 的运行工具为 Bash 与 tar，默认系统安装使用 systemd；portable 使用当前用户的后台管理器。macOS 使用系统 Bash 与 tar，Windows 使用 Git for Windows 的 Git Bash 及系统内置的 PowerShell。
 
-`.github/workflows/release.yml` 在 `main` 或 `release/**` 分支发生 push 时执行原生构建，也支持 `workflow_dispatch`。每个 runner 解压实际 archive 后执行安装 smoke，覆盖带 Unicode 与空格的安装及数据路径、setup、HTTPS 登录、Files 预览与下载、Session API、PTY 命令输出、后台 start/restart/stop、release rollback 和数据保留。该 runner 完成 smoke 后上传可发布的 archive。`check-ci-command.mjs` 保存各个命令的输出到 `dist/native-ci/`，失败时生成包含错误内容的 Actions annotation，并将同一目录中的日志上传为诊断 artifact。每个命令默认在 10 分钟后超时，超时摘要保留最后的输出，随后停止该命令的进程树；`PI_ARK_CI_COMMAND_TIMEOUT_MS` 可以调整该时长。
+`.github/workflows/release.yml` 在 `main` 或 `release/**` 分支发生 push 时执行原生构建，也支持 `workflow_dispatch`。每个 runner 解压实际 archive 后执行安装 smoke，覆盖带 Unicode 与空格的安装及数据路径、setup、HTTPS 登录、Files 预览与下载、Session API、PTY 命令输出、后台 start/restart/stop、重启后的认证保持、release rollback 和数据保留。该 runner 完成 smoke 后上传可发布的 archive。`check-ci-command.mjs` 保存各个命令的输出到 `dist/native-ci/`，失败时生成包含错误内容的 Actions annotation，并将同一目录中的日志上传为诊断 artifact。每个命令默认在 10 分钟后超时，超时摘要保留最后的输出，随后停止该命令的进程树；`PI_ARK_CI_COMMAND_TIMEOUT_MS` 可以调整该时长。
 
 ### 正式发布的编排
 
@@ -749,6 +750,7 @@ System installer 默认使用以下布局：
   bin/pi-ark.cmd
 /var/lib/pi-ark/
   config.json
+  auth-sessions.json
   tls/
   pi-agent/
 /etc/systemd/system/pi-ark.service
@@ -792,7 +794,7 @@ Server 从 `apps/web/dist` 读取 Web assets。带 hash 的文件使用一年 im
 ## 安全说明
 
 - TLS key、credential、password hash 和 Workspace state 应由服务账号管理。
-- Auth session 保存在内存中，服务重启后浏览器需要重新登录。
+- Auth session 以 token 哈希保存在 `PI_ARK_HOME/auth-sessions.json`，服务重启后浏览器已有登录继续有效；Logout 和密码变更会使对应 session 失效。
 - API 和 WebSocket 共用认证 hook。
 - File API 使用 realpath 防止相对路径和 symlink 离开 Workspace；图片与下载 stream 从已打开并再次核对 Workspace 边界的 file descriptor 读取。
 - `.pi-ark` state 无法通过 Files API 读取。
@@ -824,7 +826,7 @@ npm run release:build
 
 `check:release-process` 使用隔离 Git repository、bare remote 和受控的 GitHub API 响应，检查构建来源、候选准备、源码修正、中断恢复、tag 冲突、候选安装包复用和正式交付清单；该命令包含在 `check:behavior` 中。
 
-`check:setup` 检查 setup 的参数与环境变量、TLS certificate、密码摘要与 HTTPS。`check:platform` 检查平台默认路径、release state、staging 与路径迁移。`check:release -- <artifact-dir>` 使用解压后的原生 artifact 执行 portable 安装 smoke；设置 `PI_ARK_SMOKE_ROLLBACK=1` 后还会覆盖版本切换与 rollback 的数据保留，Release workflow 使用该设置。
+`check:setup` 检查 setup 的参数与环境变量、TLS certificate、密码摘要与 HTTPS。`check:platform` 检查平台默认路径、release state、staging 与路径迁移。`check:release -- <artifact-dir>` 使用解压后的原生 artifact 执行 portable 安装 smoke，并确认服务重启后已有 auth cookie 仍有效；设置 `PI_ARK_SMOKE_ROLLBACK=1` 后还会覆盖版本切换与 rollback 的数据保留，Release workflow 使用该设置。
 
 `check:subagents` 使用真实 SDK Session 与受控模型响应，覆盖并发限制、图片引用、结果截取、历史分支、停止、删除、恢复与工具注册。`check:subagents-ui` 构建项目，并自动创建临时 HTTPS 实例，使用临时数据目录与独立端口执行任务面板和双向导航的 Chromium 检查。设置 `PI_ARK_CHECK_FULL_UI=1` 后，该临时实例还会执行现有的 `check:ui` 脚本。
 

@@ -7,7 +7,7 @@ import Fastify from "fastify";
 import { AgentService } from "./agents.js";
 import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveTerminalSettings, type TerminalSettings, type ArkUiSettings, type GlobalPreferences } from "./config.js";
+import { arkHome, ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveTerminalSettings, type TerminalSettings, type ArkUiSettings, type GlobalPreferences } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { McpService } from "./mcp.js";
 import { SkillService } from "./skills.js";
@@ -24,7 +24,8 @@ process.env.PI_CODING_AGENT_DIR = piArkAgentDir;
 const config = await loadConfig();
 const [key, cert] = await Promise.all([readFile(config.tls.keyPath), readFile(config.tls.certPath)]);
 const app = Fastify({ logger: true, https: { key, cert }, bodyLimit: 1024 * 1024 });
-const auth = new AuthService(config.auth.username, config.auth.passwordHash);
+const auth = new AuthService(config.auth.username, config.auth.passwordHash, join(arkHome, "auth-sessions.json"));
+await auth.initialize();
 const workspaces = new WorkspaceService(config.workspaces);
 const terminals = new TerminalService(workspaces);
 app.addHook("onClose", async () => terminals.dispose());
@@ -70,7 +71,7 @@ app.post<{ Body: { username?: string; password?: string } }>("/api/auth/login", 
   return { authenticated: true };
 });
 app.post("/api/auth/logout", async (request, reply) => {
-  auth.logout(request, reply);
+  await auth.logout(request, reply);
   return { authenticated: false };
 });
 app.get("/api/auth/session", async () => ({ authenticated: true, username: config.auth.username }));

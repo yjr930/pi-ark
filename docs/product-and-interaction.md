@@ -16,7 +16,7 @@ Pi-Ark 是面向个人或受控团队环境的 pi coding agent Web UI。服务�
 - 破坏性操作使用确认对话框，并明确说明将保留或删除的数据。
 - 长内容和工具执行过程逐层折叠，最终回答与重要状态保持可见。
 - URL 保存当前页面、Workspace、Session 和目标 Message ID，使浏览器刷新和分享链接可以恢复位置。
-- 同一个 hostname 可以通过不同的 base path 提供多个实例；每个实例拥有独立的 Global settings、provider credentials 和登录状态。
+- 同一个 hostname 可以通过不同的 base path 提供多个实例；每个实例拥有独立的 Global settings、provider credentials 和登录状态。登录状态保存在实例的 Global data，服务重启后浏览器已有登录继续有效。
 - 多个实例可以共享 Workspace `.pi-ark` state；用户在同一时刻从一个实例操作指定的 Session。
 - 所有列表、选择器、对话框和确认操作使用 Pi-Ark 组件，并保持一致的紧凑尺寸。
 
