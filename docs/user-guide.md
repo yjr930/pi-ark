@@ -676,7 +676,7 @@ npm run release:prepare -- --version "$VERSION" --source <已确认的 Git ref>
 npm run release:status -- --version "$VERSION" --watch
 ```
 
-状态命令显示各个平台的构建步骤与 Actions 链接。失败时，命令直接输出失败的 job 与具体的命令错误。当前流程完成后，命令结束轮询；再次执行相同命令可以继续查询。查询使用公开的 GitHub API，也可以通过 `GH_TOKEN` 或 `GITHUB_TOKEN` 提供 API token；Git push 沿用已有的 Git 配置。有 token 时默认每 30 秒查询，匿名查询时默认每 180 秒查询，`--interval <秒>` 可以调整间隔。
+状态命令显示各个平台的构建步骤与 Actions 链接。失败时，命令直接输出失败的 job 与具体的命令错误。CI 命令默认在 10 分钟后超时，错误摘要会保留该命令最后的输出。当前流程完成后，命令结束轮询；再次执行相同命令可以继续查询。查询使用公开的 GitHub API，也可以通过 `GH_TOKEN` 或 `GITHUB_TOKEN` 提供 API token；Git push 沿用已有的 Git 配置。有 token 时默认每 30 秒查询，匿名查询时默认每 180 秒查询，`--interval <秒>` 可以调整间隔。
 
 构建与安装 smoke 完成后，每个平台上传对应的候选安装包。正式发布将复用该次构建的安装包。
 
@@ -691,7 +691,7 @@ npm run release:prepare -- --version "$VERSION" --source <新的已确认的 Git
 npm run release:status -- --version "$VERSION" --watch
 ```
 
-`--refresh` 为同一目标版本生成后续的候选 commit，并以 fast-forward 推送。它保留旧候选的 Git 历史，新候选的文件内容对应新来源加正式版本更新。发生中断时，重复相同的命令或普通的 `prepare` 可以继续完成该次更新。正式 tag 创建后，该版本沿用已发布的来源；后续的源码修改进入下一个版本。
+`--refresh` 为同一目标版本生成后续的候选 merge commit，并以 fast-forward 推送。它保留旧候选与新来源的 Git 历史，新候选的文件内容对应新来源加正式版本更新。其他 checkout 可以通过候选分支恢复来源记录。发生中断时，重复相同的命令或普通的 `prepare` 可以继续完成该次更新。正式 tag 创建后，该版本沿用已发布的来源；后续的源码修改进入下一个版本。
 
 ### 发布正式安装包
 

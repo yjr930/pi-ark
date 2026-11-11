@@ -649,7 +649,7 @@ PTY 自然退出时发送 `exit`，随后继续保留 Tab 和连接；重新连�
 
 构建脚本在 staging directory 中执行 `npm ci --omit=dev --include=optional`，并在对应 runner 上从源码编译 native dependencies。CI 的开发依赖安装同样使用源码编译，使 PTY 的行为检查与原生安装包使用相同的工具链。Windows 的 runner 使用 Visual Studio 2022 与 Python 3.12，通过 Node 调用 npm 的 JavaScript 入口，通过系统的 tar 创建 zip 并展开 npm workspace junctions。安装包使用方需要 Node.js 22.19 或更新版本；编译所需的 Python 与 C++ 工具属于源码构建环境。Linux 的运行工具为 Bash 与 tar，默认系统安装使用 systemd；portable 使用当前用户的后台管理器。macOS 使用系统 Bash 与 tar，Windows 使用 Git for Windows 的 Git Bash 及系统内置的 PowerShell。
 
-`.github/workflows/release.yml` 在 `main` 或 `release/**` 分支发生 push 时执行原生构建，也支持 `workflow_dispatch`。每个 runner 解压实际 archive 后执行安装 smoke，覆盖带 Unicode 与空格的安装及数据路径、setup、HTTPS 登录、Files 预览与下载、Session API、PTY 命令输出、后台 start/restart/stop、release rollback 和数据保留。该 runner 完成 smoke 后上传可发布的 archive。`check-ci-command.mjs` 保存各个命令的输出到 `dist/native-ci/`，失败时生成包含错误内容的 Actions annotation，并将同一目录中的日志上传为诊断 artifact。
+`.github/workflows/release.yml` 在 `main` 或 `release/**` 分支发生 push 时执行原生构建，也支持 `workflow_dispatch`。每个 runner 解压实际 archive 后执行安装 smoke，覆盖带 Unicode 与空格的安装及数据路径、setup、HTTPS 登录、Files 预览与下载、Session API、PTY 命令输出、后台 start/restart/stop、release rollback 和数据保留。该 runner 完成 smoke 后上传可发布的 archive。`check-ci-command.mjs` 保存各个命令的输出到 `dist/native-ci/`，失败时生成包含错误内容的 Actions annotation，并将同一目录中的日志上传为诊断 artifact。每个命令默认在 10 分钟后超时，超时摘要保留最后的输出，随后停止该命令的进程树；`PI_ARK_CI_COMMAND_TIMEOUT_MS` 可以调整该时长。
 
 ### 正式发布的编排
 
@@ -657,7 +657,7 @@ PTY 自然退出时发送 `exit`，随后继续保留 Tab 和连接；重新连�
 
 每个正式版本的状态保存在 `.tmp/release-process/<version>/state.json`，候选源码位于该目录下的 `source` Git worktree，Git 操作的临时目录位于 `tmp`。状态包含来源记录、固定的 source commit、release commit、分支与工作区。命令锁协调同一版本的准备和发布操作。`prepare` 在 `release/<version>` 分支更新项目与 workspace 的 package/lock 版本，再提交并推送候选。共享开发工作区保留当前的内容。
 
-候选需要修正时，`prepare --source <Git ref> --refresh` 使用新的已确认源码。候选 tree 等于新来源加 package 版本更新，后续 commit 追加在旧候选之后，并通过 `Pi-Ark-Source` trailer 记录来源。`pendingSource` 保存更新期间的来源与候选状态，完成后将旧记录保存在 `previous` 中。重复执行可以恢复 commit 或 push 中断；状态文件丢失时，命令从候选分支与来源 trailer 恢复记录。正式 tag 创建后，该版本继续沿用已发布的来源。
+候选需要修正时，`prepare --source <Git ref> --refresh` 使用新的已确认源码。候选 tree 等于新来源加 package 版本更新，后续的 merge commit 使用旧候选作为第一 parent，使用新来源作为第二 parent，并通过 `Pi-Ark-Source` trailer 记录来源。候选分支的 push 会携带来源 commit，其他 checkout 可以从该分支恢复来源。`pendingSource` 保存更新期间的来源与候选状态，完成后将旧记录保存在 `previous` 中。重复执行可以恢复 commit 或 push 中断；状态文件丢失时，命令从候选分支与来源 trailer 恢复记录。正式 tag 创建后，该版本继续沿用已发布的来源。
 
 `status` 通过 GitHub API 显示候选或正式 tag 的 run、job 和步骤，失败时读取 `Native CI command failed` annotation；`--watch` 在有 API token 时默认每 30 秒查询，匿名查询时默认每 180 秒查询，以适应公共 API 的查询频率。Git push 沿用当前 Git 配置，GitHub API 使用可选的 `GH_TOKEN` 或 `GITHUB_TOKEN`。正式发布的完成状态还会核对 Release 类型、tag 与完整的非空安装包清单。
 
@@ -762,6 +762,6 @@ npm run release:build
 
 `check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格。
 
-`check:terminal` 使用临时配置与实际 PTY，覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
+`check:terminal` 将对应的服务源码转为 JavaScript，再以独立 Node 进程使用临时配置与实际 PTY；该进程沿用安装版的 helper 启动方式，并在超时后清理进程树。该检查覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
 
 Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、Session 切换后的 draft/attachment/disclosure 恢复、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

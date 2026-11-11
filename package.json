@@ -1,6 +1,6 @@
 {
   "name": "pi-ark",
-  "version": "0.1.6-dev.3",
+  "version": "0.1.6-dev.4",
   "private": true,
   "description": "Workspace-oriented web interface for the pi coding agent",
   "type": "module",
@@ -28,7 +28,7 @@
     "release:prepare": "node scripts/release-process.mjs prepare",
     "release:status": "node scripts/release-process.mjs status",
     "release:publish": "node scripts/release-process.mjs publish",
-    "check:release-process": "node scripts/check-release-source.mjs && node scripts/check-release-candidate.mjs && node scripts/check-release-process.mjs",
+    "check:release-process": "node scripts/check-ci-command-check.mjs && node scripts/check-release-source.mjs && node scripts/check-release-candidate.mjs && node scripts/check-release-process.mjs",
     "start": "npm run start -w @pi-ark/server",
     "setup": "node scripts/setup.mjs",
     "check:terminal": "tsx scripts/check-terminal.ts",

@@ -410,8 +410,9 @@ try {
     assert.equal(current.version, refreshVersion);
     assert.equal(current.sourceCommit, confirmedSource);
     assert.equal(current.pendingSource, undefined);
-    assert.equal(await git("show", "-s", "--format=%P", current.releaseCommit), parent);
+    assert.deepEqual((await git("show", "-s", "--format=%P", current.releaseCommit)).split(" "), [parent, confirmedSource]);
     await git("merge-base", "--is-ancestor", parent, current.releaseCommit);
+    await git("merge-base", "--is-ancestor", confirmedSource, current.releaseCommit);
     assert.match(await git("show", "-s", "--format=%B", current.releaseCommit), new RegExp(`Pi-Ark-Source: ${confirmedSource}`));
     const differences = (await git("diff", "--name-only", confirmedSource, current.releaseCommit)).split("\n").filter(Boolean);
     assert.ok(differences.every((file) => files.includes(file)));
@@ -445,9 +446,40 @@ try {
   assert.equal((await exec("git", ["diff", "--cached"], { cwd: state.workspace, env, encoding: "utf8" })).stdout, candidateIndex);
   await exec("git", ["restore", "--staged", "--worktree", "package.json"], { cwd: state.workspace, env });
 
+  const existingMergePath = resolve(state.workspace, (await exec("git", ["rev-parse", "--git-path", "MERGE_HEAD"], { cwd: state.workspace, env, encoding: "utf8" })).stdout.trim());
+  await writeFile(existingMergePath, `${firstFix}\n`);
+  await assert.rejects(process.prepare({ version: refreshVersion, source: firstFix, refresh: true }), /尚待处理的 merge 状态/);
+  assert.equal(await readFile(existingMergePath, "utf8"), `${firstFix}\n`);
+  await rm(existingMergePath);
   await git("branch", "confirmed-ci-fix", firstFix);
+  assert.equal(await git("ls-remote", "--heads", "origin", "refs/heads/confirmed-ci-fix"), "");
+  await assert.rejects(exec("git", ["--git-dir", remote, "cat-file", "-e", `${firstFix}^{commit}`], { env }));
   state = await process.prepare({ version: refreshVersion, source: "confirmed-ci-fix", refresh: true });
   await assertRefreshed(state, firstFix, firstCandidate);
+
+  // Fetch only the candidate into a new clone; its unpublished local source must travel with the candidate.
+  const candidateClone = join(temporary, "candidate-only clone");
+  await exec("git", ["clone", "--no-local", "--no-tags", "--single-branch", "--branch", state.branch, remote, candidateClone], { env });
+  const cloneGit = async (...args) => (await exec("git", args, { cwd: candidateClone, env, encoding: "utf8" })).stdout.trimEnd();
+  assert.equal(await cloneGit("config", "--get", "remote.origin.fetch"), `+refs/heads/${state.branch}:refs/remotes/origin/${state.branch}`);
+  assert.equal(await cloneGit("for-each-ref", "--format=%(refname)", "refs/remotes/origin/main", "refs/remotes/origin/confirmed-ci-fix"), "");
+  assert.equal(await cloneGit("cat-file", "-t", firstFix), "commit");
+  await cloneGit("merge-base", "--is-ancestor", firstFix, state.releaseCommit);
+  await cloneGit("checkout", "--detach");
+  const previousApiSelection = { mode, selectedVersion, selectedCommit };
+  selectedVersion = refreshVersion;
+  selectedCommit = state.releaseCommit;
+  mode = "success";
+  try {
+    const recoveredFlow = createReleaseProcess({ repo: candidateClone, repository: "fixture/repository", env: { ...env, GH_TOKEN: "fixture-token" }, helper, log: (text) => output.push(text) });
+    assert.equal((await recoveredFlow.status({ version: refreshVersion })).success, true);
+    const recovered = await recoveredFlow.prepare({ version: refreshVersion });
+    assert.equal(recovered.sourceCommit, firstFix);
+    assert.equal(recovered.releaseCommit, state.releaseCommit);
+  } finally {
+    ({ mode, selectedVersion, selectedCommit } = previousApiSelection);
+  }
+  assert.deepEqual(await snapshotMain(), before);
   assert.equal(state.previous.sourceCommit, sourceCommit);
   assert.equal(state.previous.releaseCommit, firstCandidate);
   let refreshedCandidate = state.releaseCommit;
@@ -475,6 +507,8 @@ try {
   assert.equal(state.releaseCommit, refreshedCandidate);
   assert.equal(state.pendingSource.sourceCommit, secondFix);
   assert.equal(state.pendingSource.baseCommit, refreshedCandidate);
+  const interruptedMergeHead = (await exec("git", ["rev-parse", "--git-path", "MERGE_HEAD"], { cwd: state.workspace, env, encoding: "utf8" })).stdout.trim();
+  assert.equal((await readFile(resolve(state.workspace, interruptedMergeHead), "utf8")).trim(), secondFix);
   await git("tag", "-a", "v0.1.5", refreshedCandidate, "-m", "Formal fixture tag during pending refresh");
   await assert.rejects(process.prepare({ version: refreshVersion }), /正式 tag v0\.1\.5 已存在/);
   await git("tag", "-d", "v0.1.5");
@@ -552,6 +586,13 @@ try {
   assert.equal(await git("rev-parse", `${state.releaseCommit}^{tree}`), await git("rev-parse", `${refreshedCandidate}^{tree}`));
   refreshedCandidate = state.releaseCommit;
 
+  // Explicitly retain an ancestor source as the second parent when revisiting confirmed source trees.
+  for (const ancestorSource of [sourceCommit, lastFix]) {
+    state = await process.prepare({ version: refreshVersion, source: ancestorSource, refresh: true });
+    await assertRefreshed(state, ancestorSource, refreshedCandidate);
+    refreshedCandidate = state.releaseCommit;
+  }
+
   // Legacy release commits without source trailers retain their original recovery path.
   const legacyWorkspace = join(temporary, "legacy candidate");
   await git("worktree", "add", "--detach", legacyWorkspace, sourceCommit);
@@ -568,6 +609,30 @@ try {
   const legacy = await process.prepare({ version: "0.3.0" });
   assert.equal(legacy.sourceCommit, sourceCommit);
   assert.equal(legacy.releaseCommit, legacyCommit);
+
+  // Refresh also repairs a same-source candidate created by the earlier tree-and-trailer-only implementation.
+  const repairVersion = "0.4.0";
+  const oldPrepared = await process.prepare({ version: repairVersion, source: sourceCommit });
+  const repairWorkspace = join(temporary, "legacy source reachability");
+  await git("worktree", "add", "--detach", repairWorkspace, firstFix);
+  for (const file of files) {
+    const value = await readJson(join(repairWorkspace, file));
+    value.version = repairVersion;
+    if (file === "package-lock.json") for (const key of ["", "apps/server", "apps/web"]) value.packages[key].version = repairVersion;
+    await writeJson(join(repairWorkspace, file), value);
+  }
+  await exec("git", ["add", "--", ...files], { cwd: repairWorkspace, env });
+  const oldTree = (await exec("git", ["write-tree"], { cwd: repairWorkspace, env, encoding: "utf8" })).stdout.trim();
+  const oldRefresh = await git("commit-tree", oldTree, "-p", oldPrepared.releaseCommit, "-m", `Refresh release ${repairVersion}`, "-m", `Pi-Ark-Source: ${firstFix}`);
+  await exec("git", ["reset", "--hard", oldRefresh], { cwd: oldPrepared.workspace, env });
+  await git("push", "origin", `refs/heads/${oldPrepared.branch}`);
+  await rm(join(repo, `.tmp/release-process/${repairVersion}/state.json`));
+  await assert.rejects(git("merge-base", "--is-ancestor", firstFix, oldRefresh));
+  const repaired = await process.prepare({ version: repairVersion, source: firstFix, refresh: true });
+  assert.deepEqual((await git("show", "-s", "--format=%P", repaired.releaseCommit)).split(" "), [oldRefresh, firstFix]);
+  await git("merge-base", "--is-ancestor", firstFix, repaired.releaseCommit);
+  assert.equal(await git("rev-parse", `${repaired.releaseCommit}^{tree}`), oldTree);
+  assert.deepEqual(await snapshotMain(), before);
 
   // Any local or remote formal tag stops refresh, including a same-source refresh request.
   await git("tag", "-a", "v0.1.5", refreshedCandidate, "-m", "Local formal fixture permission");

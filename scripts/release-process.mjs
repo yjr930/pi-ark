@@ -32,7 +32,7 @@ prepare 默认从 pi-ark-dev.service 的 MainPID 定位实际 Server 进程，�
 --help                 显示帮助
 
 工作区与状态：.tmp/release-process/<version>/source 和 state.json。
-prepare 推送 release/<version> 候选分支；--refresh 追加候选 commit 并以 fast-forward 推送。
+prepare 推送 release/<version> 候选分支；--refresh 追加 merge commit（第一 parent 为旧候选，第二 parent 为新来源），并以 fast-forward 推送。
 普通 prepare 固定原来源，也可以继续已保存的候选更新；--refresh 要求明确的 --source。
 publish 显式创建并推送 annotated v<version> tag。
 status 自动识别已推送的正式 tag，并在正式 Release 的安装包完整交付后报告完成。
@@ -289,6 +289,24 @@ export function createReleaseProcess({ repo = resolve(dirname(fileURLToPath(impo
       await rm(manifest, { force: true });
     }
   }
+  async function mergeStatePaths(p) {
+    const result = {};
+    for (const name of ["MERGE_HEAD", "MERGE_MODE", "MERGE_MSG"]) result[name] = resolve(p.workspace, await git(["rev-parse", "--git-path", name], p.workspace));
+    return result;
+  }
+  async function optionalText(path) {
+    try { return await readFile(path, "utf8"); }
+    catch (error) { if (error.code === "ENOENT") return undefined; throw error; }
+  }
+  async function prepareRefreshMerge(p, pending, version) {
+    const paths = await mergeStatePaths(p);
+    const expected = { MERGE_MODE: "no-ff", MERGE_MSG: `Refresh release ${version}\n\nPi-Ark-Source: ${pending.sourceCommit}\n`, MERGE_HEAD: `${pending.sourceCommit}\n` };
+    for (const name of Object.keys(expected)) {
+      const current = await optionalText(paths[name]);
+      if (current !== undefined && current !== expected[name]) throw new Error(`候选工作区的 ${name} 与已确认的更新不一致，请先处理现有 merge 状态：${p.workspace}`);
+    }
+    for (const name of Object.keys(expected)) await writeFile(paths[name], expected[name]);
+  }
   async function continueRefresh(state, p) {
     const pending = state.pendingSource;
     await assertWorkflow(pending.sourceCommit);
@@ -304,11 +322,14 @@ export function createReleaseProcess({ repo = resolve(dirname(fileURLToPath(impo
         const untracked = await git(["ls-files", "--others", "--exclude-standard"], p.workspace);
         if (stagedTree !== pending.tree || unstaged || untracked) throw new Error(`候选更新的工作区包含事务之外的改动，请先处理已有改动再恢复：${p.workspace}`);
       } else await git(["read-tree", "--reset", "-u", pending.tree], p.workspace);
+      await prepareRefreshMerge(p, pending, state.version);
       await git(["commit", "--allow-empty", "-m", `Refresh release ${state.version}`, "-m", `Pi-Ark-Source: ${pending.sourceCommit}`], p.workspace);
       candidate = await git(["rev-parse", "HEAD"], p.workspace);
     }
     if (pending.releaseCommit && candidate !== pending.releaseCommit) throw new Error("候选更新的 commit 与待完成状态不一致。");
-    if (await git(["show", "-s", "--format=%P", candidate]) !== pending.baseCommit || await git(["rev-parse", `${candidate}^{tree}`]) !== pending.tree || await inferSource(candidate, state.version) !== pending.sourceCommit) throw new Error("候选更新的历史、tree 或来源与已确认的事务不一致。");
+    const parents = (await git(["show", "-s", "--format=%P", candidate])).split(" ");
+    const sourceParent = parents[1] === pending.sourceCommit || parents.length === 1 && pending.sourceCommit === pending.baseCommit;
+    if (parents[0] !== pending.baseCommit || !sourceParent || parents.length > 2 || !await isAncestor(pending.sourceCommit, candidate) || await git(["rev-parse", `${candidate}^{tree}`]) !== pending.tree || await inferSource(candidate, state.version) !== pending.sourceCommit) throw new Error("候选更新的历史、tree 或来源与已确认的事务不一致。");
     if (await git(["status", "--porcelain", "--untracked-files=all"], p.workspace)) throw new Error(`候选更新的工作区包含后续改动：${p.workspace}`);
     pending.releaseCommit = candidate;
     await save(state, p);
@@ -340,11 +361,12 @@ export function createReleaseProcess({ repo = resolve(dirname(fileURLToPath(impo
         if (source && source.sourceCommit !== state.pendingSource.sourceCommit) throw new Error(`候选更新已固定新的来源 ${state.pendingSource.sourceCommit}，请先恢复当前更新。`);
         return continueRefresh(state, p);
       }
-      if (options.refresh && source.sourceCommit !== state.sourceCommit) {
+      if (options.refresh && (source.sourceCommit !== state.sourceCommit || !await isAncestor(source.sourceCommit, state.releaseCommit))) {
         await assertWorkflow(source.sourceCommit);
         await assertCandidate(state.releaseCommit, state.sourceCommit, version);
         await ensureWorkspace(p, state.branch);
         if (await git(["rev-parse", "HEAD"], p.workspace) !== state.releaseCommit || await git(["status", "--porcelain", "--untracked-files=all"], p.workspace)) throw new Error(`候选工作区需要保持在已固定的 commit，并先处理已有改动：${p.workspace}`);
+        for (const path of Object.values(await mergeStatePaths(p))) if (await optionalText(path) !== undefined) throw new Error(`候选工作区存在尚待处理的 merge 状态，请先处理现有操作：${p.workspace}`);
         const remote = await remoteRef(`refs/heads/${state.branch}`);
         if (remote && remote !== state.releaseCommit) throw new Error(`${state.branch} 的远端候选与已固定的 commit 不一致。`);
         const tree = await candidateTree(source.sourceCommit, version, p);
