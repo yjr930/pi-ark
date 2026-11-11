@@ -50,7 +50,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare project-local temporary storage
-        run: node -e "require('node:fs').mkdirSync(process.env.RUNNER_TEMP, { recursive: true })"
+        run: |
+          node -e "require('node:fs').mkdirSync(process.env.RUNNER_TEMP, { recursive: true })"
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
