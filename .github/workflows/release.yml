@@ -36,7 +36,7 @@ jobs:
           - runner: macos-15
             platform: darwin
             architecture: arm64
-          - runner: windows-latest
+          - runner: windows-2022
             platform: win32
             architecture: x64
     runs-on: ${{ matrix.runner }}
@@ -64,6 +64,10 @@ jobs:
           assert.equal(({ x86_64: 'x64', AMD64: 'x64', arm64: 'arm64', aarch64: 'arm64' })[machine()], arch());
           console.log(`Native build host: ${platform()}/${machine()}, Node ${process.version} (${arch()})`);
           NODE
+      - uses: actions/setup-python@v5
+        if: runner.os == 'Windows'
+        with:
+          python-version: "3.12"
       - name: Install Windows native node-pty build prerequisite
         if: runner.os == 'Windows'
         shell: pwsh
@@ -71,9 +75,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $component = 'Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre'
-          $ready = & $vswhere -latest -products '*' -requires $component -property installationPath
+          "npm_config_python=$((Get-Command python.exe).Source)" >> $env:GITHUB_ENV
+          'npm_config_msvs_version=2022' >> $env:GITHUB_ENV
+          $ready = & $vswhere -latest -version '[17.0,18.0)' -products '*' -requires $component -property installationPath
           if (-not $ready) {
-            $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            $installation = & $vswhere -latest -version '[17.0,18.0)' -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
             if (-not $installation) { throw 'Visual Studio C++ build tools are required for node-pty' }
             $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
             $arguments = @('modify', '--installPath', "`"$installation`"", '--add', $component, '--quiet', '--norestart', '--nocache')
@@ -97,14 +103,14 @@ jobs:
           import { execFileSync } from 'node:child_process';
           import { mkdtemp, readFile, rm } from 'node:fs/promises';
           import { join } from 'node:path';
+          import { extractArchive } from './scripts/platform.mjs';
           const { version } = JSON.parse(await readFile('package.json', 'utf8'));
           const name = `pi-ark-${version}-${process.platform}-${process.arch}`;
           const windows = process.platform === 'win32';
           const archive = join(process.cwd(), 'dist/release', `${name}.${windows ? 'zip' : 'tar.gz'}`);
           const extracted = await mkdtemp(join(process.env.RUNNER_TEMP, 'pi-ark-release-extracted-'));
-          const tar = windows ? join(process.env.SystemRoot || 'C:\\Windows', 'System32/tar.exe') : 'tar';
           try {
-            execFileSync(tar, ['-xf', archive, '-C', extracted], { stdio: 'inherit' });
+            extractArchive(archive, extracted);
             execFileSync(process.execPath, ['scripts/check-release.mjs', join(extracted, name)], { stdio: 'inherit', timeout: 600000 });
           } finally {
             await rm(extracted, { recursive: true, force: true });

@@ -549,9 +549,9 @@ Browser messages：`input` 和 `resize`。Server messages：`output`、`exit` �
 | Linux arm64 | `ubuntu-24.04-arm` | `pi-ark-<version>-linux-arm64.tar.gz` |
 | macOS Intel x64 | `macos-15-intel` | `pi-ark-<version>-darwin-x64.tar.gz` |
 | macOS Apple Silicon arm64 | `macos-15` | `pi-ark-<version>-darwin-arm64.tar.gz` |
-| Windows x64 | `windows-latest` | `pi-ark-<version>-win32-x64.zip` |
+| Windows x64 | `windows-2022` | `pi-ark-<version>-win32-x64.zip` |
 
-构建脚本在 staging directory 中执行 `npm ci --omit=dev --include=optional`，并在对应 runner 上从源码编译 native dependencies。Windows 通过 Node 调用 npm 的 JavaScript 入口，通过系统的 tar 创建 zip 并展开 npm workspace junctions。安装包使用方需要 Node.js 22.19 或更新版本；编译所需的 Python 与 C++ 工具属于源码构建环境。Linux 的运行工具为 Bash 与 tar，默认系统安装使用 systemd；portable 使用当前用户的后台管理器。macOS 使用系统 Bash 与 tar，Windows 使用 Git for Windows 的 Git Bash 及系统内置的 PowerShell。
+构建脚本在 staging directory 中执行 `npm ci --omit=dev --include=optional`，并在对应 runner 上从源码编译 native dependencies。Windows 的 runner 使用 Visual Studio 2022 与 Python 3.12，通过 Node 调用 npm 的 JavaScript 入口，通过系统的 tar 创建 zip 并展开 npm workspace junctions。安装包使用方需要 Node.js 22.19 或更新版本；编译所需的 Python 与 C++ 工具属于源码构建环境。Linux 的运行工具为 Bash 与 tar，默认系统安装使用 systemd；portable 使用当前用户的后台管理器。macOS 使用系统 Bash 与 tar，Windows 使用 Git for Windows 的 Git Bash 及系统内置的 PowerShell。
 
 `.github/workflows/release.yml` 在 `main` 或 `release/**` 分支的相关实现路径（`apps/**`、`scripts/**`、package manifests 与该 workflow）发生 push 时执行原生构建，也支持 `workflow_dispatch`。每个 runner 解压实际 archive 后执行安装 smoke，覆盖带 Unicode 与空格的安装及数据路径、setup、HTTPS 登录、Files 预览与下载、Session API、PTY 命令输出、后台 start/restart/stop、release rollback 和数据保留。创建 `v*` tag 时，publish job 在平台构建完成后将安装包发布到 GitHub Releases。`check-ci-command.mjs` 保存各个命令的输出到 `dist/native-ci/`，失败时生成包含错误内容的 Actions annotation，并将同一目录中的日志上传为诊断 artifact。
 

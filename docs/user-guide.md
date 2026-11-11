@@ -14,7 +14,7 @@ Linux 的 `--portable` 安装使用当前用户的后台进程。Windows 的 Age
 
 Release 安装包包含 production dependencies 与当前平台的 native node-pty。Setup 使用安装包中的 JavaScript 依赖生成 TLS certificate。运行账号需要能够访问所注册的 Workspace，并需要可用的 provider API key 或 subscription account。
 
-源码开发还需要 npm、Python 与 C++ 编译工具：Linux 使用 make 与 GCC/G++，macOS 使用 Xcode Command Line Tools，Windows 使用 Visual Studio Build Tools 的 C++ workload 与对应的 Spectre-mitigated runtime libraries。这些工具用于编译 node-pty 等 native dependencies。
+源码开发还需要 npm、Python 与 C++ 编译工具：Linux 使用 make 与 GCC/G++，macOS 使用 Xcode Command Line Tools，Windows 使用 Visual Studio 2022 Build Tools 的 C++ workload 与对应的 Spectre-mitigated runtime libraries。这些工具用于编译 node-pty 等 native dependencies。
 
 ## 安装与初始化
 
