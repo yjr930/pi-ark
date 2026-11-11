@@ -19,11 +19,11 @@ let timedOut = false;
 let annotated = false;
 let escalation;
 let fallback;
-const record = (text, stream) => { if (!closed) writeSync(log, text); stream.write(text); tail = (tail + text).slice(-24000); };
+const record = (text, stream) => { if (!closed) writeSync(log, text); stream.write(text); tail = (tail + text).slice(-2800); };
 function annotate(code, signal) {
   if (annotated) return;
   annotated = true;
-  const message = `${command} ${args.join(" ")}\n${tail}\nExit: ${code}, signal: ${signal}`.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+  const message = `${`${command} ${args.join(" ")}`.slice(0, 500)}\n${tail}\nExit: ${code}, signal: ${signal}`.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
   console.log(`::error title=Native CI command failed::${message}`);
 }
 const child = spawn(executable, commandArgs, { stdio: ["inherit", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32" });
