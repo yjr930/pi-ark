@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, posix, resolve, win32 } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { arkHome, piArkAgentDir } from "./config.js";
 
@@ -51,6 +51,14 @@ function commandMessage(error: unknown): string {
   return message.length > 4000 ? `${message.slice(0, 4000)}…` : message;
 }
 
+export function releaseCommandPrefix(cli: string, prefix: string, portable: boolean, nodePath = process.execPath, platform: NodeJS.Platform = process.platform): string {
+  if (!portable) return cli;
+  const launcher = (platform === "win32" ? win32 : posix).join(prefix, "bin", `${cli}.mjs`);
+  if (platform === "win32") return `& '${nodePath.replaceAll("'", "''")}' '${launcher.replaceAll("'", "''")}'`;
+  const quote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+  return `${quote(nodePath)} ${quote(launcher)}`;
+}
+
 export class PiCoreService {
   private updating = false;
   private restartTimer?: NodeJS.Timeout;
@@ -62,9 +70,11 @@ export class PiCoreService {
     const version = manifest?.version || await currentVersion();
     const installPath = await realpath(projectRoot).catch(() => projectRoot);
     const prefix = process.env.PI_ARK_INSTALL_PREFIX || resolve(installPath, "../..");
-    const previousManifestPath = join(prefix, "previous", "RELEASE.json");
-    const cli = process.env.PI_ARK_CLI_NAME || "pi-ark";
-    const previousVersion = existsSync(previousManifestPath) ? (await jsonFile<ReleaseManifest>(previousManifestPath)).version : undefined;
+    const { readReleaseState } = await import(pathToFileURL(join(projectRoot, "scripts/platform.mjs")).href) as { readReleaseState: (prefix: string) => Promise<{ current?: string; previous?: string }> };
+    const previous = (await readReleaseState(prefix)).previous;
+    const previousManifestPath = previous ? join(previous, "RELEASE.json") : undefined;
+    const cli = releaseCommandPrefix(process.env.PI_ARK_CLI_NAME || "pi-ark", prefix, process.env.PI_ARK_PORTABLE === "1" || process.platform !== "linux", process.env.PI_ARK_NODE_PATH || process.execPath);
+    const previousVersion = previousManifestPath && existsSync(previousManifestPath) ? (await jsonFile<ReleaseManifest>(previousManifestPath)).version : undefined;
     const latest = checkLatest ? await latestRelease() : undefined;
     const channel = version.includes("-") ? "development" : "stable";
     return {
@@ -124,7 +134,7 @@ export class PiCoreService {
 
   private scheduleRestart() {
     if (this.restartTimer) clearTimeout(this.restartTimer);
-    this.restartTimer = setTimeout(() => process.kill(process.pid, "SIGTERM"), 5000);
+    this.restartTimer = setTimeout(() => process.emit("SIGTERM", "SIGTERM"), 5000);
     this.restartTimer.unref();
   }
 }

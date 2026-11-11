@@ -42,7 +42,7 @@ Fastify server
 ```text
 apps/server/        Fastify、pi SDK、文件和 PTY 服务
 apps/web/           React、Vite、Markdown 和 xterm.js UI
-scripts/            初始化、CLI 和行为检查
+scripts/            初始化、跨平台安装、后台管理、release 构建和行为检查
 docs/               产品、架构、使用和集成文档
 ```
 
@@ -142,7 +142,9 @@ Global config 中的 Workspace registry 是浏览器可以访问的目录清单�
 - 路径是目录。
 - 同一个真实目录尚未注册。
 
-文件读取先将 Workspace path 和请求 path 解析为 `realpath`，再检查结果仍位于 Workspace 内。包含 `.pi-ark` path segment 的请求会被拒绝；目录列表也始终过滤该目录。
+文件读取先将 Workspace path 和请求 path 解析为 `realpath`，再通过 `path.relative` 与本机路径分隔符检查结果仍位于 Workspace 内。包含 `.pi-ark` path segment 的请求会被拒绝；目录列表也始终过滤该目录，Windows 与 macOS 对该名称采用大小写归一化。
+
+打开文件后，Linux 使用 `/proc/self/fd/<fd>` 核对实际读取对象的位置。macOS 与 Windows 对解析后的路径再次执行 `realpath` 和 `lstat`，并将 `dev` 与 `ino` 同已打开 file descriptor 的身份信息核对；预览、图片和下载都从该 descriptor 读取。
 
 文本、Markdown 和图片共用 Workspace 的 `files.maxPreviewSizeMb` 预览上限。默认值是 10 MB，保存范围是 1–100 MB；包含 NUL byte 的 binary file 不进入文本预览。PNG、JPEG、GIF 和 WebP 可以作为选中文件或 Markdown image 预览。下载 endpoint 使用 stream 返回原始文件，不受预览大小和文件类型限制。
 
@@ -432,15 +434,15 @@ Release manager 从 release 目录的 `RELEASE.json` 读取 Pi-Ark 与 bundled p
 
 Instance-aware CLI 的 `update` command 执行以下流程：
 
-1. 查询 GitHub 的 latest release，并选择当前 Linux architecture 对应的 artifact。
-2. 下载并解压到临时目录。
-3. 检查 `RELEASE.json`、必要的 Server/Web 文件、pi SDK import 和 node-pty native module。
+1. 查询 GitHub 的 latest release，并选择当前操作系统与 architecture 对应的 artifact。
+2. 下载并解压到临时目录；Linux 与 macOS 使用 tar，Windows 使用 PowerShell 的 `Expand-Archive`。
+3. 检查 `RELEASE.json` 的 platform/architecture、必要的 Server/Web 文件、pi SDK import 和 node-pty native module。
 4. 将 release 复制到 `PI_ARK_INSTALL_PREFIX/releases/<version>`。
-5. 保存当前 release 为 `previous`，再通过临时 symlink rename 原子切换 `current`。
-6. Web update API 在返回响应后向当前进程发送 `SIGTERM`；现有 shutdown handler 关闭 Agent runtime、WebSocket 和 Fastify，systemd 再根据 `Restart=always` 从新的 `current` 启动。
-7. CLI service supervisor 请求新进程的 `/api/health`；30 秒内无法通过时，它恢复 previous release，并让 systemd 再次启动。
+5. 保存当前 release 为 `previous`，并写入 `pending-release.json`；POSIX 使用临时 symlink rename 切换 `current`，Windows 使用原子 JSON 替换更新 `release-state.json`。
+6. Web update API 在返回响应后触发 Server 正常关闭，释放 Agent runtime、WebSocket 和 Fastify；portable 后台管理器或 Linux systemd 下的 CLI supervisor 从新的 `current` 启动服务。
+7. CLI supervisor 请求新进程的 `/api/health`；启动检查通过后移除 pending state，检查失败时恢复 previous release 并重新启动。
 
-Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写入 pending release state，并使用相同的健康检查与延迟重启流程。Global data 和 Workspace data 位于 release 目录之外，因此更新与回退不会改写这些数据。
+Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写入 pending release state，并使用相同的健康检查与重启流程。Global data 和 Workspace data 位于 release 目录之外，更新与回退会保留这些数据。Maintenance 与 CLI 共享相同的 release state，页面展示 previous release 和稳定 CLI 的完整 Node 调用命令。
 
 日常迭代使用 `<next-version>-dev.<iteration>` SemVer prerelease。开发 artifact 安装到本机 `/opt/pi-ark-dev/releases/<dev-version>`，并通过同一套 preflight、symlink 和 systemd 流程运行；该流程不会创建 Git tag 或 GitHub Release。正式 release 需要明确的发布安排。
 
@@ -630,15 +632,34 @@ PTY 自然退出时发送 `exit`，随后继续保留 Tab 和连接；重新连�
 
 ## Release 构建与安装
 
-`npm run release:build` 生成 `pi-ark-<version>-linux-<architecture>.tar.gz`。Artifact 包含编译后的 Server/Web、production dependencies、native node-pty、CLI、installer 和 `RELEASE.json`。GitHub Actions 分别在 Linux x64 与 arm64 runner 上构建 architecture-specific artifact，并将 tag 对应的 artifact 发布到 GitHub Releases。
+`npm run release:build` 在原生平台构建 release，目标 platform、Node architecture 与主机 architecture 相同。Artifact 包含编译后的 Server/Web、production dependencies、native node-pty、CLI、installer、平台工具模块和 `RELEASE.json`。
 
-System installer 使用以下布局：
+| 平台 | 原生 runner | Artifact |
+|---|---|---|
+| Linux x64 | `ubuntu-24.04` | `pi-ark-<version>-linux-x64.tar.gz` |
+| Linux arm64 | `ubuntu-24.04-arm` | `pi-ark-<version>-linux-arm64.tar.gz` |
+| macOS Intel x64 | `macos-15-intel` | `pi-ark-<version>-darwin-x64.tar.gz` |
+| macOS Apple Silicon arm64 | `macos-15` | `pi-ark-<version>-darwin-arm64.tar.gz` |
+| Windows x64 | `windows-2022` | `pi-ark-<version>-win32-x64.zip` |
+
+构建脚本在 staging directory 中执行 `npm ci --omit=dev --include=optional`，并在对应 runner 上从源码编译 native dependencies。Windows 的 runner 使用 Visual Studio 2022 与 Python 3.12，通过 Node 调用 npm 的 JavaScript 入口，通过系统的 tar 创建 zip 并展开 npm workspace junctions。安装包使用方需要 Node.js 22.19 或更新版本；编译所需的 Python 与 C++ 工具属于源码构建环境。Linux 的运行工具为 Bash 与 tar，默认系统安装使用 systemd；portable 使用当前用户的后台管理器。macOS 使用系统 Bash 与 tar，Windows 使用 Git for Windows 的 Git Bash 及系统内置的 PowerShell。
+
+`.github/workflows/release.yml` 在 `main` 或 `release/**` 分支的相关实现路径（`apps/**`、`scripts/**`、package manifests 与该 workflow）发生 push 时执行原生构建，也支持 `workflow_dispatch`。每个 runner 解压实际 archive 后执行安装 smoke，覆盖带 Unicode 与空格的安装及数据路径、setup、HTTPS 登录、Files 预览与下载、Session API、PTY 命令输出、后台 start/restart/stop、release rollback 和数据保留。创建 `v*` tag 时，publish job 在平台构建完成后将安装包发布到 GitHub Releases。`check-ci-command.mjs` 保存各个命令的输出到 `dist/native-ci/`，失败时生成包含错误内容的 Actions annotation，并将同一目录中的日志上传为诊断 artifact。
+
+### Linux 系统安装
+
+System installer 默认使用以下布局：
 
 ```text
 /opt/pi-ark/
   current -> releases/<version>
   previous -> releases/<previous-version>
   releases/<version>/
+  install.json
+  bin/pi-ark.mjs
+  bin/platform.mjs
+  bin/pi-ark
+  bin/pi-ark.cmd
 /var/lib/pi-ark/
   config.json
   tls/
@@ -647,9 +668,31 @@ System installer 使用以下布局：
 /usr/local/bin/pi-ark
 ```
 
-Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。systemd 在每次启动前执行 release preflight，并从 `current` 运行 CLI 的 `serve` 命令。
+Installer 默认创建专用的 `pi-ark` service account。`--migrate-data` 可以复制现有 Global data 并更新其中指向旧 data directory 的 TLS paths。systemd 在每次启动前执行 release preflight，并通过稳定 CLI 的 `serve` 命令运行 supervisor；supervisor 从 `current` 启动 Server，并处理 release 切换后的健康检查与恢复。
 
-Multi-instance installation 通过 `PI_ARK_INSTANCE`、`PI_ARK_BASE_PATH`、`PI_ARK_SERVICE_NAME` 和 `PI_ARK_CLI_NAME` 描述当前实例。Installer 为非 default instance 生成独立的 service unit 与 instance-aware CLI launcher，并通过 `--port` 修改迁移后的 listen port。`--deferred-restart` 创建 transient systemd timer，避免部署进程随当前 service restart 一起终止。
+### 当前用户安装与后台管理
+
+macOS 与 Windows 默认使用 portable，Linux 通过 `--portable` 选择该模式。
+
+| 平台 | 默认 prefix | 默认 data directory |
+|---|---|---|
+| macOS | `~/Library/Application Support/Pi-Ark/app` | `~/Library/Application Support/Pi-Ark/data` |
+| Windows | `%LOCALAPPDATA%\Pi-Ark\app` | `%LOCALAPPDATA%\Pi-Ark\data` |
+| Linux portable | `~/.local/share/pi-ark` | `~/.pi-ark` |
+
+非 default instance 的应用目录名称使用 `-<instance>` 后缀，例如 `Pi-Ark-dev` 或 `pi-ark-dev`。Portable 使用当前用户的权限，并在关闭启动终端后继续运行。
+
+`scripts/platform.mjs` 负责平台默认路径、archive 名称与解压、release staging、release state 和 HTTPS health request。POSIX 将 `current` 与 `previous` 保存为 symlink；Windows 将二者的绝对路径保存到 `<prefix>/release-state.json`；并发读取造成短暂的替换占用时，写入流程在 5 秒内重试原子 rename。`<prefix>/install.json` 记录安装模式、Node 路径、instance、data directory 和 CLI environment。
+
+安装器在 `<prefix>/bin/` 中创建稳定的 `pi-ark.mjs` 与配套的平台模块，另提供 POSIX launcher 和 Windows `.cmd`。非 default instance 使用对应的 CLI 名称。稳定入口加载安装时的环境和当前 release；用户可以使用完整的 Node 调用路径，或自行将该目录加入 PATH。
+
+`start` 创建 detached 后台管理器，并将输出写入 `<prefix>/logs/pi-ark.log`。管理器在 `<prefix>/run/daemon.json` 中保存自身状态，使用带随机 token 的 loopback HTTP control channel 接收 status 与 stop。命令锁串行执行 start/stop/restart。`status` 返回运行路径和 health 等信息，`logs` 输出日志，`logs --follow` 持续读取新增内容。`stop` 请求管理器停止 Server 并清理运行状态，`restart` 先停止再启动。`serve` 保持前台运行。
+
+### 初始化与多实例
+
+Setup 通过 production dependency `selfsigned@5.5.0` 生成 RSA 3072-bit、825 天有效期的自签名 TLS certificate，SAN 为 `localhost` 与 `127.0.0.1`；private key 与 certificate 保存在 `PI_ARK_HOME/tls/`。登录信息可通过原有 setup 参数或 `PI_ARK_USERNAME` 与 `PI_ARK_PASSWORD` 环境变量提供。
+
+Multi-instance installation 通过 `PI_ARK_INSTANCE`、`PI_ARK_BASE_PATH`、`PI_ARK_SERVICE_NAME` 和 `PI_ARK_CLI_NAME` 描述当前实例。Installer 为非 default instance 生成 instance-aware CLI launcher，并在 Linux 系统安装中生成独立的 service unit。`--port` 更新已有 listen port，并保存后续 setup 的默认端口；Linux 系统安装的 `--deferred-restart` 创建 transient systemd timer，避免部署进程随当前 service restart 一起终止。
 
 Frontend 从 `document.baseURI` 推导 base path。所有 API、WebSocket、Files image 和 download URL 都经过同一个 base-path helper；Vite build 使用 relative asset URL。Nginx 在 public URL 上保留 base path，并通过带末尾 `/` 的 `proxy_pass` 将该前缀移除后发送给 Fastify。Fastify 的内部 routes 继续使用 `/api` 与 `/ws`。
 
@@ -678,6 +721,9 @@ Server 从 `apps/web/dist` 读取 Web assets。带 hash 的文件使用一年 im
 npm run build
 npm run check
 npm run check:behavior
+npm run check:setup
+npm run check:platform
+npm run check:release -- "path/to/extracted-artifact"
 npm run check:subagents
 npm run check:subagents-ui
 npm run check:ui
@@ -686,6 +732,8 @@ npm run check:terminal
 npm run check:terminal-ui
 npm run release:build
 ```
+
+`check:setup` 检查 setup 的参数与环境变量、TLS certificate、密码摘要与 HTTPS。`check:platform` 检查平台默认路径、release state、staging 与路径迁移。`check:release -- <artifact-dir>` 使用解压后的原生 artifact 执行 portable 安装 smoke；设置 `PI_ARK_SMOKE_ROLLBACK=1` 后还会覆盖版本切换与 rollback 的数据保留，Release workflow 使用该设置。
 
 `check:subagents` 使用真实 SDK Session 与受控模型响应，覆盖并发限制、图片引用、结果截取、历史分支、停止、删除、恢复与工具注册。`check:subagents-ui` 构建项目，并自动创建临时 HTTPS 实例，使用临时数据目录与独立端口执行任务面板和双向导航的 Chromium 检查。设置 `PI_ARK_CHECK_FULL_UI=1` 后，该临时实例还会执行现有的 `check:ui` 脚本。
 

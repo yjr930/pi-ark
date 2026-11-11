@@ -1,0 +1,92 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, win32 } from "node:path";
+import { atomicJson, installationDefaults, migratedPath, optionalJson, readJson, readReleaseState, releaseAssetName, restoreFailedRelease, shellQuote, stageRelease, switchRelease, systemdQuote, validateVersion, writeReleaseState } from "./platform.mjs";
+
+const temporary = await mkdtemp(join(tmpdir(), "pi-ark-platform-"));
+try {
+  const linux = installationDefaults({ platform: "linux", home: temporary });
+  assert.equal(linux.prefix, "/opt/pi-ark");
+  assert.equal(linux.dataDir, "/var/lib/pi-ark");
+  assert.equal(linux.portable, false);
+  const linuxDev = installationDefaults({ platform: "linux", instance: "dev", home: temporary });
+  assert.equal(linuxDev.prefix, "/opt/pi-ark-dev");
+  const linuxPortable = installationDefaults({ platform: "linux", instance: "dev", portable: true, home: temporary });
+  assert.equal(linuxPortable.prefix, join(temporary, ".local/share/pi-ark-dev"));
+  assert.equal(linuxPortable.dataDir, join(temporary, ".pi-ark-dev"));
+  const mac = installationDefaults({ platform: "darwin", instance: "backup", home: temporary });
+  assert.equal(mac.prefix, join(temporary, "Library/Application Support/Pi-Ark-backup/app"));
+  assert.equal(mac.dataDir, join(temporary, "Library/Application Support/Pi-Ark-backup/data"));
+  const windows = installationDefaults({ platform: "win32", home: "C:\\用户\\User Name", env: { LOCALAPPDATA: "C:\\用户\\Local Data" } });
+  assert.equal(windows.prefix, win32.join("C:\\用户\\Local Data", "Pi-Ark", "app"));
+  assert.equal(windows.dataDir, win32.join("C:\\用户\\Local Data", "Pi-Ark", "data"));
+  assert.equal(releaseAssetName("0.2.0-dev.1", "win32", "x64"), "pi-ark-0.2.0-dev.1-win32-x64.zip");
+  assert.equal(releaseAssetName("0.2.0", "darwin", "arm64"), "pi-ark-0.2.0-darwin-arm64.tar.gz");
+  assert.equal(releaseAssetName("0.2.0", "linux", "x64"), "pi-ark-0.2.0-linux-x64.tar.gz");
+  for (const invalid of ["", "../other", "v/path", ".", "..", "a\\b"]) assert.throws(() => validateVersion(invalid));
+  assert.throws(() => releaseAssetName("0.2.0", "other", "x64"));
+
+  const source = join(temporary, "来源 source");
+  const prefix = join(temporary, "安装 prefix with spaces");
+  const data = join(temporary, "数据 with spaces");
+  await mkdir(source);
+  await writeFile(join(source, "marker.txt"), "original");
+  if (process.platform !== "win32") await symlink("marker.txt", join(source, "relative-marker"));
+  const first = await stageRelease(source, prefix, "0.2.0");
+  await writeFile(join(first, "running-marker.txt"), "keep current release");
+  await writeFile(join(source, "marker.txt"), "changed source");
+  assert.equal(await stageRelease(source, prefix, "0.2.0"), first);
+  assert.equal(await readFile(join(first, "marker.txt"), "utf8"), "original");
+  if (process.platform !== "win32") assert.equal(await readFile(join(first, "relative-marker"), "utf8"), "original");
+  assert.equal(await readFile(join(first, "running-marker.txt"), "utf8"), "keep current release");
+  const second = await stageRelease(source, prefix, "0.2.1");
+  const statePlatform = process.platform === "win32" ? "win32" : "linux";
+  assert.deepEqual(await readReleaseState(prefix, statePlatform), {});
+  await switchRelease(prefix, first, statePlatform);
+  assert.equal((await readReleaseState(prefix, statePlatform)).current, first);
+  await switchRelease(prefix, second, statePlatform);
+  assert.deepEqual(await readReleaseState(prefix, statePlatform), { current: second, previous: first });
+  assert.deepEqual(await readJson(join(prefix, "pending-release.json")), { current: second, previous: first });
+  await switchRelease(prefix, second, statePlatform);
+  assert.equal((await readReleaseState(prefix, statePlatform)).previous, first);
+  await restoreFailedRelease(prefix, { current: second, previous: first }, statePlatform);
+  assert.deepEqual(await readReleaseState(prefix, statePlatform), { current: first, previous: second });
+  assert.equal(await optionalJson(join(prefix, "pending-release.json")), undefined);
+
+  const aliasPrefix = join(temporary, "directory alias");
+  await symlink(prefix, aliasPrefix, process.platform === "win32" ? "junction" : "dir");
+  await switchRelease(aliasPrefix, join(aliasPrefix, "releases", "0.2.1"), statePlatform);
+  assert.deepEqual(await readJson(join(aliasPrefix, "pending-release.json")), { current: second, previous: first });
+  await restoreFailedRelease(aliasPrefix, { current: second, previous: first }, statePlatform);
+  assert.deepEqual(await readReleaseState(prefix, statePlatform), { current: first, previous: second });
+
+  const windowsPrefix = join(temporary, "Windows JSON state");
+  await mkdir(windowsPrefix);
+  await writeReleaseState(windowsPrefix, { current: first }, "win32");
+  assert.equal((await readReleaseState(windowsPrefix, "win32")).current, first);
+  await switchRelease(windowsPrefix, second, "win32");
+  assert.deepEqual(await readReleaseState(windowsPrefix, "win32"), { current: second, previous: first });
+  await restoreFailedRelease(windowsPrefix, { current: second, previous: first }, "win32");
+  assert.deepEqual(await readReleaseState(windowsPrefix, "win32"), { current: first, previous: second });
+  await assert.rejects(writeReleaseState(windowsPrefix, { current: "relative/path" }, "win32"));
+  const atomicPath = join(temporary, "atomic.json");
+  await atomicJson(atomicPath, { iteration: 0 });
+  let reading = true;
+  const reader = (async () => { while (reading) assert.equal(typeof (await readJson(atomicPath)).iteration, "number"); })();
+  try { for (let iteration = 1; iteration <= 20; iteration += 1) await atomicJson(atomicPath, { iteration }); }
+  finally { reading = false; await reader; }
+  assert.equal((await readJson(atomicPath)).iteration, 20);
+  assert.equal(migratedPath(join(source, "tls/server.key"), source, data), join(data, "tls/server.key"));
+  const outside = join(`${source}-other`, "server.key");
+  assert.equal(migratedPath(outside, source, data), outside);
+  assert.equal(migratedPath(undefined, source, data), undefined);
+  const quoted = "Unicode 用户's path with spaces and $symbols";
+  if (process.platform !== "win32") assert.equal(execFileSync("sh", ["-c", `printf '%s' ${shellQuote(quoted)}`], { encoding: "utf8" }), quoted);
+  assert.equal(systemdQuote('a "b" 10%'), '"a \\"b\\" 10%%"');
+  const installer = new URL("./install-release.mjs", import.meta.url);
+  const help = execFileSync(process.execPath, [(await import("node:url")).fileURLToPath(installer), "--help"], { encoding: "utf8" });
+  assert.match(help, /Usage: node scripts\/install-release\.mjs/);
+  console.log("Platform helper checks passed");
+} finally { await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }

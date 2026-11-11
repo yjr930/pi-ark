@@ -1,8 +1,19 @@
+import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { WorkspaceDefinition } from "./config.js";
 
 const IMAGE_MIME_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
+
+function isPrivateSegment(segment: string): boolean {
+  return (process.platform === "win32" || process.platform === "darwin" ? segment.toLowerCase() : segment) === ".pi-ark";
+}
+
+function assertWorkspacePath(workspacePath: string, candidate: string): void {
+  const requested = relative(workspacePath, candidate);
+  if (requested === ".." || requested.startsWith(`..${sep}`) || isAbsolute(requested)) throw Object.assign(new Error("Path leaves the workspace"), { statusCode: 403 });
+  if (requested.split(sep).some(isPrivateSegment)) throw Object.assign(new Error("Pi-Ark workspace state is private"), { statusCode: 403 });
+}
 
 export type FilePreview = { name: string; path: string; size: number } & ({ kind: "text"; content: string; markdown: boolean } | { kind: "image"; mimeType: string });
 
@@ -84,10 +95,10 @@ export class WorkspaceService {
 
   async safePath(workspace: WorkspaceDefinition, requestedPath = ""): Promise<string> {
     const pathSegments = requestedPath.split(/[\\/]+/).filter(Boolean);
-    if (pathSegments.includes(".pi-ark")) throw Object.assign(new Error("Pi-Ark workspace state is private"), { statusCode: 403 });
+    if (pathSegments.some(isPrivateSegment)) throw Object.assign(new Error("Pi-Ark workspace state is private"), { statusCode: 403 });
     const root = await realpath(workspace.path);
     const candidate = await realpath(resolve(root, requestedPath));
-    if (candidate !== root && !candidate.startsWith(root + sep)) throw Object.assign(new Error("Path leaves the workspace"), { statusCode: 403 });
+    assertWorkspacePath(root, candidate);
     return candidate;
   }
 
@@ -97,7 +108,7 @@ export class WorkspaceService {
     const stat = await lstat(directory);
     if (!stat.isDirectory()) throw Object.assign(new Error("Path is not a directory"), { statusCode: 400 });
     const entries = await readdir(directory, { withFileTypes: true });
-    const result = await Promise.all(entries.filter((entry) => entry.name !== ".pi-ark" && (showHiddenFiles || !entry.name.startsWith("."))).map(async (entry) => {
+    const result = await Promise.all(entries.filter((entry) => !isPrivateSegment(entry.name) && (showHiddenFiles || !entry.name.startsWith("."))).map(async (entry) => {
       const absolute = join(directory, entry.name);
       const entryStat = await lstat(absolute);
       return {
@@ -113,12 +124,18 @@ export class WorkspaceService {
   private async openWorkspaceFile(workspace: WorkspaceDefinition, requestedPath: string) {
     const root = await realpath(workspace.path);
     const candidate = await this.safePath(workspace, requestedPath);
-    const handle = await open(candidate, "r");
+    const handle = await open(candidate, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
-      const file = await realpath(`/proc/self/fd/${handle.fd}`);
-      if (file !== root && !file.startsWith(root + sep)) throw Object.assign(new Error("Path leaves the workspace"), { statusCode: 403 });
+      const identity = await handle.stat({ bigint: true });
+      if (!identity.isFile()) throw Object.assign(new Error("Path is not a file"), { statusCode: 400 });
+      const file = await realpath(process.platform === "linux" ? `/proc/self/fd/${handle.fd}` : candidate);
+      assertWorkspacePath(root, file);
+      if (process.platform !== "linux") {
+        // Verify the opened file against the resolved path on platforms without procfs.
+        const current = await lstat(file, { bigint: true });
+        if (current.isSymbolicLink() || current.dev !== identity.dev || current.ino !== identity.ino) throw Object.assign(new Error("File changed while opening"), { statusCode: 403 });
+      }
       const stat = await handle.stat();
-      if (!stat.isFile()) throw Object.assign(new Error("Path is not a file"), { statusCode: 400 });
       return { root, file, stat, handle };
     } catch (error) {
       await handle.close();

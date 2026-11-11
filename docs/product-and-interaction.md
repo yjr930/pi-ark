@@ -4,6 +4,8 @@
 
 Pi-Ark 是面向个人或受控团队环境的 pi coding agent Web UI。服务端维护允许访问的 Workspace registry，浏览器在一个界面中完成 Agent 对话、文件阅读、命令行操作和配置管理。
 
+原生安装包覆盖 Linux x64/arm64、macOS Intel x64/Apple Silicon arm64 和 Windows x64。macOS 与 Windows 默认安装到当前用户的应用目录，Linux 默认使用专用 service account 与 systemd，也可选择 portable。Portable 的 `start` 在后台运行，关闭启动终端后服务继续运行；稳定 CLI 提供 start、stop、restart、status 与 logs，`serve` 用于前台运行。
+
 每个 Session 固定归属于一个 Workspace。Agent tools、Files 和 Terminal 都以该 Workspace 的绝对目录为工作范围。
 
 ## 设计原则
@@ -214,7 +216,7 @@ Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Termina
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
 - Terminal：Server shell profile、自定义程序的绝对路径、附加参数、环境变量、浏览器字体和键盘操作说明。
-- Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及 status/logs/restart 等 service commands。
+- Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及指向稳定 CLI 的完整 Node 调用命令（status、logs 与 restart 等）。
 - Account：Sign out。
 
 Keep line breaks（按原文换行）默认开启，会话和 Markdown 文件中的普通文本会按原文的单次换行显示。关闭后，同一段落内的普通换行合并显示，空行继续分隔段落。该设置在切换后立即保存并应用到当前页面，刷新后保留选择。
@@ -225,7 +227,7 @@ Settings 在首次访问后保留在当前页面的内存中。页面切换保�
 
 Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；模型 checkbox、default model、default thinking level 和 Agent defaults 在选择后保存。Manage Provider 选择器用于切换当前管理的 Provider；新 Session 的 default 由模型行右侧的星标决定。API key 与 Global system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的配置；选择普通 shell profile 且其他字段保持已保存内容时，选择结果立即保存。pi 保存 API key 和 OAuth credential，浏览器接收 credential 状态与来源。使用保存 credential 的 Provider 显示 Disconnect；确认后，Pi-Ark 删除该 credential，并从仍可用的已勾选模型中保留 default，或选择第一个仍可用模型。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面省略该输入项。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，使新的登录 flow 可以继续。
 
-Update Pi-Ark 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent 和 pi-ai。更新过程保留 Global data 与 Workspace data，将 `current` symlink 切换到新 release，并在延迟重启前保留上一 release。Roll back 将 `current` 和 `previous` 对调。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
+Update Pi-Ark 根据当前操作系统与 architecture 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent、pi-ai 和 native dependencies。更新过程保留 Global data 与 Workspace data，并将当前 release 记录为 previous release；POSIX 切换 `current` symlink，Windows 更新 `release-state.json`。Roll back 将当前与上一 release 对调。Web 响应返回后，Server 正常关闭，后台管理器或 Linux systemd 下的 supervisor 从当前 release 重新启动并执行 health check；启动检查失败时恢复 previous release。Maintenance 从相同的 release state 显示 previous release，并提供稳定 CLI 的完整 Node 调用命令。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
 
 ### 配置的生效方式
 

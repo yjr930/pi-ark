@@ -289,12 +289,15 @@ async function serveWebAsset(pathname: string, reply: import("fastify").FastifyR
 app.get("/", async (_request, reply) => serveWebAsset("", reply));
 app.get<{ Params: { "*": string } }>("/*", async (request, reply) => serveWebAsset(request.params["*"], reply));
 
-const shutdown = async () => {
+let shutdownPromise: Promise<void> | undefined;
+const shutdown = () => shutdownPromise ??= (async () => {
   terminals.dispose();
   await agents.dispose();
   await app.close();
-};
-process.once("SIGINT", () => void shutdown().finally(() => process.exit(0)));
-process.once("SIGTERM", () => void shutdown().finally(() => process.exit(0)));
+})();
+const exit = () => void shutdown().finally(() => process.exit(0));
+process.once("SIGINT", exit);
+process.once("SIGTERM", exit);
+process.on("message", (message) => { if (typeof message === "object" && message !== null && "type" in message && message.type === "pi-ark-shutdown") exit(); });
 
 await app.listen(config.listen);
