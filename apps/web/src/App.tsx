@@ -9,7 +9,7 @@ import { NameDialog } from "./components/NameDialog";
 import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
 import { appLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
-import { deleteCachedSessionSnapshot, sessionCacheKey } from "./session-cache";
+import { cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionUiState, sessionCacheKey } from "./session-cache";
 import { acknowledgeSessionStatus, mergeSessionStatuses, type SessionStatusMap } from "./session-status";
 import { applyTheme } from "./theme";
 import type { SessionInfo, UiSettings, Workspace } from "./types";
@@ -24,6 +24,7 @@ export default function App() {
   const initialPermalink = useRef(readPermalink());
   const pendingInternalTarget = useRef<InternalSessionTarget | undefined>(undefined);
   const lastSessionByWorkspace = useRef<Record<string, string>>({});
+  const pendingNewSessionByWorkspace = useRef<Record<string, string>>({});
   const currentWorkspaceId = useRef("");
   const [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -34,6 +35,7 @@ export default function App() {
   const [sessionsWorkspaceId, setSessionsWorkspaceId] = useState("");
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [statusesByWorkspace, setStatusesByWorkspace] = useState<Record<string, SessionStatusMap>>({});
+  const [openSessionIds, setOpenSessionIds] = useState<Record<string, string[]>>({});
   const sessionStatuses = statusesByWorkspace[workspaceId] || {};
   const [sessionId, setSessionId] = useState("");
   const [targetMessageId, setTargetMessageId] = useState(initialPermalink.current.messageId);
@@ -99,9 +101,19 @@ export default function App() {
   }, [page, sessionId, sessions, sessionsWorkspaceId, workspaceId]);
 
   useEffect(() => {
+    if (sessionsWorkspaceId !== workspaceId) return;
+    const pending = pendingNewSessionByWorkspace.current[workspaceId];
+    if (pending && sessions.some((session) => session.id === pending)) delete pendingNewSessionByWorkspace.current[workspaceId];
+  }, [sessions, sessionsWorkspaceId, workspaceId]);
+
+  useEffect(() => {
     if (auth !== "in" || !workspaceId) return;
     let current = true;
-    const refresh = () => { void api.sessionStatuses(workspaceId).then((result) => { if (current) setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: mergeSessionStatuses(workspaces[workspaceId] || {}, result.statuses, page === "agent" && document.visibilityState === "visible" ? sessionId : undefined) })); }).catch(() => undefined); };
+    const refresh = () => { void api.sessionStatuses(workspaceId).then((result) => {
+      if (!current) return;
+      setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: mergeSessionStatuses(workspaces[workspaceId] || {}, result.statuses, page === "agent" && document.visibilityState === "visible" ? sessionId : undefined) }));
+      setOpenSessionIds((ids) => ({ ...ids, [workspaceId]: result.statuses.map((status) => status.id) }));
+    }).catch(() => undefined); };
     refresh();
     const timer = window.setInterval(refresh, 1000);
     return () => { current = false; window.clearInterval(timer); };
@@ -124,7 +136,10 @@ export default function App() {
     if (!workspaceId) return;
     void api.sessions(workspaceId).then((result) => {
       if (currentWorkspaceId.current !== workspaceId) return;
-      if (removedFromActiveId && !result.sessions.some((session) => session.id === removedFromActiveId)) deleteCachedSessionSnapshot(sessionCacheKey(workspaceId, removedFromActiveId));
+      if (removedFromActiveId && !result.sessions.some((session) => session.id === removedFromActiveId)) {
+        deleteCachedSessionSnapshot(sessionCacheKey(workspaceId, removedFromActiveId));
+        if (pendingNewSessionByWorkspace.current[workspaceId] === removedFromActiveId) delete pendingNewSessionByWorkspace.current[workspaceId];
+      }
       setSessions(result.sessions); setSessionsWorkspaceId(workspaceId);
       setSessionId((current) => {
         const next = current !== removedFromActiveId && result.sessions.some((session) => session.id === current) ? current : result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
@@ -165,8 +180,16 @@ export default function App() {
 
   async function createSession() {
     if (!workspace) return;
+    const pendingId = pendingNewSessionByWorkspace.current[workspace.id];
+    if (pendingId && (pendingId === sessionId || openSessionIds[workspace.id]?.includes(pendingId))) {
+      setTargetMessageId(undefined); setLeafEntryId(undefined); setSessionId(pendingId); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, pendingId));
+      return;
+    }
+    const previousDraft = pendingId ? getCachedSessionUiState(sessionCacheKey(workspace.id, pendingId))?.draft : undefined;
     try {
       const created = await api.createSession(workspace.id);
+      pendingNewSessionByWorkspace.current[workspace.id] = created.id;
+      if (previousDraft?.trim()) cacheSessionUiState(sessionCacheKey(workspace.id, created.id), { draft: previousDraft, attachments: [], disclosures: {} });
       setSessions(await api.sessions(workspace.id).then((result) => result.sessions)); setSessionsWorkspaceId(workspace.id);
       setSessionId(created.id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, created.id));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Cannot create session"); }
