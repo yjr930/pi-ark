@@ -144,7 +144,7 @@ Fresh installation 在 `setup --port <number>` 中设置 listen port；installer
 
 自动化可以通过 `PI_ARK_USERNAME` 与 `PI_ARK_PASSWORD` 提供 setup 的登录信息。POSIX shell 使用 `export PI_ARK_PASSWORD="choose-a-password"`，PowerShell 使用 `$env:PI_ARK_PASSWORD = "choose-a-password"`，然后执行相同的 setup 命令并省略 `--password`。
 
-Setup 生成 RSA 3072-bit 的自签名 certificate，有效期为 825 天，SAN 包含 `localhost` 与 `127.0.0.1`。浏览器打开初始化命令输出的 HTTPS 地址。使用自签名证书时，首次访问需要在浏览器中确认该证书。
+Setup 生成 RSA 3072-bit 的自签名 certificate，有效期为 825 天，SAN 包含 `localhost` 与 `127.0.0.1`。初始化命令会输出 HTTPS 地址，并提示在启动 Pi-Ark 后访问该地址。使用自签名证书时，首次访问需要在浏览器中确认该证书。
 
 ## 开发模式
 

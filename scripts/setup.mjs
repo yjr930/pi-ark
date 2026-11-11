@@ -49,4 +49,4 @@ const config = {
 };
 await writeFile(join(home, "config.json"), JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
 console.log(`Pi-Ark configuration written to ${join(home, "config.json")}`);
-console.log(`Open https://${config.listen.host}:${config.listen.port} after running npm run build && npm start`);
+console.log(`Start Pi-Ark, then open https://${config.listen.host}:${config.listen.port}`);
