@@ -8,6 +8,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 // 运行：PI_ARK_CHECK_URL=https://127.0.0.1:31416/pi-ark/ PI_ARK_CHECK_WORKSPACE="$PWD/.tmp/file-links-workspace" node scripts/check-file-links-ui.mjs
 // URL 应指向父进程启动的隔离服务，Workspace 应指向该服务已注册的临时目录。
 // 可选环境变量：PI_ARK_CHECK_WORKSPACE_ID、PI_ARK_CHECK_USERNAME、PI_ARK_CHECK_PASSWORD、PI_ARK_CHECK_SCREENSHOT_DIR。
+// 同一个入口检查文件链接，以及 Files 的返回、前进、刷新和会话阅读状态恢复。
 const url = process.env.PI_ARK_CHECK_URL;
 const workspaceInput = process.env.PI_ARK_CHECK_WORKSPACE;
 if (!url || !workspaceInput) throw new Error("Set PI_ARK_CHECK_URL and PI_ARK_CHECK_WORKSPACE for an isolated service");
@@ -41,14 +42,20 @@ async function createFile(path, content) {
   sourceFiles.set(absolute, content);
 }
 
-function createSession(label, makeSource) {
+function createSession(label, makeSource, { laterSource } = {}) {
   const manager = SessionManager.create(workspace, join(workspace, ".pi-ark", "sessions"));
   const fixture = { id: manager.getSessionId(), path: manager.getSessionFile(), source: "" };
   sessions.push(fixture);
   manager.appendSessionInfo(`${prefix} ${label}`);
   manager.appendMessage({ role: "user", content: `${label} fixture ready`, timestamp: Date.now() - 2000 });
   fixture.source = makeSource(fixture.id);
-  manager.appendMessage({ role: "assistant", content: [{ type: "text", text: fixture.source }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 20, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - 1000 });
+  const answer = { role: "assistant", content: [{ type: "text", text: fixture.source }], api: "openai-responses", provider: "openai-codex", model: "gpt-5.6-sol", usage: { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 20, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() - 1000 };
+  fixture.entryId = manager.appendMessage(answer);
+  fixture.leafEntryId = manager.getLeafId();
+  if (laterSource) {
+    manager.appendMessage({ role: "user", content: "Later active conversation", timestamp: Date.now() });
+    manager.appendMessage({ ...answer, content: [{ type: "text", text: laterSource }], timestamp: Date.now() });
+  }
   fixture.path = manager.getSessionFile();
   assert.ok(fixture.path);
   return fixture;
@@ -166,6 +173,160 @@ async function checkInputAndButton() {
   await composer.fill("");
 }
 
+async function stableConversationPosition() {
+  return page.locator(".conversation").evaluate(async (container) => {
+    const startedAt = performance.now();
+    let stableAt = startedAt;
+    let previous = container.scrollTop;
+    while (performance.now() - startedAt < 8000) {
+      await new Promise((done) => requestAnimationFrame(done));
+      const now = performance.now();
+      if (Math.abs(container.scrollTop - previous) > 0.5) stableAt = now;
+      previous = container.scrollTop;
+      if (now - stableAt >= 450) return { scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight, lineHeight: Number.parseFloat(getComputedStyle(container).lineHeight) || 24 };
+    }
+    throw new Error("Conversation scrolling did not settle");
+  });
+}
+
+async function prepareHistoryReading(link) {
+  await link.evaluate((element) => {
+    const container = element.closest(".conversation");
+    if (!container) throw new Error("History fixture link is outside the conversation");
+    const top = container.scrollTop + element.getBoundingClientRect().top - container.getBoundingClientRect().top - container.clientHeight * 0.35;
+    container.scrollTo({ top, behavior: "instant" });
+  });
+  const position = await stableConversationPosition();
+  assert.ok(position.scrollHeight > position.clientHeight * 3, "The history fixture has a genuinely scrollable conversation");
+  assert.ok(position.scrollTop > 200, "The reader has scrolled beyond the conversation start");
+  assert.ok(position.scrollHeight - position.scrollTop - position.clientHeight > position.clientHeight, "The reader has left the bottom-following position");
+  const visible = await link.evaluate((element) => {
+    const container = element.closest(".conversation").getBoundingClientRect();
+    const bounds = element.getBoundingClientRect();
+    return bounds.top >= container.top + 40 && bounds.bottom <= container.bottom - 40;
+  });
+  assert.equal(visible, true, "Clicking the prepared link preserves the reader's scroll position");
+  return position;
+}
+
+async function checkFileHistory(fixture, marker, { label, linkType = "standard", historical = false }) {
+  const historyCase = await newCase(marker);
+  const message = () => page.locator(`.feed-source-message[data-entry-id=${JSON.stringify(fixture.entryId)}]`);
+  const historyArticle = () => message().locator(".feed-text-block.markdown-body");
+  const sourceTarget = { page: "agent", session: fixture.id, ...(historical ? { leafEntryId: fixture.leafEntryId } : {}) };
+  const draft = `History navigation draft 中文 ${label}`;
+  const initialPath = linkType === "bare" ? `${prefix}/docs/relative.md` : `${prefix}/root.md`;
+  const initialText = linkType === "bare" ? "Docs relative preview" : "Base directory fixture";
+  let restoredPosition;
+  let backVisits = 0;
+  let forwardVisits = 0;
+  try {
+    await page.goto(targetUrl(sourceTarget));
+    await expect(historyArticle()).toContainText(marker);
+    await expect(page.locator(".chat-title .status-dot")).toHaveText("Ready", { timeout: 15000 });
+    if (historical) {
+      const messageId = await message().getAttribute("data-message-id");
+      assert.match(messageId, /^m[0-9a-z]{6}$/);
+      sourceTarget.message = messageId;
+      await page.goto(targetUrl(sourceTarget));
+      await expect(historyArticle()).toContainText(marker);
+      await expect(page.locator(".chat-title .status-dot")).toHaveText("Ready", { timeout: 15000 });
+      await expect(page.locator(".historical-branch-banner")).toContainText("Historical conversation branch");
+      await expect(page.locator(".conversation")).not.toContainText("Later active history branch");
+    } else {
+      await page.getByPlaceholder("Send message here", { exact: true }).fill(draft);
+    }
+    await stableConversationPosition();
+    await message().getByRole("button", { name: /^Show information for / }).click();
+    await expect(message().getByRole("button", { name: /^Hide information for / })).toHaveAttribute("aria-expanded", "true");
+    const sourceLink = () => historyArticle().getByRole("link", { name: linkType === "bare" ? `${prefix}/docs/relative.md` : "History standard", exact: true });
+    await expect(sourceLink()).toHaveAttribute("data-pi-ark-file-link", "true", { timeout: 15000 });
+    const readingPosition = await prepareHistoryReading(sourceLink());
+    const tolerance = Math.max(6, Math.min(28, readingPosition.lineHeight));
+    const sourceUrl = page.url();
+    const initialLength = await page.evaluate(() => history.length);
+    const sourceSession = await readFile(fixture.path, "utf8");
+    await sourceLink().click();
+    await expectFile(initialPath, initialText);
+    const filesLength = await page.evaluate(() => history.length);
+    assert.equal(filesLength, initialLength + 1, "Agent file-link navigation pushes one Files entry");
+
+    async function backToSource() {
+      await page.goBack();
+      await expect(page).toHaveURL(sourceUrl);
+      await expect(historyArticle()).toContainText(marker);
+      await expect(page.locator(".chat-title .status-dot")).toHaveText("Ready", { timeout: 15000 });
+      await expect(message().getByRole("button", { name: /^Hide information for / })).toHaveAttribute("aria-expanded", "true");
+      await expect(message().locator(".feed-text-meta")).toHaveCount(1);
+      if (historical) {
+        await expect(page.locator(".historical-branch-banner")).toContainText("Historical conversation branch");
+        await expect(page.locator(".conversation")).not.toContainText("Later active history branch");
+        assert.equal(new URL(page.url()).searchParams.get("leafEntryId"), fixture.leafEntryId);
+        assert.equal(new URL(page.url()).searchParams.get("message"), sourceTarget.message);
+      } else {
+        await expect(page.getByPlaceholder("Send message here", { exact: true })).toHaveValue(draft);
+      }
+      restoredPosition = await stableConversationPosition();
+      assert.ok(Math.abs(restoredPosition.scrollTop - readingPosition.scrollTop) <= tolerance, `Back restores the reader's position: expected ${readingPosition.scrollTop}, received ${restoredPosition.scrollTop}, tolerance ${tolerance}`);
+      assert.equal(await page.evaluate(() => history.length), filesLength, "Back preserves the existing history entries");
+      assert.equal(new URL(page.url()).searchParams.get("session"), fixture.id);
+      assert.equal(new URL(page.url()).searchParams.get("workspace"), workspaceId);
+      backVisits += 1;
+    }
+
+    async function forwardToFile(path, text) {
+      await page.goForward();
+      await expectFile(path, text);
+      assert.equal(await page.evaluate(() => history.length), filesLength, "Forward reuses the existing Files entry");
+      forwardVisits += 1;
+    }
+
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      await backToSource();
+      await forwardToFile(initialPath, initialText);
+    }
+    const relative = fileArticle().getByRole("link", { name: linkType === "bare" ? "Root document" : "Local relative", exact: true });
+    await expect(relative).toHaveAttribute("data-pi-ark-file-link", "true", { timeout: 15000 });
+    await relative.click();
+    await expectFile(linkType === "bare" ? `${prefix}/root.md` : `${prefix}/relative.md`, linkType === "bare" ? "Base directory fixture" : "Root relative preview");
+    assert.equal(await page.evaluate(() => history.length), filesLength, "A Files Markdown link replaces the current Files entry");
+    await fileRow(`${prefix}/docs`).click();
+    await expect(fileRow(`${prefix}/docs/second.md`)).toBeVisible();
+    assertFilesUrl(page.url(), `${prefix}/docs`, "directory");
+    assert.equal(await page.evaluate(() => history.length), filesLength, "Directory browsing replaces the current Files entry");
+    await backToSource();
+    await page.goForward();
+    await expect(fileRow(`${prefix}/docs/second.md`)).toBeVisible();
+    assertFilesUrl(page.url(), `${prefix}/docs`, "directory");
+    assert.equal(await page.evaluate(() => history.length), filesLength, "Forward restores the latest directory entry");
+    forwardVisits += 1;
+    await fileRow(`${prefix}/docs/second.md`).click();
+    await expectFile(`${prefix}/docs/second.md`, "Base directory fixture");
+    assert.equal(await page.evaluate(() => history.length), filesLength, "File browsing replaces the current Files entry");
+    await backToSource();
+    await forwardToFile(`${prefix}/docs/second.md`, "Base directory fixture");
+    await page.reload();
+    await expectFile(`${prefix}/docs/second.md`, "Base directory fixture");
+    assert.equal(await page.evaluate(() => history.length), filesLength, "Refreshing Files preserves its history entry");
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      await backToSource();
+      await forwardToFile(`${prefix}/docs/second.md`, "Base directory fixture");
+    }
+    await backToSource();
+    assert.equal(await readFile(fixture.path, "utf8"), sourceSession, "History navigation preserves the Session source");
+    assert.deepEqual(historyCase.monitor.errors, []);
+    await page.screenshot({ path: join(screenshots, `file-links-history-${label}.png`) });
+    report.history ||= {};
+    report.history[label] = { linkType, historical, messagePermalink: Boolean(sourceTarget.message), backVisits, forwardVisits, addedHistoryEntries: filesLength - initialLength, scrollTopBefore: Math.round(readingPosition.scrollTop), scrollTopAfter: Math.round(restoredPosition.scrollTop), tolerancePx: tolerance, latestFile: `${prefix}/docs/second.md` };
+  } catch (error) {
+    await page.screenshot({ path: join(screenshots, `file-links-history-${label}-failure.png`) }).catch(() => {});
+    throw error;
+  } finally {
+    historyCase.monitor.closed = true;
+    await historyCase.context.close();
+  }
+}
+
 try {
   await mkdir(temporaryDirectory, { recursive: true });
   for (const variable of ["TMPDIR", "TMP", "TEMP"]) process.env[variable] = resolve(temporaryDirectory);
@@ -187,6 +348,12 @@ try {
   const longMarker = `${prefix} long source`;
   const longTail = "Long source complete";
   const long = createSession("long", () => `# ${longMarker}\n\n${"Readable original content 中文输入 remains available. ".repeat(1000)}\n\n${longPaths.flatMap((path) => [path, path]).join(" ")}\n\n${longTail}\n`);
+  const historyMarker = `${prefix} history source`;
+  const historicalMarker = `${prefix} historical source`;
+  const historyParagraphs = (start, count) => Array.from({ length: count }, (_, index) => `Reading paragraph ${start + index}: The original conversation remains readable while browsing project files and returning to the previous reading position.`).join("\n\n");
+  const historySource = (marker) => `# ${marker}\n\n${historyParagraphs(1, 32)}\n\n[History standard](${prefix}/root.md)\n\nBare history path: ${prefix}/docs/relative.md\n\n[History directory](${prefix}/docs/)\n\n${historyParagraphs(33, 56)}\n\nHistory source complete\n`;
+  const historyFixture = createSession("history", () => historySource(historyMarker));
+  const historicalFixture = createSession("historical", () => historySource(historicalMarker), { laterSource: "# Later active history branch\n\nThis later response belongs to the current conversation and stays outside the pinned historical source.\n" });
 
   browser = await chromium.launch({ headless: true });
   authContext = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -284,12 +451,15 @@ try {
     await expect(space).toHaveAttribute("data-pi-ark-file-link", "true", { timeout: 15000 });
     assertFilesUrl(await space.getAttribute("href"), `${prefix}/docs/含 空格.md`);
     const previousUrl = page.url();
+    const sourceHistoryLength = await page.evaluate(() => history.length);
     const newTab = coreCase.context.waitForEvent("page");
     await space.click({ modifiers: [process.platform === "darwin" ? "Meta" : "Control"] });
     const popup = await newTab;
     await popup.waitForLoadState("domcontentloaded");
     await expectFile(`${prefix}/docs/含 空格.md`, "中文空格 preview", popup);
+    assert.equal(await popup.evaluate(() => history.length), 1, "A direct Files tab starts without a synthetic Agent history entry");
     assert.equal(page.url(), previousUrl, "Modifier-click preserves the source conversation");
+    assert.equal(await page.evaluate(() => history.length), sourceHistoryLength, "Modifier-click preserves the source history");
     await popup.reload();
     await expectFile(`${prefix}/docs/含 空格.md`, "中文空格 preview", popup);
     await popup.close();
@@ -314,6 +484,10 @@ try {
     coreCase.monitor.closed = true;
     await coreCase.context.close();
   }
+
+  await checkFileHistory(historyFixture, historyMarker, { label: "standard", linkType: "standard" });
+  await checkFileHistory(historyFixture, historyMarker, { label: "bare", linkType: "bare" });
+  await checkFileHistory(historicalFixture, historicalMarker, { label: "historical-message", linkType: "standard", historical: true });
 
   const oldGate = gate();
   const currentGate = gate();

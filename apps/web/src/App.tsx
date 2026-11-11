@@ -11,6 +11,7 @@ import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
 import { appLocation, fileLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
 import { basePath } from "./base-path";
+import { readAgentReturnPosition, withAgentReturnPosition } from "./navigation-history";
 import { cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionUiState, initializeSessionCache, sessionCacheKey } from "./session-cache";
 import { resolveActiveSessionId } from "./session-selection";
 import { acknowledgeSessionStatus, mergeSessionStatuses, type SessionStatusMap } from "./session-status";
@@ -46,6 +47,8 @@ export default function App() {
   const [targetMessageId, setTargetMessageId] = useState(initialPermalink.current.messageId);
   const [leafEntryId, setLeafEntryId] = useState(initialPermalink.current.leafEntryId);
   const [page, setPage] = useState<Page>(initialPermalink.current.page);
+  const [restorePosition, setRestorePosition] = useState(() => readAgentReturnPosition(window.history.state, initialPermalink.current));
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [fileTarget, setFileTarget] = useState(() => ({ workspaceId: initialPermalink.current.workspaceId, path: initialPermalink.current.filePath || "", type: initialPermalink.current.fileType || "directory" as "file" | "directory", revision: 0 }));
   const [settingsVisited, setSettingsVisited] = useState(initialPermalink.current.page === "settings");
   const [terminalWorkspaces, setTerminalWorkspaces] = useState<string[]>([]);
@@ -110,6 +113,32 @@ export default function App() {
   }, [workspaceId, auth]);
 
   useEffect(() => { currentWorkspaceId.current = workspaceId; }, [workspaceId]);
+
+  useEffect(() => {
+    if (auth !== "in") return;
+    const restoreHistory = () => {
+      const target = readPermalink();
+      const targetWorkspace = target.workspaceId || workspaceId;
+      if (!workspaces.some((item) => item.id === targetWorkspace)) { setError("The linked workspace is not open"); return; }
+      selectionRevision.current += 1;
+      pendingInternalTarget.current = undefined;
+      setRestorePosition(readAgentReturnPosition(window.history.state, target));
+      setHistoryRevision((revision) => revision + 1);
+      setPage(target.page); setSidebar(false); setError("");
+      setTargetMessageId(target.messageId); setLeafEntryId(target.leafEntryId);
+      if (target.page === "settings") setSettingsVisited(true);
+      if (target.page === "files") setFileTarget((current) => ({ workspaceId: targetWorkspace, path: target.filePath || "", type: target.fileType || "directory", revision: current.revision + 1 }));
+      if (targetWorkspace === workspaceId) {
+        setSessionId(target.sessionId || lastSessionByWorkspace.current[targetWorkspace] || "");
+        initialPermalink.current = { page: "agent" };
+      } else {
+        initialPermalink.current = target;
+        setWorkspaceId(targetWorkspace);
+      }
+    };
+    window.addEventListener("popstate", restoreHistory);
+    return () => window.removeEventListener("popstate", restoreHistory);
+  }, [auth, workspaceId, workspaces]);
 
   useEffect(() => {
     if (page !== "agent" || !workspaceId || !sessionId || sessionsWorkspaceId !== workspaceId) return;
@@ -225,22 +254,32 @@ export default function App() {
   }
 
   function selectWorkspace(id: string) {
+    setRestorePosition(undefined);
     setWorkspaceId(id); setTargetMessageId(undefined); setLeafEntryId(undefined); setCreateGroupOpen(false); setPage("agent"); window.history.replaceState(null, "", workspaceLocation(id));
   }
 
   function selectPage(nextPage: Page) {
+    setRestorePosition(undefined);
     if (nextPage === "settings") setSettingsVisited(true);
     setPage(nextPage); setSidebar(false); window.history.replaceState(null, "", nextPage === "agent" && workspaceId && sessionId ? sessionPermalink(workspaceId, sessionId, targetMessageId, leafEntryId) : nextPage === "files" && fileTarget.workspaceId === workspaceId ? fileLocation(workspaceId, fileTarget.path, fileTarget.type, sessionId) : appLocation(nextPage, workspaceId, sessionId));
   }
 
   function openFileTarget(path: string, type: "file" | "directory", targetWorkspaceId = workspaceId) {
     if (!workspaces.some((item) => item.id === targetWorkspaceId)) return;
+    const destination = fileLocation(targetWorkspaceId, path, type, targetWorkspaceId === workspaceId ? sessionId : undefined);
+    if (page === "agent" && sessionId) {
+      const conversation = document.querySelector<HTMLDivElement>(".conversation");
+      const position = { workspaceId, sessionId, messageId: targetMessageId, leafEntryId, scrollTop: conversation?.scrollTop || 0, followOutput: conversation ? conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight <= 96 : true };
+      window.history.replaceState(withAgentReturnPosition(window.history.state, position), "");
+      window.history.pushState(null, "", destination);
+    } else window.history.replaceState(window.history.state, "", destination);
+    setRestorePosition(undefined);
     setFileTarget((current) => ({ workspaceId: targetWorkspaceId, path, type, revision: current.revision + 1 }));
     setWorkspaceId(targetWorkspaceId); setPage("files"); setSidebar(false);
-    window.history.replaceState(null, "", fileLocation(targetWorkspaceId, path, type, targetWorkspaceId === workspaceId ? sessionId : undefined));
   }
 
   function selectSession(id: string) {
+    setRestorePosition(undefined);
     selectionRevision.current += 1;
     setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, id) }));
     setSessionId(id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, id));
@@ -251,6 +290,7 @@ export default function App() {
   }
 
   async function openInternalSessionLink(value: string) {
+    setRestorePosition(undefined);
     const target = parseInternalSessionLink(value);
     if (!target) throw new Error("Enter a valid Pi-Ark session link");
     if (!workspaces.some((item) => item.id === target.workspaceId)) throw new Error("The linked workspace is not open");
@@ -331,7 +371,7 @@ export default function App() {
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
       {!workspace && page !== "settings" && (workspacesLoading ? <div className="page-loading"><LoaderCircle size={20} />Loading workspaces</div> : <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>)}
-      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}`} workspace={workspace} session={selectedSession} sessions={workspaceSessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : loadingSessions ? <div className="page-loading"><LoaderCircle size={20} />Loading sessions</div> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
+      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}:${historyRevision}`} restorePosition={restorePosition?.workspaceId === workspace.id && restorePosition.sessionId === selectedSession.id && restorePosition.messageId === targetMessageId && restorePosition.leafEntryId === leafEntryId ? restorePosition : undefined} workspace={workspace} session={selectedSession} sessions={workspaceSessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : loadingSessions ? <div className="page-loading"><LoaderCircle size={20} />Loading sessions</div> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} />}
         {workspace && page === "files" && <Files key={workspace.id} workspace={workspace} target={fileTarget.workspaceId === workspaceId ? fileTarget : undefined} onNavigate={openFileTarget} />}

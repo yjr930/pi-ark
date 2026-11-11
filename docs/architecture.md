@@ -160,7 +160,7 @@ IntersectionObserver 选取视区及附近 200 px 内的内容，内容稳定约
 | 缺失路径或请求失败的缓存时间 | 15 秒 |
 | 路径确认缓存的容量 | 最多 2048 条 |
 
-标准 Markdown 的本地 href 解码一次后送入同一确认队列；正文中的路径保持其字面值。标准本地链接在后台确认前点击时，浏览器先拦截导航，再异步确认并打开 Files。文件链接使用带 `page=files`、`workspace`、`path` 与 `kind` 的应用 URL，App 处理普通点击，修饰键沿用浏览器的新标签页操作。Files 按目标加载目录与文件，刷新时从 URL 恢复该目标。
+标准 Markdown 的本地 href 解码一次后送入同一确认队列；正文中的路径保持其字面值。标准本地链接在后台确认前点击时，浏览器先拦截导航，再异步确认并打开 Files。文件链接使用带 `page=files`、`workspace`、`path` 与 `kind` 的应用 URL，App 处理普通点击，修饰键沿用浏览器的新标签页操作。Files 按目标加载目录与文件，刷新时从 URL 恢复该目标。从 Agent 打开文件时，App 通过 `pushState` 新增 Files 的历史记录，并将原会话的阅读位置保存在来源记录的 `history.state.piArkAgentReturn` 中；Files 内的浏览继续使用 `replaceState`。`popstate` 根据 URL 恢复页面、Workspace、Session、message 与历史分支，Chat 在取得 snapshot 后恢复阅读位置，并沿用已有的草稿与 disclosure 缓存。浏览器的前进操作恢复当前的 Files 目标。
 
 `POST /api/workspaces/:workspaceId/file-links/resolve` 接收 `{ paths: string[], basePath?: string }`，返回 `{ links: Array<{ input, path, type }> }`。`type` 为 `file` 或 `directory`，`path` 使用 canonical Workspace 相对路径。每次请求最多包含 64 条路径，每条最多 2048 字符；Server 使用最多 4 个并发的异步文件系统任务，通过 `WorkspaceService.safePath` 与 metadata 确认目标，沿用 realpath、Workspace 范围及 `.pi-ark` 的访问规则。
 

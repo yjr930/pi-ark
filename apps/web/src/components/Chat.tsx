@@ -310,11 +310,11 @@ function TurnMessages({ messages, active, targetMessageId, hideReasoning, rollba
 function number(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value); }
 function fileData(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.onerror = () => reject(reader.error || new Error("Cannot read attachment")); reader.readAsDataURL(file); }); }
 
-export function Chat({ workspace, session, sessions, sessionStatuses, targetMessageId, leafEntryId, hideReasoning, onSessionChanged, onSessionForked }: { workspace: Workspace; session: SessionInfo; sessions: SessionInfo[]; sessionStatuses: Record<string, SessionRuntimeStatus>; targetMessageId?: string; leafEntryId?: string; hideReasoning: boolean; onSessionChanged: () => void; onSessionForked: (sessionId: string) => void }) {
+export function Chat({ workspace, session, sessions, sessionStatuses, targetMessageId, leafEntryId, restorePosition, hideReasoning, onSessionChanged, onSessionForked }: { workspace: Workspace; session: SessionInfo; sessions: SessionInfo[]; sessionStatuses: Record<string, SessionRuntimeStatus>; targetMessageId?: string; leafEntryId?: string; restorePosition?: { scrollTop: number; followOutput: boolean }; hideReasoning: boolean; onSessionChanged: () => void; onSessionForked: (sessionId: string) => void }) {
   const cacheKey = sessionCacheKey(workspace.id, session.id) + (leafEntryId ? `:${leafEntryId}` : "");
   const [cachedSnapshot] = useState<AgentSnapshot | null>(() => {
     const cached = getCachedSessionSnapshot(cacheKey);
-    if (!cached || !targetMessageId) return cached || null;
+    if (!cached || !targetMessageId || restorePosition) return cached || null;
     if (/^[1-9]\d*$/.test(targetMessageId)) { const legacyNumber = Number(targetMessageId); return legacyNumber > cached.messageNumberOffset && legacyNumber <= cached.messageNumberOffset + cached.messages.length ? cached : null; }
     return cached.messages.some((message) => message.messageId === targetMessageId) ? cached : null;
   });
@@ -344,7 +344,8 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const [retryNotice, setRetryNotice] = useState<{ attempt: number; maxAttempts: number; errorMessage: string } | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
-  const followOutputRef = useRef(true);
+  const followOutputRef = useRef(restorePosition?.followOutput ?? true);
+  const restoredPositionRef = useRef<typeof restorePosition>(undefined);
   const infoRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -371,11 +372,12 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     textarea.style.overflowY = textarea.scrollHeight > maxHeight + 1 ? "auto" : "hidden";
   }, [draft]);
   useEffect(() => {
-    setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageId(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setOptimisticQueueOperations([]); setRetryNotice(null); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = true;
+    setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageId(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setOptimisticQueueOperations([]); setRetryNotice(null); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = restorePosition?.followOutput ?? true;
     let active = true;
     const connectionQuery = new URLSearchParams();
     if (leafEntryId) connectionQuery.set("leafEntryId", leafEntryId);
-    if (targetMessageId) connectionQuery.set("message", targetMessageId);
+    if (restorePosition && cachedSnapshot) connectionQuery.set("start", String(cachedSnapshot.messageNumberOffset || 0));
+    else if (targetMessageId) connectionQuery.set("message", targetMessageId);
     else if (cachedSnapshot) connectionQuery.set("start", String(cachedSnapshot.messageNumberOffset || 0));
     const socket = new WebSocket(websocketUrl(`/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}${connectionQuery.size ? `?${connectionQuery}` : ""}`));
     socketRef.current = socket;
@@ -422,7 +424,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       if (payload.type === "error") { setStatus(payload.message); setLoadingEarlierMessages(false); setPendingQueuedMessages((current) => { let pendingIndex = -1; for (let index = current.length - 1; index >= 0; index -= 1) if (current[index].status === "scheduling") { pendingIndex = index; break; } return pendingIndex < 0 ? current : current.map((item, index) => index === pendingIndex ? { ...item, status: "failed", error: payload.message } : item); }); }
     };
     return () => { active = false; socket.close(); };
-  }, [workspace.id, session.id, targetMessageId, leafEntryId, onSessionChanged, cachedSnapshot]);
+  }, [workspace.id, session.id, targetMessageId, leafEntryId, restorePosition?.scrollTop, restorePosition?.followOutput, onSessionChanged, cachedSnapshot]);
 
   useEffect(() => {
     if (!infoOpen) return;
@@ -433,20 +435,24 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
 
   useLayoutEffect(() => {
     const conversation = conversationRef.current;
-    if (!conversation) return;
-    if (!targetMessageId && followOutputRef.current) conversation.scrollTop = conversation.scrollHeight;
+    if (!conversation || !snapshot) return;
+    const restoring = restorePosition && restoredPositionRef.current !== restorePosition;
+    if (restoring) conversation.scrollTop = restorePosition.scrollTop;
+    else if ((!targetMessageId || restorePosition) && followOutputRef.current) conversation.scrollTop = conversation.scrollHeight;
     updateConversationPosition(conversation);
-  }, [snapshot?.messages, snapshot?.isStreaming, targetMessageId]);
+    if (restoring) followOutputRef.current = restorePosition.followOutput;
+    restoredPositionRef.current = restorePosition;
+  }, [snapshot?.messages, snapshot?.isStreaming, targetMessageId, restorePosition]);
   const resolvedTargetMessageId = targetMessageId ? snapshot?.targetMessageId || (/^m[0-9a-z]{6}$/.test(targetMessageId) ? targetMessageId : undefined) : undefined;
   useEffect(() => {
-    if (!resolvedTargetMessageId || !snapshot) return;
+    if (restorePosition || !resolvedTargetMessageId || !snapshot) return;
     const key = `${session.id}:${resolvedTargetMessageId}`;
     if (scrolledPermalinkRef.current === key) return;
     const element = document.getElementById(`message-${resolvedTargetMessageId}`);
     if (!element) return;
-    scrolledPermalinkRef.current = key;
-    window.requestAnimationFrame(() => element.scrollIntoView({ behavior: "smooth", block: "center" }));
-  }, [resolvedTargetMessageId, session.id, snapshot]);
+    const frame = window.requestAnimationFrame(() => { scrolledPermalinkRef.current = key; element.scrollIntoView({ behavior: "smooth", block: "center" }); });
+    return () => window.cancelAnimationFrame(frame);
+  }, [resolvedTargetMessageId, restorePosition, session.id, snapshot]);
   const isLoading = snapshot === null;
   const active = Boolean(snapshot && !snapshot.isIdle);
   const origin = snapshot?.subagents?.origin || session.subagentOrigin;
@@ -634,7 +640,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     {leafEntryId && <div className="historical-branch-banner"><span>Historical conversation branch</span><SessionReference link={`pi-ark://workspace/${encodeURIComponent(workspace.id)}/session/${encodeURIComponent(session.id)}`}>Open current conversation</SessionReference></div>}
     {subagentListOpen && agentItems.length > 0 && <SubagentList items={agentItems} sessionId={session.id} />}</div>
     <div ref={conversationRef} className={`conversation ${isLoading ? "conversation-loading" : allMessages.length === 0 ? "conversation-empty" : ""}`} onScroll={(event) => updateConversationPosition(event.currentTarget)}>
-      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : allMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>{isSubagent ? "SubAgent conversation" : "What are we building?"}</h1><p>{isSubagent ? <>Parent Agent manages this conversation in <strong>{workspace.name}</strong>.</> : <>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</>}</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageId && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to ${roles.user} message ${stickyUserMessageId}`} onClick={() => locateMessage(stickyUserMessageId)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">{roles.user}</span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{snapshot?.hasEarlierMessages && <div className="conversation-history-page"><button type="button" disabled={loadingEarlierMessages} onClick={showEarlierMessages}>{loadingEarlierMessages ? "Loading earlier messages" : "Show earlier messages"}</button><span>{number(messageNumberOffset)} earlier messages</span></div>}<TurnMessages messages={allMessages} active={active} targetMessageId={resolvedTargetMessageId} hideReasoning={hideReasoning} rollbackEntryId={snapshot?.rollbackEntryId} disclosures={disclosures} onDisclosureChange={changeDisclosure} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageId) => void navigator.clipboard.writeText(pinnedPiArkLink(internalMessageLink(workspace.id, session.id, messageId), leafEntryId))} onFork={(entryId) => { if (!actionBusy && !leafEntryId) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{retryNotice && <div className="ai-feed-segment"><div className="ai-feed-content"><div className="turn-warning retrying" role="status"><TriangleAlert size={14} /><div className="turn-warning-copy"><strong>Retrying after error (attempt {retryNotice.attempt} of {retryNotice.maxAttempts})</strong><span>{retryNotice.errorMessage}</span></div></div></div></div>}{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
+      {isLoading ? <div className="session-loading" role="status" aria-live="polite"><div className="session-loading-icon"><LoaderCircle size={20} /></div><div><strong>Loading conversation</strong><span>{status}</span></div><div className="session-loading-progress" aria-label="Session loading progress"><i /></div></div> : allMessages.length === 0 ? <div className="empty-chat"><div className="empty-orb"><Sparkles size={28} /></div><h1>{isSubagent ? "SubAgent conversation" : "What are we building?"}</h1><p>{isSubagent ? <>Parent Agent manages this conversation in <strong>{workspace.name}</strong>.</> : <>Ask AI to inspect, explain, or change files in <strong>{workspace.name}</strong>.</>}</p></div> : <>{stickyUserMessage?.role === "user" && stickyUserMessageId && <div className="conversation-sticky-user"><button type="button" aria-label={`Go to ${roles.user} message ${stickyUserMessageId}`} onClick={() => locateMessage(stickyUserMessageId)}><span className="sticky-user-avatar"><UserRound size={15} /></span><span className="sticky-user-label">{roles.user}</span><span className="sticky-user-text" title={stickyUserText}>{stickyUserText}</span></button></div>}<div className="conversation-content">{snapshot?.hasEarlierMessages && <div className="conversation-history-page"><button type="button" disabled={loadingEarlierMessages} onClick={showEarlierMessages}>{loadingEarlierMessages ? "Loading earlier messages" : "Show earlier messages"}</button><span>{number(messageNumberOffset)} earlier messages</span></div>}<TurnMessages messages={allMessages} active={active} targetMessageId={restorePosition ? undefined : resolvedTargetMessageId} hideReasoning={hideReasoning} rollbackEntryId={snapshot?.rollbackEntryId} disclosures={disclosures} onDisclosureChange={changeDisclosure} onImageOpen={(source, alt) => setImageOpen({ source, alt })} onCopyLink={(messageId) => void navigator.clipboard.writeText(pinnedPiArkLink(internalMessageLink(workspace.id, session.id, messageId), leafEntryId))} onFork={(entryId) => { if (!actionBusy && !leafEntryId) void prepareFork(entryId); }} onRollback={setRollbackEntryId} />{retryNotice && <div className="ai-feed-segment"><div className="ai-feed-content"><div className="turn-warning retrying" role="status"><TriangleAlert size={14} /><div className="turn-warning-copy"><strong>Retrying after error (attempt {retryNotice.attempt} of {retryNotice.maxAttempts})</strong><span>{retryNotice.errorMessage}</span></div></div></div></div>}{active && <div className="working-row"><span /><span /><span /></div>}</div></>}
     </div>
     {!isLoading && snapshot?.subagents?.managed && !leafEntryId && <div className="subagent-managed-notice"><span>The parent is managing this task.</span><button type="button" className="stop-button" title="Stop" onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>}
     {!isLoading && !leafEntryId && !isSubagent && <form className="composer" onSubmit={(event) => void submit(event)}>
