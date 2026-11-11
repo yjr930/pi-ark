@@ -73,6 +73,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - 停用清单按 skill 名称记录，加载后名称在集合内不重复。
 - Built-in 的停用记录独立保存，用户停用过的内置 skill 在升级后保持停用。
 - 停用清单保存时按当前扫描结果归一化，丢弃已不存在的名称。
+- 启用状态按 Workspace ID 存储，Workspace 移除后停用记录保留，重新注册同名 Workspace 时行为可预期。
 
 ## 5. 服务端模块
 
@@ -98,6 +99,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - 启停修改后，Server 重建 loader，并对空闲 Session 调用 `session.reload()`。
 - 运行中的 Session 延后生效，界面提示下次启动生效。
 - 新 Session 与 subagent 直接使用最新集合。
+- Global system prompt 预览使用与目标 Workspace 相同的停用集合，保证预览与运行时一致。
 
 ## 7. 内置 skill
 
@@ -156,7 +158,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 
 - 浏览器二进制不进入 pi-ark 发布包，默认安装到 `~/.cache/ms-playwright`。
 - 首次启用 `playwright` server 时，Server 检查缓存目录，缺失时提示安装命令。
-- 安装命令为 `npx playwright install chromium-headless-shell`，只装无头版本。
+- 安装命令为 `npx playwright install chromium --only-shell`，只装无头版本。
 - 安装需要网络与磁盘写入，由用户确认后执行。
 
 ### 8.4 截图与结果
@@ -211,6 +213,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - `mcp.json` 解析失败、server 连接失败、浏览器缺失时，诊断进入 Settings 页面与 Session 状态提示。
 - `codemode` 未启用而 server 使用 `codemode` exposure 时，界面提示工具不可达。
 - Skill 名称冲突保留先发现的项，冲突项进入诊断。
+- 同名冲突下停用只作用于胜出的项。
 - 内置 skill 升级时整体替换 `skills/`，用户停用记录保留。
 - 内置 MCP server 升级时更新 `mcp.json` 的固定版本，用户启用状态保留。
 
