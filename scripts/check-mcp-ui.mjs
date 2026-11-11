@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 
 const url = process.env.PI_ARK_CHECK_URL;
 if (!url) throw new Error("Set PI_ARK_CHECK_URL for an isolated Pi-Ark service");
@@ -32,15 +32,19 @@ try {
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "MCP", exact: true }).click();
   await page.getByText("Registered actions").waitFor();
-  const advancedToggle = page.getByRole("switch", { name: "Disable advanced capabilities" });
+  const advancedToggle = page.locator(".mcp-advanced-row .settings-toggle");
+  await advancedToggle.waitFor();
   assert.equal(await advancedToggle.getAttribute("aria-checked"), "true");
+  assert.equal(await advancedToggle.isDisabled(), true);
+  await page.getByRole("switch", { name: "Enable playwright" }).click();
+  await page.getByText(/connected with 2 tools/).waitFor({ timeout: 30000 });
+  await expect(advancedToggle).toBeEnabled({ timeout: 30000 });
   await advancedToggle.click();
   await page.getByText(/advanced capabilities disabled/).waitFor();
   assert.deepEqual(advancedWrites.at(-1), { enabled: false });
-  await page.getByRole("switch", { name: "Enable playwright" }).click();
-  await page.getByText(/connected with 2 tools/).waitFor({ timeout: 30000 });
   await page.getByRole("switch", { name: "Disable playwright" }).click();
   await page.getByText(/playwright disabled/).waitFor({ timeout: 30000 });
+  assert.equal(await advancedToggle.isDisabled(), true);
   console.log("MCP UI checks passed");
 } finally {
   await browser.close();

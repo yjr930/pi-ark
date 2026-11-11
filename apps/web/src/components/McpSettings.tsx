@@ -258,7 +258,7 @@ export function McpSettings({ active }: { active: boolean }) {
       </div>
       {server.state === "needs-sign-in" && <div className="mcp-login-command"><ShieldAlert size={13} /><span>Sign in with</span><code>pi-ark mcp login {server.name}</code></div>}
       {server.diagnostics.length > 0 && <ul className="mcp-server-diagnostics">{server.diagnostics.map((diagnostic, index) => <li key={index}>{diagnostic}</li>)}</ul>}
-      {server.name === "playwright" && <div className="mcp-advanced-row"><div><strong>Advanced capabilities</strong><span>Storage, network, DevTools, vision and configuration actions.</span></div><Toggle checked={server.advanced !== false} disabled={busyName !== null || loading || refreshing} onChange={(checked) => void toggleAdvanced(server, checked)} label={`${server.advanced !== false ? "Disable" : "Enable"} advanced capabilities`} /></div>}
+      {server.name === "playwright" && <div className="mcp-advanced-row"><div><strong>Advanced capabilities</strong><span>{server.enabled ? "Storage, network, DevTools, vision and configuration actions." : "Enable playwright to change advanced capabilities."}</span></div><Toggle checked={server.advanced !== false} disabled={!server.enabled || busyName !== null || loading || refreshing} onChange={(checked) => void toggleAdvanced(server, checked)} label={`${server.advanced !== false ? "Disable" : "Enable"} advanced capabilities`} /></div>}
       {server.name === "playwright" && renderBrowserRuntime()}
     </div>;
   }
