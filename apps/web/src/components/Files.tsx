@@ -22,12 +22,17 @@ function absoluteEntryPath(workspacePath: string, relativePath: string): string 
 
 interface FileActionMenu { entry: FileEntry; top: number; left: number }
 
-export function Files({ workspace }: { workspace: Workspace }) {
-  const [directory, setDirectory] = useState("");
+interface FileNavigationTarget { path: string; type: "file" | "directory"; revision?: number }
+
+export function Files({ workspace, target, onNavigate }: { workspace: Workspace; target?: FileNavigationTarget; onNavigate?: (path: string, type: "file" | "directory") => void }) {
+  const [localTarget, setLocalTarget] = useState<FileNavigationTarget>({ path: "", type: "directory" });
+  const activeTarget = target || localTarget;
+  const directory = activeTarget.type === "directory" ? activeTarget.path : parentDirectory(activeTarget.path);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const [file, setFile] = useState<FileContent | null>(null);
   const [loading, setLoading] = useState(false);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
   const [error, setError] = useState("");
   const [browserWidth, setBrowserWidth] = useState(() => Math.max(230, Number(localStorage.getItem("pi-ark-files-browser-width")) || 320));
   const [resizing, setResizing] = useState(false);
@@ -40,15 +45,28 @@ export function Files({ workspace }: { workspace: Workspace }) {
 
   useEffect(() => {
     ++directoryRequestRevision.current; ++fileRequestRevision.current;
-    setDirectory(""); setSelected(null); setFile(null); setActionMenu(null);
+    setLocalTarget({ path: "", type: "directory" }); setSelected(null); setFile(null); setActionMenu(null);
   }, [workspace.id]);
 
   useEffect(() => {
     const revision = ++directoryRequestRevision.current;
-    ++fileRequestRevision.current;
-    setLoading(true); setError(""); setSelected(null); setFile(null); setActionMenu(null);
-    api.files(workspace.id, directory).then((result) => { if (revision === directoryRequestRevision.current) setEntries(result.entries); }).catch((reason) => { if (revision === directoryRequestRevision.current) setError(reason.message); }).finally(() => { if (revision === directoryRequestRevision.current) setLoading(false); });
+    setDirectoryLoading(true); setError(""); setEntries([]); setActionMenu(null);
+    api.files(workspace.id, directory).then((result) => { if (revision === directoryRequestRevision.current) setEntries(result.entries); }).catch((reason) => { if (revision === directoryRequestRevision.current) setError(reason.message); }).finally(() => { if (revision === directoryRequestRevision.current) setDirectoryLoading(false); });
   }, [workspace.id, directory]);
+
+  useEffect(() => {
+    const revision = ++fileRequestRevision.current;
+    setActionMenu(null); setError(""); setFile(null);
+    if (activeTarget.type !== "file") { setSelected(null); setLoading(false); return; }
+    const path = activeTarget.path;
+    setSelected({ path, name: path.split("/").at(-1) || path, type: "file", size: 0 });
+    setLoading(true);
+    api.file(workspace.id, path).then((preview) => {
+      if (revision !== fileRequestRevision.current) return;
+      setFile(preview); setSelected({ path: preview.path, name: preview.name, type: "file", size: preview.size });
+    }).catch((reason) => { if (revision === fileRequestRevision.current) setError(reason.message); }).finally(() => { if (revision === fileRequestRevision.current) setLoading(false); });
+    return () => { if (revision === fileRequestRevision.current) ++fileRequestRevision.current; };
+  }, [workspace.id, activeTarget.path, activeTarget.type, activeTarget.revision]);
 
   useEffect(() => {
     if (!actionMenu) return;
@@ -58,15 +76,13 @@ export function Files({ workspace }: { workspace: Workspace }) {
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
   }, [actionMenu]);
 
-  async function open(entry: FileEntry) {
+  function navigate(path: string, type: "file" | "directory") {
     setActionMenu(null);
-    if (entry.type === "directory") { setDirectory(entry.path); return; }
-    const revision = ++fileRequestRevision.current;
-    setSelected(entry); setFile(null); setLoading(true); setError("");
-    try { const preview = await api.file(workspace.id, entry.path); if (revision === fileRequestRevision.current) setFile(preview); }
-    catch (reason) { if (revision === fileRequestRevision.current) setError(reason instanceof Error ? reason.message : "Cannot open file"); }
-    finally { if (revision === fileRequestRevision.current) setLoading(false); }
+    if (onNavigate) onNavigate(path, type);
+    else setLocalTarget((current) => ({ path, type, revision: (current.revision || 0) + 1 }));
   }
+  const setDirectory = (path: string) => navigate(path, "directory");
+  function open(entry: FileEntry) { navigate(entry.path, entry.type === "directory" ? "directory" : "file"); }
 
   function openActions(event: React.MouseEvent<HTMLButtonElement>, entry: FileEntry) {
     event.stopPropagation();
@@ -119,7 +135,8 @@ export function Files({ workspace }: { workspace: Workspace }) {
       <aside className="file-browser">
         <div className="file-list" onScroll={() => setActionMenu(null)}>
           <button className="file-parent-row" disabled={!directory} onClick={() => setDirectory(parentDirectory(directory))}><ArrowUp size={16} /><span>Up one level</span><small>{directory ? parentDirectory(directory) || workspace.name : "Workspace root"}</small></button>
-          {loading && !selected && <div className="loading"><LoaderCircle size={18} />Loading</div>}
+          {directoryLoading && <div className="loading"><LoaderCircle size={18} />Loading</div>}
+          {error && !selected && <div className="error-text" role="alert">{error}</div>}
           {entries.map((entry) => <div className="file-row-shell" key={entry.path} data-entry-type={entry.type} data-entry-path={entry.path}>
             <button className="file-row" onClick={() => void open(entry)}>
               {entry.type === "directory" ? <Folder size={17} /> : /\.(png|jpe?g|gif|webp)$/i.test(entry.name) ? <ImageIcon size={17} /> : /\.(ts|tsx|js|jsx|json|css|html|md)$/i.test(entry.name) ? <FileCode2 size={17} /> : <File size={17} />}
@@ -132,7 +149,7 @@ export function Files({ workspace }: { workspace: Workspace }) {
       <div className="file-pane-resizer" role="separator" aria-label="Resize file browser" aria-orientation="vertical" aria-valuemin={230} aria-valuenow={Math.round(browserWidth)} tabIndex={0} onPointerDown={beginResize} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); saveBrowserWidth(browserWidth + (event.key === "ArrowLeft" ? -20 : 20)); } }} />
       <main className="file-viewer">
         {selected && <div className="viewer-title"><div>{file?.kind === "image" ? <ImageIcon size={16} /> : <FileCode2 size={16} />}<span>{selected.path}</span></div><div className="viewer-title-actions"><small>{formatSize(selected.size)}</small><a href={api.fileDownloadUrl(workspace.id, selected.path)} download={selected.name} aria-label={`Download ${selected.name}`}><Download size={13} />Download</a></div></div>}
-        {loading && selected ? <div className="viewer-placeholder"><LoaderCircle className="spin" size={26} /><h3>Loading preview</h3></div> : error && selected ? <div className="viewer-placeholder error-text"><CircleAlert size={30} /><h3>Preview unavailable</h3><p>{error}</p><a className="viewer-download" href={api.fileDownloadUrl(workspace.id, selected.path)} download={selected.name}><Download size={14} />Download file</a></div> : file?.kind === "image" ? <div className="image-view"><img src={api.fileImageUrl(workspace.id, file.path)} alt={file.name} /></div> : file?.kind === "text" ? file.markdown ? <Markdown source={file.content} resolveImage={resolveMarkdownImage} /> : <pre className="code-view"><code>{file.content}</code></pre> : <div className="viewer-placeholder"><FileCode2 size={30} /><h3>Select a file</h3><p>Text, Markdown, and supported images open in preview.</p></div>}
+        {loading && selected ? <div className="viewer-placeholder"><LoaderCircle className="spin" size={26} /><h3>Loading preview</h3></div> : error && selected ? <div className="viewer-placeholder error-text"><CircleAlert size={30} /><h3>Preview unavailable</h3><p>{error}</p><a className="viewer-download" href={api.fileDownloadUrl(workspace.id, selected.path)} download={selected.name}><Download size={14} />Download file</a></div> : file?.kind === "image" ? <div className="image-view"><img src={api.fileImageUrl(workspace.id, file.path)} alt={file.name} /></div> : file?.kind === "text" ? file.markdown ? <Markdown source={file.content} resolveImage={resolveMarkdownImage} fileBasePath={parentDirectory(file.path)} /> : <pre className="code-view"><code>{file.content}</code></pre> : <div className="viewer-placeholder"><FileCode2 size={30} /><h3>Select a file</h3><p>Text, Markdown, and supported images open in preview.</p></div>}
       </main>
     </div>
     {actionMenu && <div className="file-actions-menu" role="menu" ref={actionMenuRef} style={{ top: actionMenu.top, left: actionMenu.left }}>

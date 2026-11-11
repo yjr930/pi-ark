@@ -121,6 +121,14 @@ Compact 的收起高度为普通 tool row 的 3 倍。收起时显示 Duration�
 
 每条持久化 snapshot message 使用 Session 内唯一的七字符短 Message ID，格式为 `m` 加六位小写 base36，例如 `m04k9z2`。Server 根据 Session ID 与 source entry 在 append-only Session entries 中的固定位置，通过 31-bit 一一映射生成 ID；ID 不写回 pi JSONL。单个 Session 最多支持 10000000 个 source entries，达到上限后 Server 拒绝新的 prompt。User header、assistant text 的 Info 信息栏与 tool item 的展开内容只提供 `pi-ark://` message link copy 按钮，不提供绝对浏览器 URL copy 按钮。内部链接可以通过侧栏的 Open Pi-Ark session link 对话框打开；带 Message ID query 的浏览器 URL 可以定位并高亮目标 source message。旧的纯数字 message target 继续按原 display position 解析，并由 Server 返回对应的短 Message ID。
 
+### 消息中的文件链接
+
+会话中的标准 Markdown 文件链接与自动识别的文件路径都可以打开 Files。相对路径基于当前 Workspace，Files 的 Markdown 预览中的相对链接基于当前文件所在的目录。点击文件链接后预览该文件，点击目录链接后显示该目录；页面 URL 保存文件路径，刷新与新标签页可以恢复目标。
+
+消息先显示原文，视区附近的内容在稳定约 1.5 秒后开始补充文件链接。浏览器利用空闲时间分片识别正文与 inline code，并批量确认文件是否存在，确认后的路径保持原有文字和字号。路径确认期间仍可输入与操作页面。代码块保留代码展示，外部链接与内部 Session 链接沿用各自的交互。
+
+标准本地链接在确认前点击时立即发起异步确认，确认后打开 Files；已经确认的链接支持浏览器的修饰键操作。Copy Markdown、Session 的原始内容与现有提示词保持原样。
+
 ### Agent 读取内部链接
 
 Agent 自带 `read_pi_ark_link`，用户可以在消息中提供 Pi-Ark 的 Workspace、Session 或 Message link。工具按当前服务的 Workspace registry 解析目标，并返回目标内容及其来源标识。Message link 接受短 Message ID 和旧数字目标，返回的 Message link 使用短 Message ID。工具与页面共用完整活动分支的 display projection，因此也可以读取 compact 之前的消息。

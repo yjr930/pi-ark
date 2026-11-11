@@ -1,12 +1,16 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { createContext, useContext, useMemo, type MouseEvent } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, type MouseEvent } from "react";
 import { parseInternalSessionLink, sessionPermalink } from "../permalinks";
+import { FileLinksContext } from "../file-links";
+import { enhanceFileLinks } from "../file-link-dom";
 
 export const MarkdownLineBreaksContext = createContext(true);
 
-export function Markdown({ source, className = "", resolveImage, onImageOpen }: { source: string; className?: string; resolveImage?: (source: string) => string; onImageOpen?: (source: string, alt: string) => void }) {
+export function Markdown({ source, className = "", resolveImage, onImageOpen, fileBasePath = "" }: { source: string; className?: string; resolveImage?: (source: string) => string; onImageOpen?: (source: string, alt: string) => void; fileBasePath?: string }) {
   const markdownLineBreaks = useContext(MarkdownLineBreaksContext);
+  const fileLinks = useContext(FileLinksContext);
+  const article = useRef<HTMLElement>(null);
   const html = useMemo(() => {
     const parsed = new DOMParser().parseFromString(marked.parse(source, { async: false, breaks: markdownLineBreaks }) as string, "text/html");
     for (const link of parsed.querySelectorAll("a")) {
@@ -31,10 +35,14 @@ export function Markdown({ source, className = "", resolveImage, onImageOpen }: 
     return document.body.innerHTML;
   }, [source, resolveImage, markdownLineBreaks]);
 
+  useEffect(() => {
+    if (article.current && fileLinks?.workspaceId) return enhanceFileLinks(article.current, fileLinks.workspaceId, fileBasePath);
+  }, [source, html, fileLinks?.workspaceId, fileBasePath]);
+
   function openImage(event: MouseEvent<HTMLElement>) {
     if (!onImageOpen || !(event.target instanceof HTMLImageElement)) return;
     onImageOpen(event.target.src, event.target.alt || "Image");
   }
 
-  return <article className={`markdown-body ${className}`.trim()} onClick={openImage} dangerouslySetInnerHTML={{ __html: html }} />;
+  return <article key={JSON.stringify([fileLinks?.workspaceId, fileBasePath])} ref={article} className={`markdown-body ${className}`.trim()} onClick={openImage} dangerouslySetInnerHTML={{ __html: html }} />;
 }

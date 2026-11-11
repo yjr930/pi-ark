@@ -355,6 +355,14 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 发送前可以从附件队列中删除文件。附件发送后保存在 `<workspace>/.pi-ark/attachments/<session>/`，prompt 会包含对应服务器路径。
 
+### 从消息打开文件
+
+消息中的标准 Markdown 文件链接和自动识别的路径均可打开 Files，例如 `docs/user-guide.md` 或 inline code 中的 Workspace 内绝对路径。点击文件链接后直接预览该文件，点击目录链接后进入对应目录。文件链接的 URL 保存目标路径，可以刷新页面或在新标签页中打开。
+
+页面先显示消息原文，视区附近的内容稳定约 1.5 秒后开始识别文件路径。文件存在性确认在后台分批完成，成功确认的路径随后变成链接；等待期间可以继续输入和操作页面。标准本地链接在确认前点击时会立即异步确认目标。
+
+会话中的相对路径基于当前 Workspace，Files 的 Markdown 预览中的相对链接基于该文件所在的目录。带空格的路径可以使用 inline code 或标准 Markdown 链接表达。复制消息时仍取得原始 Markdown，现有提示词继续由用户管理。
+
 ### 查看工具过程
 
 父子 Session 新建和重新打开时统一启用文件工具（`read`、`bash`、`edit` 和 `write`）。
@@ -464,7 +472,7 @@ Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧�
 - 拖动桌面端两栏之间的 separator 可以调整文件列表宽度。
 - 打开文件或目录右侧的 action menu，可以选择 Copy path（服务器绝对路径）或 Copy relative path（Workspace-relative path）。
 - 每个文件的 action menu 和阅读区域 header 都提供 Download。
-- Markdown 使用阅读视图，并解析 Workspace 内的相对图片。
+- Markdown 使用阅读视图，并解析 Workspace 内的相对图片；本地文件链接基于当前文件所在的目录打开 Files。
 - PNG、JPEG、GIF 和 WebP 文件使用图片预览。
 - 其他文本文件使用代码视图。
 - binary file 或超过预览上限的文件显示 Preview unavailable，并保留 Download file。
@@ -610,7 +618,7 @@ Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户�
 #### 启用 playwright 与安装浏览器
 
 1. 在 Settings → MCP 找到 `playwright` 行。该行带 Recommended 标记，并显示 Browser runtime 区域。
-2. `playwright` 行的 Advanced capabilities 开关默认开启，开启时 server 启动参数包含 `--caps=config,network,storage,devtools,vision`，提供 Storage、Network、DevTools、Vision 与 Configuration 动作；关闭后只保留 Core automation 与 Tab management 动作。该开关在 `playwright` 启用后可操作，未启用时显示为禁用。
+2. `playwright` 行的 Advanced capabilities 开关默认开启，开启时 server 启动参数包含 `--caps=config,network,storage,devtools,vision`，提供 Storage、Network、DevTools、Vision 与 Configuration 动作；关闭后只保留 Core automation 与 Tab management 动作。该开关在 `playwright` 启用后可操作，未启用时显示为禁用。`playwright` 默认使用 Playwright 自带的 Chromium 与无头模式。
 3. 打开 `playwright` 的启用开关。浏览器运行时尚未安装时，Pi-Ark 自动执行安装，状态显示 Installing，目标目录显示在 Browser runtime 区域。
 4. 等待状态变为 Installed。安装成功后，`playwright` 保存为启用状态；失败时日志显示在该行，server 保持未启用，可以再次打开开关重试。
 5. 启用后新建 Session，Agent 可以使用 `browser` skill 调用 `playwright` 工具。

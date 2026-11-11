@@ -168,7 +168,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
   "mcpServers": {
     "playwright": {
       "command": "npx",
-      "args": ["@playwright/mcp@0.0.85", "--caps=config,network,storage,devtools,vision"],
+      "args": ["@playwright/mcp@0.0.85", "--browser=chromium", "--headless", "--caps=config,network,storage,devtools,vision"],
       "enabled": false,
       "exposure": "codemode",
       "description": "Browser automation for web pages"

@@ -59,6 +59,7 @@ interface McpListPayload {
 const PLAYWRIGHT_SERVER = "playwright";
 const PLAYWRIGHT_MCP_PACKAGE = "@playwright/mcp@0.0.85";
 const ADVANCED_CAPABILITIES = "--caps=config,network,storage,devtools,vision";
+const PLAYWRIGHT_BROWSER_ARGS = ["--browser=chromium", "--headless"];
 const COMMAND_TIMEOUT_MS = 120_000;
 const INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -68,7 +69,7 @@ const DEFAULT_MCP_CONFIG = {
   mcpServers: {
     [PLAYWRIGHT_SERVER]: {
       command: "npx",
-      args: [PLAYWRIGHT_MCP_PACKAGE, ADVANCED_CAPABILITIES],
+      args: [PLAYWRIGHT_MCP_PACKAGE, ...PLAYWRIGHT_BROWSER_ARGS, ADVANCED_CAPABILITIES],
       enabled: false,
       exposure: "codemode",
       description: "Browser automation for web pages",
@@ -185,10 +186,14 @@ export class McpService {
         const current = servers?.[PLAYWRIGHT_SERVER];
         if (typeof current === "object" && current !== null && !Array.isArray(current)) {
           const entry = current as Record<string, unknown>;
-          const args = Array.isArray(entry.args) ? entry.args : [];
-          if (args.length === 1 && args[0] === PLAYWRIGHT_MCP_PACKAGE) {
-            servers![PLAYWRIGHT_SERVER] = { ...entry, args: [PLAYWRIGHT_MCP_PACKAGE, ADVANCED_CAPABILITIES] };
-            await atomicWriteJson(path, config);
+          const args: string[] = Array.isArray(entry.args) ? entry.args.filter((arg): arg is string => typeof arg === "string") : [];
+          const usesDefaultArgs = args.filter((arg) => arg !== PLAYWRIGHT_MCP_PACKAGE && arg !== ADVANCED_CAPABILITIES).length === 0;
+          if (usesDefaultArgs && !args.includes("--browser=") && !args.includes("--executable-path")) {
+            const next = [PLAYWRIGHT_MCP_PACKAGE, ...PLAYWRIGHT_BROWSER_ARGS, ...(args.includes(ADVANCED_CAPABILITIES) ? [ADVANCED_CAPABILITIES] : [])];
+            if (JSON.stringify(next) !== JSON.stringify(args)) {
+              servers![PLAYWRIGHT_SERVER] = { ...entry, args: next };
+              await atomicWriteJson(path, config);
+            }
           }
         }
       } catch {

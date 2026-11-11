@@ -1,0 +1,13 @@
+- generic [ref=f13e2]:
+  - heading "Bureau of Labor Statistics" [level=1] [ref=f13e3]:
+    - link:
+      - /url: https://www.bls.gov
+    - text: Bureau of Labor Statistics
+  - heading "Access Denied" [level=2] [ref=f13e4]
+  - paragraph [ref=f13e5]: The BLS is committed to providing data promptly and according to established schedules. Automated retrieval programs (commonly called "robots" or "bots") can cause delays and interfere with other customers' timely access to information. Therefore, bot activity that doesn't conform to BLS usage policy is prohibited.
+  - paragraph [ref=f13e6]:
+    - text: We apologize for any inconvenience. If you believe we have made an error, please
+    - link "contact us" [ref=f13e7] [cursor=pointer]:
+      - /url: https://data.bls.gov/forms/opb.htm?akamai-0.4c0ed217.1794421263.c0b81f
+    - text: .
+  - paragraph [ref=f13e8]: "Please contact your administrator with the error code: 0.4c0ed217.1794421263.c0b81f"

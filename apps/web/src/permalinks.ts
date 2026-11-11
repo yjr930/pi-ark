@@ -9,6 +9,8 @@ export interface PermalinkTarget {
   messageId?: string;
   leafEntryId?: string;
   page: AppPage;
+  filePath?: string;
+  fileType?: "file" | "directory";
 }
 
 export function readPermalink(): PermalinkTarget {
@@ -21,6 +23,8 @@ export function readPermalink(): PermalinkTarget {
     sessionId: params.get("session") || undefined,
     messageId,
     leafEntryId: validLeafEntryId(params.get("leafEntryId")),
+    filePath: page === "files" && params.has("path") ? params.get("path")! : undefined,
+    fileType: page === "files" && params.has("path") ? params.get("kind") === "directory" ? "directory" : "file" : undefined,
     page,
   };
 }
@@ -44,6 +48,13 @@ export function appLocation(page: AppPage, workspaceId?: string, sessionId?: str
   url.searchParams.set("page", page);
   if (workspaceId) url.searchParams.set("workspace", workspaceId);
   if (workspaceId && sessionId) url.searchParams.set("session", sessionId);
+  return `${url.pathname}${url.search}`;
+}
+
+export function fileLocation(workspaceId: string, path: string, type: "file" | "directory", sessionId?: string): string {
+  const url = new URL(appLocation("files", workspaceId, sessionId), window.location.href);
+  url.searchParams.set("path", path);
+  url.searchParams.set("kind", type);
   return `${url.pathname}${url.search}`;
 }
 

@@ -5,10 +5,11 @@ import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog";
 import { Chat } from "./components/Chat";
 import { Login } from "./components/Login";
 import { MarkdownLineBreaksContext } from "./components/Markdown";
+import { FileLinksContext } from "./file-links";
 import { NameDialog } from "./components/NameDialog";
 import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
-import { appLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
+import { appLocation, fileLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
 import { basePath } from "./base-path";
 import { cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionUiState, initializeSessionCache, sessionCacheKey } from "./session-cache";
 import { resolveActiveSessionId } from "./session-selection";
@@ -45,6 +46,7 @@ export default function App() {
   const [targetMessageId, setTargetMessageId] = useState(initialPermalink.current.messageId);
   const [leafEntryId, setLeafEntryId] = useState(initialPermalink.current.leafEntryId);
   const [page, setPage] = useState<Page>(initialPermalink.current.page);
+  const [fileTarget, setFileTarget] = useState(() => ({ workspaceId: initialPermalink.current.workspaceId, path: initialPermalink.current.filePath || "", type: initialPermalink.current.fileType || "directory" as "file" | "directory", revision: 0 }));
   const [settingsVisited, setSettingsVisited] = useState(initialPermalink.current.page === "settings");
   const [terminalWorkspaces, setTerminalWorkspaces] = useState<string[]>([]);
   const [sidebar, setSidebar] = useState(false);
@@ -95,7 +97,7 @@ export default function App() {
         setTargetMessageId(pendingTarget.messageId); setLeafEntryId(pendingTarget.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageId, pendingTarget.leafEntryId));
       } else {
         if (!linkedSessionId || selectedId !== linkedSessionId) { setTargetMessageId(undefined); setLeafEntryId(undefined); }
-        if ((!initialTarget.messageId && !initialTarget.leafEntryId) || selectedId !== linkedSessionId) window.history.replaceState(null, "", appLocation(initialTarget.page, workspaceId, selectedId));
+        if ((!initialTarget.messageId && !initialTarget.leafEntryId) || selectedId !== linkedSessionId) window.history.replaceState(null, "", initialTarget.page === "files" && initialTarget.filePath !== undefined ? fileLocation(workspaceId, initialTarget.filePath, initialTarget.fileType || "file", selectedId) : appLocation(initialTarget.page, workspaceId, selectedId));
       }
       pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" };
     }).catch((reason) => {
@@ -228,7 +230,14 @@ export default function App() {
 
   function selectPage(nextPage: Page) {
     if (nextPage === "settings") setSettingsVisited(true);
-    setPage(nextPage); setSidebar(false); window.history.replaceState(null, "", nextPage === "agent" && workspaceId && sessionId ? sessionPermalink(workspaceId, sessionId, targetMessageId, leafEntryId) : appLocation(nextPage, workspaceId, sessionId));
+    setPage(nextPage); setSidebar(false); window.history.replaceState(null, "", nextPage === "agent" && workspaceId && sessionId ? sessionPermalink(workspaceId, sessionId, targetMessageId, leafEntryId) : nextPage === "files" && fileTarget.workspaceId === workspaceId ? fileLocation(workspaceId, fileTarget.path, fileTarget.type, sessionId) : appLocation(nextPage, workspaceId, sessionId));
+  }
+
+  function openFileTarget(path: string, type: "file" | "directory", targetWorkspaceId = workspaceId) {
+    if (!workspaces.some((item) => item.id === targetWorkspaceId)) return;
+    setFileTarget((current) => ({ workspaceId: targetWorkspaceId, path, type, revision: current.revision + 1 }));
+    setWorkspaceId(targetWorkspaceId); setPage("files"); setSidebar(false);
+    window.history.replaceState(null, "", fileLocation(targetWorkspaceId, path, type, targetWorkspaceId === workspaceId ? sessionId : undefined));
   }
 
   function selectSession(id: string) {
@@ -282,8 +291,18 @@ export default function App() {
   if (auth === "loading") return <div className="app-loading"><Box size={28} /><span>Pi-Ark</span></div>;
   if (auth === "out") return <Login onLogin={() => { void startSession().catch(() => setAuth("out")); }} />;
 
-  return <MarkdownLineBreaksContext.Provider value={uiSettings.markdownLineBreaks}><div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} onClickCapture={(event) => {
+  return <MarkdownLineBreaksContext.Provider value={uiSettings.markdownLineBreaks}><FileLinksContext.Provider value={workspace ? { workspaceId: workspace.id } : undefined}><div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} onClickCapture={(event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !(event.target instanceof Element)) return;
+    const fileLink = event.target.closest<HTMLAnchorElement>('a[data-pi-ark-file-link="true"]');
+    if (fileLink) {
+      const url = new URL(fileLink.href, window.location.href);
+      const linkedWorkspace = url.searchParams.get("workspace");
+      if (url.origin === window.location.origin && url.searchParams.get("page") === "files" && url.searchParams.has("path") && linkedWorkspace) {
+        event.preventDefault();
+        openFileTarget(url.searchParams.get("path")!, url.searchParams.get("kind") === "directory" ? "directory" : "file", linkedWorkspace);
+      }
+      return;
+    }
     const link = event.target.closest<HTMLAnchorElement>("a[data-pi-ark-link]");
     if (!link?.dataset.piArkLink) return;
     event.preventDefault();
@@ -315,12 +334,12 @@ export default function App() {
       {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}`} workspace={workspace} session={selectedSession} sessions={workspaceSessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : loadingSessions ? <div className="page-loading"><LoaderCircle size={20} />Loading sessions</div> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} />}
-        {workspace && page === "files" && <Files workspace={workspace} />}
+        {workspace && page === "files" && <Files key={workspace.id} workspace={workspace} target={fileTarget.workspaceId === workspaceId ? fileTarget : undefined} onNavigate={openFileTarget} />}
       </Suspense>
       {workspaces.filter((item) => terminalWorkspaces.includes(item.id) || (page === "terminal" && workspaceId === item.id)).map((item) => <div className="terminal-page-host" key={item.id} hidden={page !== "terminal" || workspaceId !== item.id} data-terminal-workspace={item.id}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading terminal</div>}><Terminal workspace={item} active={page === "terminal" && workspaceId === item.id} /></Suspense></div>)}
       {(settingsVisited || page === "settings") && <div className="settings-page-host" hidden={page !== "settings"}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading settings</div>}><Settings active={page === "settings"} uiSettings={uiSettings} onUiSettingsChanged={(next) => { setUiSettings(next); applyTheme(next.theme); }} /></Suspense></div>}
     </main>
     {addWorkspaceOpen && <AddWorkspaceDialog onClose={() => setAddWorkspaceOpen(false)} onAdded={workspaceAdded} />}
     {sessionLinkOpen && <NameDialog title="Open session link" description="Paste a Pi-Ark internal session or message link." label="Pi-Ark session link" submitLabel="Open session" icon={<Link2 size={18} />} onClose={() => setSessionLinkOpen(false)} onSubmit={openInternalSessionLink} />}
-  </div></MarkdownLineBreaksContext.Provider>;
+  </div></FileLinksContext.Provider></MarkdownLineBreaksContext.Provider>;
 }

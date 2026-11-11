@@ -1,0 +1,66 @@
+- generic [active] [ref=f41e1]:
+  - banner [ref=f41e2]:
+    - button "Skip to content" [ref=f41e3] [cursor=pointer]
+    - button "Accessibility Feedback" [ref=f41e6] [cursor=pointer]
+    - generic [ref=f41e9]:
+      - link [ref=f41e10] [cursor=pointer]:
+        - /url: /?FORM=Z9FD1
+        - heading "Back to Bing search" [level=1] [ref=f41e11]
+      - search [ref=f41e12]:
+        - generic [ref=f41e14] [cursor=pointer]
+        - searchbox "Enter your search here - Search suggestions will show as you type" [ref=f41e17]: CPI October 2026 shelter food energy index rose percent
+        - button "Search using an image" [ref=f41e20] [cursor=pointer]
+        - button "Search" [ref=f41e22] [cursor=pointer]
+    - complementary "Account Rewards and Preferences" [ref=f41e24]:
+      - button "Microsoft Rewards"
+      - link "Sign in" [ref=f41e25] [cursor=pointer]:
+        - /url: javascript:void(0)
+    - navigation "Search Filter" [ref=f41e27]:
+      - list [ref=f41e28]:
+        - listitem [ref=f41e29]:
+          - link "All" [ref=f41e30] [cursor=pointer]:
+            - /url: /?scope=web&FORM=HDRSC1
+        - listitem [ref=f41e31]:
+          - link "AI Mode" [ref=f41e32] [cursor=pointer]:
+            - /url: /copilotsearch?q=CPI+October+2026+shelter+food+energy+index+rose+percent&FORM=CSSCOP
+        - listitem [ref=f41e35]:
+          - link "Web" [ref=f41e36] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=9782252cc7b0039fed5255f0d95facb08698a22dd7abca1d32b14a806bf6b519JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L3NlYXJjaD9xPUNQSStPY3RvYmVyKzIwMjYrc2hlbHRlcitmb29kK2VuZXJneStpbmRleCtyb3NlK3BlcmNlbnQmd2Vic2NwPTEmRk9STT1IRFJXU0M&ntb=1
+        - listitem [ref=f41e37]:
+          - link "Images" [ref=f41e38] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=f00291ffa869774f894e5b1d1f97e1d6ae0d0570d2e3a34d04faf3cf737f7fabJmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L2ltYWdlcy9zZWFyY2g_cT1DUEkrT2N0b2JlcisyMDI2K3NoZWx0ZXIrZm9vZCtlbmVyZ3kraW5kZXgrcm9zZStwZXJjZW50JkZPUk09SERSU0My&ntb=1
+        - listitem [ref=f41e39]:
+          - link "Videos" [ref=f41e40] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=4dc39e959e2f1baebd1f83b7a33edb74740e25d9a1dff8685f77f3c645f336d7JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L3ZpZGVvcy9zZWFyY2g_cT1DUEkrT2N0b2JlcisyMDI2K3NoZWx0ZXIrZm9vZCtlbmVyZ3kraW5kZXgrcm9zZStwZXJjZW50JkZPUk09SERSU0Mz&ntb=1
+        - listitem [ref=f41e41]:
+          - link "Maps" [ref=f41e42] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=4a21c416699f8a9ec336e7929f070dc250c1d89b05b7921fe17eef892e293255JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L21hcHM_cT1DUEkrT2N0b2JlcisyMDI2K3NoZWx0ZXIrZm9vZCtlbmVyZ3kraW5kZXgrcm9zZStwZXJjZW50JkZPUk09SERSU0M0&ntb=1
+        - listitem [ref=f41e43]:
+          - link "News" [ref=f41e44] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=7568a7990e8845fe2f5c836d2fb2c87f84627934dccf5d55954846b55edcc175JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L25ld3Mvc2VhcmNoP3E9Q1BJK09jdG9iZXIrMjAyNitzaGVsdGVyK2Zvb2QrZW5lcmd5K2luZGV4K3Jvc2UrcGVyY2VudCZGT1JNPUhEUlNDNg&ntb=1
+        - listitem [ref=f41e45]:
+          - button "More" [ref=f41e46] [cursor=pointer]
+  - contentinfo [ref=f41e50]:
+    - generic [ref=f41e51]:
+      - generic [ref=f41e52]: © 2026 Microsoft
+      - list:
+        - listitem [ref=f41e53]:
+          - link "Privacy and Cookies" [ref=f41e54] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=c3d9ba33b2a86a672c3a060f13481f40f203d2247a85592c3e926e09496d7b1cJmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cDovL2dvLm1pY3Jvc29mdC5jb20vZndsaW5rLz9MaW5rSWQ9NTIxODM5&ntb=1
+        - listitem [ref=f41e55]:
+          - link "Legal" [ref=f41e56] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=c3e723b14bcecfd84bf20140066d90157c94162f8aafaccb1a0e8301698b7c15JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cDovL2dvLm1pY3Jvc29mdC5jb20vZndsaW5rLz9MaW5rSUQ9MjQ2MzM4&ntb=1
+        - listitem [ref=f41e57]:
+          - link "Advertise" [ref=f41e58] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=014eb7ca18ee78f0d94174bc814f12852707f8015c5c40d0c67fd2de5d3de369JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cHM6Ly9nby5taWNyb3NvZnQuY29tL2Z3bGluay8_bGlua2lkPTg2ODkyMg&ntb=1
+        - listitem [ref=f41e59]:
+          - link "About our ads" [ref=f41e60] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=afb850629a3fb0a7f36bfd668e33df3b737dbdf713e15ab60bfe4c6df22be893JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cDovL2dvLm1pY3Jvc29mdC5jb20vZndsaW5rLz9MaW5rSUQ9Mjg2NzU5&ntb=1
+        - listitem [ref=f41e61]:
+          - link "Help" [ref=f41e62] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=dd8acd67774b30973f3c1647dfd81fa08e6be8fdbc8a5a67726c9a6290fe50c4JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cHM6Ly9zdXBwb3J0Lm1pY3Jvc29mdC5jb20vdG9waWMvODJkMjA3MjEtMmQ2Zi00MDEyLWExM2QtZDE5MTBjY2YyMDNm&ntb=1
+        - listitem [ref=f41e63]:
+          - button "Feedback" [ref=f41e64] [cursor=pointer]
+        - listitem [ref=f41e65]:
+          - link "Consumer Health Privacy" [ref=f41e66] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=0e36841325047269817a5aceae7d022842a883d929bc7d4ce0678fc758eb6585JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cHM6Ly9nby5taWNyb3NvZnQuY29tL2Z3bGluay8_bGlua2lkPTIyNTk4MTQ&ntb=1

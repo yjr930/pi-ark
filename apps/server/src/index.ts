@@ -16,6 +16,7 @@ import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInpu
 import { TerminalService } from "./terminal.js";
 import { discoverTerminalProfiles } from "./terminal-shells.js";
 import { WorkspaceService } from "./workspaces.js";
+import { resolveFileLinks } from "./file-links.js";
 import { readWorkspaceNotebook, saveWorkspaceNotebook } from "./workspace-notebook.js";
 
 const previousAgentDir = process.env.PI_ARK_MIGRATE_AGENT_DIR || process.env.PI_CODING_AGENT_DIR;
@@ -156,6 +157,7 @@ app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/a
   const preferences = await loadGlobalPreferences();
   return { entries: await workspaces.listDirectory(workspace, request.query.path || "", preferences.files.showHiddenFiles) };
 });
+app.post<{ Params: { workspaceId: string }; Body: unknown }>("/api/workspaces/:workspaceId/file-links/resolve", async (request) => resolveFileLinks(workspaces, request.params.workspaceId, request.body));
 app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/api/workspaces/:workspaceId/file", async (request) => {
   if (!request.query.path) throw Object.assign(new Error("A file path is required"), { statusCode: 400 });
   const workspace = workspaces.get(request.params.workspaceId);

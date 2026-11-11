@@ -141,6 +141,29 @@ Cookie 属性如下：
 
 Fastify `onRequest` hook 保护所有 `/api/` 和 `/ws/` 路径；health 和 login routes 保持公开。WebSocket upgrade 使用相同的 cookie 认证。
 
+### 文件链接的异步增强
+
+`Markdown` 在现有 marked 与 DOMPurify 渲染完成后，通过 `file-link-dom.ts` 为正文和 inline code 增加文件链接。`FileLinksContext` 提供当前 Workspace，Files 的 Markdown 预览通过 `fileBasePath` 提供文件所在目录。该增强保持消息原文、复制内容与提示词资源的现有行为。
+
+IntersectionObserver 选取视区及附近 200 px 内的内容，内容稳定约 1.5 秒后进入共享空闲任务队列。每次扫描处理有限的 DOM 节点或文本字符；超长 Text 节点使用一次文本快照和局部 MutationObserver 确认变化。网络等待期间暂停该扫描，结果到达后分片写入链接。组件内容、Workspace 或基目录变化时取消旧任务，随后对新内容执行识别。
+
+`file-links.ts` 的共享请求队列按 Workspace、基目录与输入路径去重，并使用有限的内存缓存。具体的处理参数如下：
+
+| 参数 | 当前值 |
+|---|---|
+| 每次空闲队列调度的工作时长 | 约 4 ms |
+| 每次调度的处理步骤 | 最多 16 个 |
+| 单个文本扫描步骤的字符数 | 最多 2048 个 |
+| 每批路径确认的路径数 | 最多 64 条 |
+| 浏览器的并发确认请求 | 最多 2 个 |
+| 已确认路径的缓存时间 | 60 秒 |
+| 缺失路径或请求失败的缓存时间 | 15 秒 |
+| 路径确认缓存的容量 | 最多 2048 条 |
+
+标准 Markdown 的本地 href 解码一次后送入同一确认队列；正文中的路径保持其字面值。标准本地链接在后台确认前点击时，浏览器先拦截导航，再异步确认并打开 Files。文件链接使用带 `page=files`、`workspace`、`path` 与 `kind` 的应用 URL，App 处理普通点击，修饰键沿用浏览器的新标签页操作。Files 按目标加载目录与文件，刷新时从 URL 恢复该目标。
+
+`POST /api/workspaces/:workspaceId/file-links/resolve` 接收 `{ paths: string[], basePath?: string }`，返回 `{ links: Array<{ input, path, type }> }`。`type` 为 `file` 或 `directory`，`path` 使用 canonical Workspace 相对路径。每次请求最多包含 64 条路径，每条最多 2048 字符；Server 使用最多 4 个并发的异步文件系统任务，通过 `WorkspaceService.safePath` 与 metadata 确认目标，沿用 realpath、Workspace 范围及 `.pi-ark` 的访问规则。
+
 ## Workspace 与文件边界
 
 Global config 中的 Workspace registry 是浏览器可以访问的目录清单。Add workspace 执行以下检查：
@@ -429,7 +452,7 @@ Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同
 
 ### MCP server
 
-`McpService.ensureConfig()` 在 Server 启动时创建 `PI_ARK_AGENT_DIR/mcp.json`，文件已存在时保留原内容。初始内容为 `playwright` server：`command` 为 `npx`，`args` 为 `@playwright/mcp@0.0.85` 与 `--caps=config,network,storage,devtools,vision`，`enabled` 为 `false`，`exposure` 为 `codemode`，并带 `description`。已有配置的 `args` 只含 `@playwright/mcp@0.0.85` 时，`ensureConfig()` 补上 `--caps`，其他自定义参数保持原样。
+`McpService.ensureConfig()` 在 Server 启动时创建 `PI_ARK_AGENT_DIR/mcp.json`，文件已存在时保留原内容。初始内容为 `playwright` server：`command` 为 `npx`，`args` 为 `@playwright/mcp@0.0.85`、`--browser=chromium`、`--headless` 与 `--caps=config,network,storage,devtools,vision`，`enabled` 为 `false`，`exposure` 为 `codemode`，并带 `description`。`--browser=chromium` 使用 Playwright 自带的 Chromium，`--headless` 适配无显示的服务器。已有配置的 `args` 只含 `@playwright/mcp@0.0.85` 与可选的 `--caps` 时，`ensureConfig()` 补上 browser 与 headless 参数，其他自定义参数保持原样。
 
 `McpService.list()` 运行 `process.execPath <pi-core-cli> mcp list --json`，工作目录为目标 Workspace，环境变量设置 `PI_CODING_AGENT_DIR` 与 `NO_COLOR=1`，超时 120 秒。Server 把返回的 `state` 映射为 `connected`、`starting`、`needs-sign-in`、`failed`，并把 `enabled` 为 false 的 server 显示为 `disabled`；`tools`、每个 server 的 `error` 与顶层 `errors` 进入列表和诊断。
 
@@ -561,6 +584,7 @@ Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fon
 | GET | `/api/directories` | 目录建议 |
 | GET | `/api/workspaces/:workspaceId/files` | 目录列表 |
 | GET | `/api/workspaces/:workspaceId/file` | 文本或图片 preview metadata；执行 Global preview limit |
+| POST | `/api/workspaces/:workspaceId/file-links/resolve` | 批量确认文件路径并返回 Files 的目标路径 |
 | GET | `/api/workspaces/:workspaceId/image` | Files/Markdown image stream；执行 Global preview limit |
 | GET | `/api/workspaces/:workspaceId/download` | 原始文件 stream download；不执行 preview limit |
 | GET/PUT | `/api/workspaces/:workspaceId/notebook` | 读取或自动保存 Workspace Notebook |
@@ -829,6 +853,8 @@ npm run release:build
 `check:setup` 检查 setup 的参数与环境变量、TLS certificate、密码摘要与 HTTPS。`check:platform` 检查平台默认路径、release state、staging 与路径迁移。`check:release -- <artifact-dir>` 使用解压后的原生 artifact 执行 portable 安装 smoke，并确认服务重启后已有 auth cookie 仍有效；设置 `PI_ARK_SMOKE_ROLLBACK=1` 后还会覆盖版本切换与 rollback 的数据保留，Release workflow 使用该设置。
 
 `check:subagents` 使用真实 SDK Session 与受控模型响应，覆盖并发限制、图片引用、结果截取、历史分支、停止、删除、恢复与工具注册。`check:subagents-ui` 构建项目，并自动创建临时 HTTPS 实例，使用临时数据目录与独立端口执行任务面板和双向导航的 Chromium 检查。设置 `PI_ARK_CHECK_FULL_UI=1` 后，该临时实例还会执行现有的 `check:ui` 脚本。
+
+`check:file-links` 覆盖路径解析、文件访问规则、分片识别、队列去重、缓存和取消。`check:file-links-ui` 使用独立实例检查原文首显、延迟确认期间的输入响应、文件及目录跳转、相对链接、刷新、新标签页与长消息的批量处理。
 
 `check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格。
 

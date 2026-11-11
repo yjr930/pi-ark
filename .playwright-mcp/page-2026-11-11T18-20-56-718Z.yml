@@ -1,0 +1,66 @@
+- generic [active] [ref=f9e1]:
+  - banner [ref=f9e2]:
+    - button "Skip to content" [ref=f9e3] [cursor=pointer]
+    - button "Accessibility Feedback" [ref=f9e6] [cursor=pointer]
+    - generic [ref=f9e9]:
+      - link [ref=f9e10] [cursor=pointer]:
+        - /url: /?FORM=Z9FD1
+        - heading "Back to Bing search" [level=1] [ref=f9e11]
+      - search [ref=f9e12]:
+        - generic [ref=f9e14] [cursor=pointer]
+        - searchbox "Enter your search here - Search suggestions will show as you type" [ref=f9e17]: US latest CPI BLS news release
+        - button "Search using an image" [ref=f9e20] [cursor=pointer]
+        - button "Search" [ref=f9e22] [cursor=pointer]
+    - complementary "Account Rewards and Preferences" [ref=f9e24]:
+      - button "Microsoft Rewards"
+      - link "Sign in" [ref=f9e25] [cursor=pointer]:
+        - /url: javascript:void(0)
+    - navigation "Search Filter" [ref=f9e27]:
+      - list [ref=f9e28]:
+        - listitem [ref=f9e29]:
+          - link "All" [ref=f9e30] [cursor=pointer]:
+            - /url: /?scope=web&FORM=HDRSC1
+        - listitem [ref=f9e31]:
+          - link "AI Mode" [ref=f9e32] [cursor=pointer]:
+            - /url: /copilotsearch?q=US+latest+CPI+BLS+news+release&FORM=CSSCOP
+        - listitem [ref=f9e35]:
+          - link "Web" [ref=f9e36] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=7715bb8d534710fe6b3e00fb8305290c3625b87b95537f22995c7cb1fb38eb2bJmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L3NlYXJjaD9xPVVTK2xhdGVzdCtDUEkrQkxTK25ld3MrcmVsZWFzZSZ3ZWJzY3A9MSZGT1JNPUhEUldTQw&ntb=1
+        - listitem [ref=f9e37]:
+          - link "Images" [ref=f9e38] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=61c7a561510e4c313b49662f2e06429a3d4ee61c21ce0585d2c5b68af89110a3JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L2ltYWdlcy9zZWFyY2g_cT1VUytsYXRlc3QrQ1BJK0JMUytuZXdzK3JlbGVhc2UmRk9STT1IRFJTQzI&ntb=1
+        - listitem [ref=f9e39]:
+          - link "Videos" [ref=f9e40] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=365843fd853cb72d4c0fc22eefd24336c18b8e6ba54082bdd47da33d5c2508a1JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L3ZpZGVvcy9zZWFyY2g_cT1VUytsYXRlc3QrQ1BJK0JMUytuZXdzK3JlbGVhc2UmRk9STT1IRFJTQzM&ntb=1
+        - listitem [ref=f9e41]:
+          - link "Maps" [ref=f9e42] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=deccefbed05d6181c35ef1ba353f36a6733e65055174a4f2a1db90b70ff1b12dJmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L21hcHM_cT1VUytsYXRlc3QrQ1BJK0JMUytuZXdzK3JlbGVhc2UmRk9STT1IRFJTQzQ&ntb=1
+        - listitem [ref=f9e43]:
+          - link "News" [ref=f9e44] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=153804e0135f480caae0e91b5d1dad9c03ee5618984172e9b851d1f698a76b1fJmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1L25ld3Mvc2VhcmNoP3E9VVMrbGF0ZXN0K0NQSStCTFMrbmV3cytyZWxlYXNlJkZPUk09SERSU0M2&ntb=1
+        - listitem [ref=f9e45]:
+          - button "More" [ref=f9e46] [cursor=pointer]
+  - contentinfo [ref=f9e50]:
+    - generic [ref=f9e51]:
+      - generic [ref=f9e52]: © 2026 Microsoft
+      - list:
+        - listitem [ref=f9e53]:
+          - link "Privacy and Cookies" [ref=f9e54] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=c3d9ba33b2a86a672c3a060f13481f40f203d2247a85592c3e926e09496d7b1cJmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cDovL2dvLm1pY3Jvc29mdC5jb20vZndsaW5rLz9MaW5rSWQ9NTIxODM5&ntb=1
+        - listitem [ref=f9e55]:
+          - link "Legal" [ref=f9e56] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=c3e723b14bcecfd84bf20140066d90157c94162f8aafaccb1a0e8301698b7c15JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cDovL2dvLm1pY3Jvc29mdC5jb20vZndsaW5rLz9MaW5rSUQ9MjQ2MzM4&ntb=1
+        - listitem [ref=f9e57]:
+          - link "Advertise" [ref=f9e58] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=014eb7ca18ee78f0d94174bc814f12852707f8015c5c40d0c67fd2de5d3de369JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cHM6Ly9nby5taWNyb3NvZnQuY29tL2Z3bGluay8_bGlua2lkPTg2ODkyMg&ntb=1
+        - listitem [ref=f9e59]:
+          - link "About our ads" [ref=f9e60] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=afb850629a3fb0a7f36bfd668e33df3b737dbdf713e15ab60bfe4c6df22be893JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cDovL2dvLm1pY3Jvc29mdC5jb20vZndsaW5rLz9MaW5rSUQ9Mjg2NzU5&ntb=1
+        - listitem [ref=f9e61]:
+          - link "Help" [ref=f9e62] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=dd8acd67774b30973f3c1647dfd81fa08e6be8fdbc8a5a67726c9a6290fe50c4JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cHM6Ly9zdXBwb3J0Lm1pY3Jvc29mdC5jb20vdG9waWMvODJkMjA3MjEtMmQ2Zi00MDEyLWExM2QtZDE5MTBjY2YyMDNm&ntb=1
+        - listitem [ref=f9e63]:
+          - button "Feedback" [ref=f9e64] [cursor=pointer]
+        - listitem [ref=f9e65]:
+          - link "Consumer Health Privacy" [ref=f9e66] [cursor=pointer]:
+            - /url: https://www.bing.com/ck/a?!&&p=0e36841325047269817a5aceae7d022842a883d929bc7d4ce0678fc758eb6585JmltdHM9MTc5NDM1NTIwMA&ptn=3&ver=2&hsh=4&fclid=1ffbb3e5-5efd-62bb-13f2-abeb5fae6301&u=a1aHR0cHM6Ly9nby5taWNyb3NvZnQuY29tL2Z3bGluay8_bGlua2lkPTIyNTk4MTQ&ntb=1
