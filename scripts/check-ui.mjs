@@ -935,7 +935,8 @@ try {
   assert.match(await firstUserMessage.locator(".feed-user-label").textContent(), /^User m[0-9a-z]{6}$/);
   const feedAlignment = await page.locator(".conversation-content").evaluate((conversation) => { const user = conversation.querySelector(".message-user").getBoundingClientRect(); const userHeader = conversation.querySelector(".message-user > .feed-user-header").getBoundingClientRect(); const userContent = conversation.querySelector(".message-user > .feed-message-content").getBoundingClientRect(); const aiHeader = conversation.querySelector(".ai-turn-header").getBoundingClientRect(); const aiContent = conversation.querySelector(".ai-feed-segment.start > .ai-feed-content").getBoundingClientRect(); return { userX: user.x, userHeaderX: userHeader.x, userContentX: userContent.x, aiHeaderX: aiHeader.x, aiContentX: aiContent.x }; });
   assert.ok(Math.abs(feedAlignment.userHeaderX - feedAlignment.userContentX) <= 1);
-  assert.ok(feedAlignment.userContentX - feedAlignment.userX >= 22);
+  assert.ok(Math.abs(feedAlignment.userContentX - feedAlignment.userX) <= 1);
+  assert.ok(Math.abs(feedAlignment.userContentX - feedAlignment.aiContentX) <= 1);
   assert.ok(Math.abs(feedAlignment.aiHeaderX - feedAlignment.aiContentX) <= 1);
   assert.equal(await browserFinalMessage.locator(".feed-text-meta").count(), 0);
   assert.equal(await browserFinalMessage.getByRole("button", { name: "Copy Markdown" }).count(), 1);
@@ -1083,7 +1084,8 @@ try {
   assert.equal(userBandStyle.radius, 0);
   assert.equal(userBandStyle.shadow, "none");
   assert.ok(userBandStyle.marginTop >= 20 && userBandStyle.marginBottom >= 19);
-  assert.ok(userBandStyle.paddingTop >= 18 && userBandStyle.paddingRight >= 18 && userBandStyle.paddingBottom >= 16 && userBandStyle.paddingLeft >= 22);
+  assert.ok(userBandStyle.paddingTop >= 18 && userBandStyle.paddingBottom >= 16);
+  assert.ok(userBandStyle.paddingLeft <= 1 && userBandStyle.paddingRight <= 1);
   assert.ok(userBandStyle.leftDelta <= 0.5 && userBandStyle.rightDelta <= 0.5);
   assert.ok(userBandStyle.userAvatarSize >= 29 && userBandStyle.aiAvatarSize >= 29);
   assert.ok(userBandStyle.userLabelSize >= 12 && userBandStyle.aiLabelSize >= 12);
