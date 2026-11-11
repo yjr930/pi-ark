@@ -11,3 +11,4 @@ apps/*/dist/
 .DS_Store
 /test/demo_workspace/
 AGENTS.md
+.playwright-mcp/
