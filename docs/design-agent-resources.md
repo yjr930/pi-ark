@@ -212,7 +212,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - 安装流程不自动启用浏览器能力。
 - Settings 的 MCP 页面在 `playwright` 行显示 `Recommended` 标记和 Browser runtime 区域。
 - 推荐步骤不阻塞其他功能，用户可以从 MCP 页面随时进入。
-- `playwright` 未启用时，Skills 页面的 `browser` 行显示 `Requires playwright`。
+- `browser` 的启用状态由 `playwright` MCP server 控制；Skills 页面不为该行提供开关，未启用时显示 Disabled 与到 MCP 打开的提示。
 
 ## 9. Settings 页面
 
@@ -237,6 +237,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 页面只有一个列表，覆盖内置与用户 server：
 
 - 每行包含名称、来源、transport、exposure、启用开关、连接状态、注册动作数量与诊断。`playwright` 行额外显示 Advanced capabilities 开关，默认开启，在 server 启用后可操作。
+- `browser` skill 的状态跟随 `playwright` 的启用状态，Skills 页面不为它提供开关。
 - `playwright` 行带 `Recommended` 标记与 Browser runtime 区域。
 - 页面不提供添加、编辑、删除与 OAuth 登录按钮，这些操作通过 `pi-ark mcp` 命令完成。
 - 需要登录的行显示 `Needs sign-in` 与命令 `pi-ark mcp login <server>`。
@@ -245,7 +246,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - 页面提供 `Refresh` 按钮，重新执行 `pi-ark mcp list --json` 更新列表与状态。
 - 页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。
 - 列表为空时显示 `pi-ark mcp add <name>` 提示。
-- `playwright` 未启用时，Skills 页面的 `browser` 行显示 `Requires playwright`。
+- `browser` 的启用状态由 `playwright` MCP server 控制；Skills 页面不为该行提供开关，未启用时显示 Disabled 与到 MCP 打开的提示。
 
 ## 10. API
 

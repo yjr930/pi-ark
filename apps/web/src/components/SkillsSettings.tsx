@@ -1,7 +1,7 @@
-import { Check, CircleAlert, Eye, EyeOff, Folder, Globe2, LoaderCircle, PackageOpen, RefreshCw } from "lucide-react";
+import { Check, CircleAlert, Eye, EyeOff, Folder, Globe2, LoaderCircle, Lock, PackageOpen, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import type { McpBrowserStatus, SkillScope, SkillSelection, SkillView, SkillsResponse, Workspace } from "../types";
+import type { SkillScope, SkillSelection, SkillView, SkillsResponse, Workspace } from "../types";
 import { Select } from "./Select";
 
 type Notice = { kind: "success" | "error"; text: string };
@@ -14,7 +14,7 @@ function preferredWorkspaceId(workspaces: Workspace[]): string {
 }
 
 function disabledNames(skills: SkillView[]): string[] {
-  return skills.filter((skill) => !skill.enabled).map((skill) => skill.name);
+  return skills.filter((skill) => !skill.enabled && !(skill.scope === "builtin" && skill.name === "browser")).map((skill) => skill.name);
 }
 
 function statusLabel(skill: SkillView): string {
@@ -32,8 +32,6 @@ export function SkillsSettings({ active }: { active: boolean }) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
   const [playwrightEnabled, setPlaywrightEnabled] = useState<boolean | null>(null);
-  const [browserConfirmOpen, setBrowserConfirmOpen] = useState(false);
-  const [browserEnabling, setBrowserEnabling] = useState(false);
   const started = useRef(false);
   const workspaceDisabled = useRef<Record<string, string[]>>({});
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -169,39 +167,7 @@ export function SkillsSettings({ active }: { active: boolean }) {
   }
 
   function toggleSkill(scope: SkillScope, name: string, enabled: boolean) {
-    if (scope === "builtin" && name === "browser" && enabled && playwrightEnabled !== true) {
-      setBrowserConfirmOpen(true);
-      return;
-    }
     applySkillToggle(scope, name, enabled);
-  }
-
-  async function waitForBrowserInstall(status: McpBrowserStatus): Promise<McpBrowserStatus> {
-    let current = status;
-    const deadline = Date.now() + 10 * 60 * 1000;
-    while (current.state === "installing" && Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 1500));
-      current = await api.mcpBrowser();
-    }
-    return current;
-  }
-
-  async function confirmBrowserEnable() {
-    setBrowserEnabling(true); setNotice(null);
-    try {
-      let status = await api.mcpBrowser();
-      if (status.state === "not-installed" || status.state === "failed") status = await api.installMcpBrowser();
-      status = await waitForBrowserInstall(status);
-      if (status.state !== "installed") throw new Error(status.state === "installing" ? "Browser installation is still running. Refresh the page to check progress." : "Browser installation failed. Open the MCP page to read the installer log.");
-      await api.setMcpServerState("playwright", true);
-      setPlaywrightEnabled(true);
-      setBrowserConfirmOpen(false);
-      applySkillToggle("builtin", "browser", true);
-    } catch (reason) {
-      setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot enable playwright" });
-    } finally {
-      setBrowserEnabling(false);
-    }
   }
 
   function selectWorkspace(id: string) {
@@ -215,18 +181,19 @@ export function SkillsSettings({ active }: { active: boolean }) {
     return <div className="agent-resource-list">{skills.map((skill) => {
       const key = `${scope}:${skill.name}`;
       const open = expandedSkill === key;
-      const status = statusLabel(skill);
-      const statusClass = !skill.enabled ? "disabled" : skill.explicitOnly ? "explicit" : "enabled";
+      const isBrowser = scope === "builtin" && skill.name === "browser";
+      const status = isBrowser ? (playwrightEnabled === null ? "Loading" : playwrightEnabled ? "Enabled" : "Disabled") : statusLabel(skill);
+      const statusClass = isBrowser ? (playwrightEnabled ? "enabled" : "disabled") : !skill.enabled ? "disabled" : skill.explicitOnly ? "explicit" : "enabled";
       return <div className="agent-resource-row" key={key}>
-        <input className="agent-resource-checkbox" type="checkbox" checked={skill.enabled} disabled={loading || refreshing || browserEnabling} onChange={(event) => toggleSkill(scope, skill.name, event.target.checked)} aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name}`} />
+        {isBrowser ? <span className="agent-resource-lock" title="Controlled by the playwright MCP server"><Lock size={13} /></span> : <input className="agent-resource-checkbox" type="checkbox" checked={skill.enabled} disabled={loading || refreshing} onChange={(event) => toggleSkill(scope, skill.name, event.target.checked)} aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name}`} />}
         <div className="agent-resource-copy">
           <div className="agent-resource-title">
             <strong>{skill.name}</strong>
             <span className={`agent-resource-badge ${skill.source === "built-in" ? "builtin" : "managed"}`}>{skill.source === "built-in" ? "Built-in" : "Managed"}</span>
             <span className={`agent-resource-status ${statusClass}`}>{status}</span>
-            {skill.scope === "builtin" && skill.name === "browser" && playwrightEnabled === false && <span className="agent-resource-badge warning">Requires playwright</span>}
           </div>
           <p>{skill.description || "No description."}</p>
+          {isBrowser && playwrightEnabled === false && <p className="agent-resource-hint">Enable playwright in MCP to use this skill.</p>}
           <code className="agent-resource-path" title={skill.location}>{skill.location}</code>
         </div>
         <button type="button" className="secondary-button agent-resource-view" aria-expanded={open} aria-label={`${open ? "Hide" : "View"} ${skill.name}`} onClick={() => setExpandedSkill(open ? null : key)}>{open ? <EyeOff size={13} /> : <Eye size={13} />}{open ? "Hide" : "View"}</button>
@@ -277,6 +244,5 @@ export function SkillsSettings({ active }: { active: boolean }) {
         <ul className="agent-resource-diagnostics">{data.diagnostics.map((diagnostic, index) => <li key={`${diagnostic.path}:${index}`}><code>{diagnostic.path}</code><span>{diagnostic.message}</span></li>)}</ul>
       </section>}
     </> : <section className="settings-section"><div className="agent-resource-empty">{workspaces.length > 0 ? "The skill list is unavailable. Use Refresh to try again." : "Open a workspace to load Agent skills."}</div></section>}
-    {browserConfirmOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !browserEnabling) setBrowserConfirmOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="browser-dependency-title"><div className="dialog-header no-close"><div className="dialog-icon"><CircleAlert size={18} /></div><div><h2 id="browser-dependency-title">Enable playwright for browser?</h2><p>The browser skill needs the playwright MCP server. Enabling browser also enables playwright and installs the browser runtime when it is missing.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={browserEnabling} onClick={() => setBrowserConfirmOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={browserEnabling} onClick={() => void confirmBrowserEnable()}>{browserEnabling ? <LoaderCircle size={14} className="agent-resource-spin" /> : null}Enable both</button></div></div></div>}
   </>;
 }

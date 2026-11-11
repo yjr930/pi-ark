@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
-import { loadSkillSelection, saveSkillSelection, validateSkillSelection, type SkillSelection, type WorkspaceDefinition } from "./config.js";
+import { loadSkillSelection, piArkAgentDir, saveSkillSelection, validateSkillSelection, type SkillSelection, type WorkspaceDefinition } from "./config.js";
 import { builtinSkillDir, globalSkillDir, workspaceSkillDir } from "./resource-loader.js";
 import type { WorkspaceService } from "./workspaces.js";
 
@@ -82,6 +84,15 @@ function toViews(skills: ScannedSkill[], disabled: string[]): SkillView[] {
   return skills.map(({ filePath: _filePath, ...skill }) => ({ ...skill, enabled: !disabledNames.has(skill.name) }));
 }
 
+async function playwrightEnabled(): Promise<boolean> {
+  try {
+    const config = JSON.parse(await readFile(join(piArkAgentDir, "mcp.json"), "utf8")) as { mcpServers?: Record<string, { enabled?: boolean }> };
+    return config.mcpServers?.playwright?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -95,8 +106,9 @@ export class SkillService {
     this.lastWorkspace = workspace;
     const active = selection ?? await loadSkillSelection();
     const scan = scanWorkspace(workspace);
+    const browserEnabled = await playwrightEnabled();
     return {
-      builtin: toViews(scan.builtin, active.disabledBuiltin),
+      builtin: toViews(scan.builtin, active.disabledBuiltin).map((skill) => skill.name === "browser" ? { ...skill, enabled: browserEnabled } : skill),
       global: toViews(scan.global, active.disabledGlobal),
       workspace: toViews(scan.workspace, active.disabledWorkspace[workspace.id] ?? []),
       diagnostics: scan.diagnostics,
@@ -119,7 +131,7 @@ export class SkillService {
       disabledWorkspace[workspaceId] = unique(known ? names.filter((name) => known.has(name)) : names);
     }
     const selection: SkillSelection = {
-      disabledBuiltin: unique(parsed.disabledBuiltin.filter((name) => builtinGlobal.builtin.some((skill) => skill.name === name))),
+      disabledBuiltin: unique(parsed.disabledBuiltin.filter((name) => name !== "browser" && builtinGlobal.builtin.some((skill) => skill.name === name))),
       disabledGlobal: unique(parsed.disabledGlobal.filter((name) => builtinGlobal.global.some((skill) => skill.name === name))),
       disabledWorkspace,
     };

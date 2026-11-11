@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCodemodeExtension, createMcpExtension, DefaultResourceLoader, type Skill } from "@earendil-works/pi-coding-agent";
@@ -24,6 +24,15 @@ export function isPathWithin(candidate: string, directory: string): boolean {
   return normalize(target) === normalize(base) || normalize(target).startsWith(`${normalize(base)}${sep}`);
 }
 
+function playwrightEnabledSync(): boolean {
+  try {
+    const config = JSON.parse(readFileSync(join(piArkAgentDir, "mcp.json"), "utf8")) as { mcpServers?: Record<string, { enabled?: boolean }> };
+    return config.mcpServers?.playwright?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 export type SkillSelectionSource = SkillSelection | (() => SkillSelection);
 
 export interface CreateResourceLoaderOptions {
@@ -43,7 +52,10 @@ export async function createResourceLoader(options: CreateResourceLoaderOptions)
   const isDisabled = (skill: Skill): boolean => {
     const selection = typeof selectionSource === "function" ? selectionSource() : selectionSource;
     const workspaceRoot = workspaceSkillDir(workspace);
-    if (isPathWithin(skill.filePath, builtinSkillDir)) return selection.disabledBuiltin.includes(skill.name);
+    if (isPathWithin(skill.filePath, builtinSkillDir)) {
+      if (skill.name === "browser") return !playwrightEnabledSync();
+      return selection.disabledBuiltin.includes(skill.name);
+    }
     if (isPathWithin(skill.filePath, globalSkillDir)) return selection.disabledGlobal.includes(skill.name);
     if (isPathWithin(skill.filePath, workspaceRoot)) return (selection.disabledWorkspace[workspace.id] ?? []).includes(skill.name);
     return false;

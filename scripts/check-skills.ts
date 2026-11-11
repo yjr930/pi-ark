@@ -41,6 +41,7 @@ try {
     writeFile(workspaceConflictFile, skillFile("conflict-check", "Workspace duplicate that must be ignored.")),
   ]);
 
+  await writeFile(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { playwright: { enabled: true } } }));
   const service = new SkillService({ list: () => [workspace] });
   const initial = await service.list(workspace);
   const builtinBrowser = initial.builtin.find((skill) => skill.name === "browser");
@@ -86,13 +87,14 @@ try {
   for (const name of ["browser", "global-check", "workspace-check", "conflict-check"]) assert.match(enabledPrompt, new RegExp(`<name>${name}</name>`));
 
   const selection = {
-    disabledBuiltin: ["browser"],
+    disabledBuiltin: [],
     disabledGlobal: ["global-check"],
     disabledWorkspace: { [workspace.id]: ["workspace-check"] },
   };
   const saved = await service.saveSelection(selection);
   assert.deepEqual(saved, { selection, reloaded: 0 });
 
+  await writeFile(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { playwright: { enabled: false } } }));
   const disabled = await service.list(workspace);
   assert.equal(disabled.builtin.find((skill) => skill.name === "browser")?.enabled, false);
   assert.equal(disabled.global.find((skill) => skill.name === "global-check")?.enabled, false);
