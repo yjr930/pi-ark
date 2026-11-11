@@ -95,6 +95,7 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 - Global 与 Workspace 目录由 loader 自动扫描，Workspace 目录通过 `additionalSkillPaths` 传入。
 - `skillsOverride` 过滤停用项，并把未过滤的完整列表交给 `SkillService`。
 - MCP 通过 `createMcpExtension` 挂载，`codemode` 通过 `createCodemodeExtension` 挂载。
+- MCP server 使用 `codemode` 暴露时，MCP extension 在连接后把 `codemode` 加入活动工具。
 - MCP server 的连接在 `session_start` 建立，在 `session_shutdown` 关闭。
 - 启停修改后，Server 重建 loader，并对空闲 Session 调用 `session.reload()`。
 - 运行中的 Session 延后生效，界面提示下次启动生效。
@@ -114,9 +115,12 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 ### 7.2 browser skill 的内容要点
 
 - 打开页面后先取页面快照，再按快照里的元素引用执行点击或输入。
+- 脚本用 `describeNamespace("playwright")` 或 `searchTools()` 找到 `mcp__playwright__*` 工具，再通过 `tools.<name>(args)` 调用。
+- 一次脚本完成打开页面、取快照、定位元素、点击与截图，减少模型往返。
+- 文本结果用 `text()` 输出，截图用 `image()` 输出图片。
 - 需要保存页面证据时使用整页截图，需要表达当前屏幕时使用视口截图。
-- 页面依赖异步加载时，等待目标元素出现再继续。
-- 截图结果作为图片返回，正文抽取优先取页面可见文本。
+- 页面依赖异步加载时，用 `browser_wait_for` 等待目标元素出现再继续。
+- 脚本失败时保留部分输出，按 `Script error` 调整参数后重试。
 - 工具不可用时，先确认 `playwright` server 已启用、浏览器运行时已安装。
 
 ## 8. MCP 接入：浏览器能力
@@ -145,14 +149,11 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 
 ### 8.2 工具暴露
 
-`@playwright/mcp` 0.0.85 提供 61 个 `browser_*` 工具。pi-ark 通过 `toolExposure` 控制模型可见的工具集合：
+`@playwright/mcp` 0.0.85 提供 61 个 `browser_*` 工具。首版决定整个 `playwright` server 使用 `codemode` 暴露：
 
-| 方案 | 工具声明 | 适用 |
-|---|---|---|
-| `codemode` | 不声明，由脚本调用 | 默认，配合 browser skill |
-| `direct` 加 `toolExposure` | 声明选中的工具 | 只暴露 7 个常用工具时使用 |
-
-推荐的 `direct` 工具集合：`browser_navigate`、`browser_click`、`browser_type`、`browser_press_key`、`browser_snapshot`、`browser_take_screenshot`、`browser_wait_for`。
+- 61 个工具不进入请求声明，请求里只有 `codemode` 一个工具。
+- 模型按 browser skill 的指导写脚本，通过 `tools.mcp__playwright__browser_*` 调用工具。
+- `direct` 与 `toolExposure` 方案作为备选，首版不采用。
 
 ### 8.3 浏览器运行时
 
@@ -163,7 +164,9 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 
 ### 8.4 截图与结果
 
-- `browser_take_screenshot` 返回图片，由 MCP extension 转换为 image content。
+- `browser_take_screenshot` 不带 `filename` 时把图片作为 image result 返回，并把文件写入输出目录。
+- `browser_take_screenshot` 带 `filename` 时把图片保存到指定文件，返回文件结果。
+- codemode 脚本用 `image()` 把截图输出给模型。
 - pi-ark 的 Web 端已经能渲染 tool result 中的图片，点击可以放大。
 - 页面正文与快照文本按现有 tool result 展示，长文本保留折叠。
 
@@ -229,7 +232,6 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 
 ## 13. 待定问题
 
-- `codemode` 与 `direct` 两种暴露方式以哪个为默认。
 - 浏览器运行时安装是否由 Server 自动执行，还是只提供命令与状态。
 - Built-in skill 的清单除 `browser` 外还有哪些。
 - User MCP server 的添加与编辑是否在首版提供。
