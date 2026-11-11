@@ -284,7 +284,7 @@ node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" password --no-restart
 
 ### 新建 Session
 
-Sessions 标题右侧的四个按钮从左到右依次是显示归档 Session、打开内部链接、新增 Session group 和新建 Session。点击最右侧的加号后，新 Session 会立即打开；首次发送 message 后，Session 列表使用首条 user message 作为默认标题。
+Sessions 标题右侧的四个按钮从左到右依次是显示归档 Session、打开内部链接、新增 Session group 和新建 Session。点击最右侧的加号后，新 Session 会立即打开。发送首条 message 后，侧栏列表立即出现这一行，并使用该条 user message 作为默认标题。
 
 ### 管理 Session
 

@@ -331,7 +331,10 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rollbackDraftRef = useRef("");
   const scrolledPermalinkRef = useRef("");
+  const sessionListedRef = useRef(sessions.some((item) => item.id === session.id));
   const changeDisclosure = useCallback<DisclosureChange>((key, open) => setDisclosures((current) => current[key] === open ? current : { ...current, [key]: open }), []);
+
+  useEffect(() => { sessionListedRef.current = sessions.some((item) => item.id === session.id); }, [session.id, sessions]);
 
   useEffect(() => { void api.sessionModels().then((result) => setModels(result.models)).catch(() => setModels([])); }, [workspace.id]);
   useEffect(() => { if (snapshot) cacheSessionSnapshot(cacheKey, snapshot); }, [cacheKey, snapshot]);
@@ -379,6 +382,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       if (payload.type === "agent-event") {
         const agentEvent = payload.event;
         if (agentEvent.type === "agent_start") { setStatus("AI is working"); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
+        if (agentEvent.type === "message_end" && agentEvent.message?.role === "user" && !sessionListedRef.current) { sessionListedRef.current = true; onSessionChanged(); }
         if (agentEvent.type === "agent_settled") { setStatus("Ready"); setSnapshot((current) => current ? { ...current, isStreaming: false, isIdle: true } : current); onSessionChanged(); }
         if (agentEvent.type === "tool_execution_start") { setStatus(`Running ${agentEvent.toolName}`); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
         if (["message_start", "message_update", "message_end"].includes(agentEvent.type) && agentEvent.message) {

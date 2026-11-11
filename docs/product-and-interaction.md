@@ -79,7 +79,7 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 ### 新建与选择
 
-新建 Session 后，应用切换到 Agent 页面并打开新 Session。切换 Workspace 时，应用优先恢复 URL 指定的 Session，其次选择第一个未归档的普通 Session。侧栏的 Session 列表展示普通 Session，subagent 通过会话状态栏的列表与内部链接进入。
+新建 Session 后，应用切换到 Agent 页面并打开新 Session。尚未发送 message 的 Session 不进入侧栏列表；发送首条 message 后，该 Session 立即出现在侧栏列表，标题使用这条 message 的文本。切换 Workspace 时，应用优先恢复 URL 指定的 Session，其次选择第一个未归档的普通 Session。侧栏的 Session 列表展示普通 Session，subagent 通过会话状态栏的列表与内部链接进入。
 
 ## Agent conversation
 

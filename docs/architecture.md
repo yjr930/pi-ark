@@ -191,7 +191,7 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 
 ### Session 创建与恢复
 
-新 Session 使用 `SessionManager.create(workspace.path, sessionDir)`。恢复使用 `SessionManager.open(jsonlPath, sessionDir)`。Workspace session directory 固定为 `<workspace>/.pi-ark/sessions/`。
+新 Session 使用 `SessionManager.create(workspace.path, sessionDir)`。恢复使用 `SessionManager.open(jsonlPath, sessionDir)`。Workspace session directory 固定为 `<workspace>/.pi-ark/sessions/`。新 Session 在出现首条 user 或 assistant message 之前没有 JSONL 文件，因此不进入 Session 列表；Web 在该 Session 的首条 user message `message_end` 到达时重新读取 Session 列表，使新建的 Session 在发送消息后立即出现在侧栏。
 
 创建 AgentSession 时，AgentService 加载以下输入：
 
