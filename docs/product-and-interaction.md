@@ -241,7 +241,7 @@ Skills 类别按固定顺序显示三段列表：Built-in skills、Global skills
 
 页面顶部显示启用 skill 数量、模型可见 description 的总字符数和估算 token；Explicit only 的 skill 不进入模型可见 description 统计。Refresh 重新扫描三段目录。扫描失败、同名 skill 冲突或 skill 文件解析失败时，Diagnostics 区域列出路径与说明。View 展开 Source、Scope、Mode 与 Location；正文通过 Terminal 打开该目录下的 SKILL.md 阅读。
 
-`browser` 是内置 skill；`playwright` server 未启用时，该行显示 Requires playwright。
+`browser` 是内置 skill；`playwright` server 未启用时，该行显示 Requires playwright。`browser` 处于停用状态时，勾选它会弹出确认对话框；确认后页面先安装缺失的浏览器运行时并启用 `playwright`，再保存 `browser` 的启用状态。取消或启用失败时 `browser` 保持停用。
 
 ### MCP
 

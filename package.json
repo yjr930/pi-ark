@@ -1,6 +1,6 @@
 {
   "name": "pi-ark",
-  "version": "0.1.7-dev.5",
+  "version": "0.1.7-dev.6",
   "private": true,
   "description": "Workspace-oriented web interface for the pi coding agent",
   "type": "module",
@@ -33,7 +33,8 @@
     "setup": "node scripts/setup.mjs",
     "check:terminal": "tsx scripts/check-terminal.ts",
     "check:terminal-ui": "node scripts/check-terminal-ui.mjs",
-    "check:terminal-appearance": "tsx scripts/check-terminal-appearance.ts"
+    "check:terminal-appearance": "tsx scripts/check-terminal-appearance.ts",
+    "check:skills-ui": "node scripts/check-skills-ui.mjs"
   },
   "engines": {
     "node": ">=22.19"

@@ -571,7 +571,7 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 5. 点击 View 查看来源、作用域、调用模式和目录。需要阅读正文时，在 Terminal 中打开该目录下的 SKILL.md。
 6. 点击 Refresh 重新扫描目录。Diagnostics 区域列出同名冲突和解析错误。
 
-`browser` 是内置 skill。`playwright` server 未启用时，`browser` 行显示 Requires playwright。
+`browser` 是内置 skill。`playwright` server 未启用时，`browser` 行显示 Requires playwright。重新启用 `browser` 时，如果 `playwright` 处于停用状态，页面会弹出确认对话框；确认后 Pi-Ark 同时启用 `playwright` 并安装缺失的浏览器运行时，取消后 `browser` 保持停用。
 
 #### Skill 文件位置
 
