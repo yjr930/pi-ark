@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile, mkdir, writeFile, access, rename, copyFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -23,10 +24,17 @@ export interface ArkConfig {
   preferences: GlobalPreferences;
 }
 
+export interface SkillSelection {
+  disabledBuiltin: string[];
+  disabledGlobal: string[];
+  disabledWorkspace: Record<string, string[]>;
+}
+
 export interface GlobalPreferences {
   agent: { systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
   terminal: TerminalSettings;
+  skills: SkillSelection;
 }
 
 export const arkHome = resolve(process.env.PI_ARK_HOME || join(homedir(), ".pi-ark"));
@@ -109,9 +117,69 @@ export async function saveWorkspaceDefinitions(workspaces: WorkspaceDefinition[]
   await updateGlobalConfig((current) => ({ ...current, workspaces }));
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function normalizeSkillNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return uniqueStrings(value.filter((item): item is string => typeof item === "string"));
+}
+
+function normalizeSkillSelection(input: unknown): SkillSelection {
+  const raw = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
+  const workspaceRaw = typeof raw.disabledWorkspace === "object" && raw.disabledWorkspace !== null && !Array.isArray(raw.disabledWorkspace) ? raw.disabledWorkspace as Record<string, unknown> : {};
+  const disabledWorkspace: Record<string, string[]> = {};
+  for (const [workspaceId, names] of Object.entries(workspaceRaw)) {
+    if (!Array.isArray(names)) continue;
+    disabledWorkspace[workspaceId] = normalizeSkillNames(names);
+  }
+  return { disabledBuiltin: normalizeSkillNames(raw.disabledBuiltin), disabledGlobal: normalizeSkillNames(raw.disabledGlobal), disabledWorkspace };
+}
+
+function validateSkillNames(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw Object.assign(new Error(`${field} must be an array of skill names`), { statusCode: 400 });
+  return uniqueStrings(value);
+}
+
+export function validateSkillSelection(input: unknown): SkillSelection {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) throw Object.assign(new Error("Invalid skill selection"), { statusCode: 400 });
+  const raw = input as Record<string, unknown>;
+  if (typeof raw.disabledWorkspace !== "object" || raw.disabledWorkspace === null || Array.isArray(raw.disabledWorkspace)) throw Object.assign(new Error("disabledWorkspace must map workspace ids to skill names"), { statusCode: 400 });
+  const disabledWorkspace: Record<string, string[]> = {};
+  for (const [workspaceId, names] of Object.entries(raw.disabledWorkspace as Record<string, unknown>)) {
+    disabledWorkspace[workspaceId] = validateSkillNames(names, `disabledWorkspace.${workspaceId}`);
+  }
+  return { disabledBuiltin: validateSkillNames(raw.disabledBuiltin, "disabledBuiltin"), disabledGlobal: validateSkillNames(raw.disabledGlobal, "disabledGlobal"), disabledWorkspace };
+}
+
 function normalizeGlobalPreferences(input?: Partial<GlobalPreferences>): GlobalPreferences {
   const size = input?.files?.maxPreviewSizeMb;
-  return { agent: { systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } }, files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 }, terminal: normalizeTerminalSettings(input?.terminal) };
+  return { agent: { systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } }, files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 }, terminal: normalizeTerminalSettings(input?.terminal), skills: normalizeSkillSelection(input?.skills) };
+}
+
+export async function loadSkillSelection(): Promise<SkillSelection> {
+  try {
+    const parsed = JSON.parse(await readFile(configPath, "utf8")) as { preferences?: { skills?: unknown } };
+    return normalizeSkillSelection(parsed.preferences?.skills);
+  } catch {
+    return normalizeSkillSelection(undefined);
+  }
+}
+
+export function loadSkillSelectionSync(): SkillSelection {
+  try {
+    const parsed = JSON.parse(readFileSync(configPath, "utf8")) as { preferences?: { skills?: unknown } };
+    return normalizeSkillSelection(parsed.preferences?.skills);
+  } catch {
+    return normalizeSkillSelection(undefined);
+  }
+}
+
+export async function saveSkillSelection(input: unknown): Promise<SkillSelection> {
+  const skills = validateSkillSelection(input);
+  const next = await updateGlobalConfig((current) => ({ ...current, preferences: { ...normalizeGlobalPreferences(current.preferences), skills } }));
+  return next.preferences.skills;
 }
 
 export async function ensureWorkspaceState(workspace: WorkspaceDefinition): Promise<string> {

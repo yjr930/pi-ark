@@ -9,6 +9,8 @@ import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
 import { ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveTerminalSettings, type TerminalSettings, type ArkUiSettings, type GlobalPreferences } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
+import { McpService } from "./mcp.js";
+import { SkillService } from "./skills.js";
 import { PiCoreService } from "./pi-core.js";
 import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput, type ModelPreferencesInput } from "./settings.js";
 import { TerminalService } from "./terminal.js";
@@ -30,6 +32,14 @@ const settings = await SettingsService.create(config.workspaces[0]?.path || proc
 const piCore = new PiCoreService();
 const authFlows = new AuthFlowService((providerId, interaction) => settings.loginSubscription(providerId, interaction));
 const agents = new AgentService(settings, workspaces);
+const skills = new SkillService(workspaces, () => agents.reloadIdleSessions());
+const mcp = new McpService(() => agents.reloadIdleSessions());
+await mcp.ensureConfig();
+
+function workspaceFromQuery(workspaceId?: string) {
+  if (!workspaceId) throw Object.assign(new Error("A workspace id is required"), { statusCode: 400 });
+  return workspaces.get(workspaceId);
+}
 
 function contentDispositionFilename(name: string): string {
   const fallback = name.replace(/[^\x20-\x7e]|["\\]/g, "_") || "download";
@@ -119,6 +129,22 @@ app.get("/api/settings/terminal", async () => terminalSettingsResponse((await lo
 app.put<{ Body: TerminalSettings }>("/api/settings/terminal", async (request) => terminalSettingsResponse(await saveTerminalSettings(request.body)));
 app.get("/api/settings/preferences", async () => loadGlobalPreferences());
 app.put<{ Body: { files: GlobalPreferences["files"] } }>("/api/settings/preferences", async (request) => saveGlobalPreferences(request.body));
+app.get<{ Querystring: { workspaceId?: string } }>("/api/skills", async (request) => skills.list(workspaceFromQuery(request.query.workspaceId)));
+app.put<{ Body: unknown }>("/api/skills/selection", async (request) => {
+  const saved = await skills.saveSelection(request.body);
+  const workspace = skills.workspaceForSelection();
+  const response = workspace ? await skills.list(workspace, saved.selection) : { builtin: [], global: [], workspace: [], diagnostics: [] };
+  return { ...response, ...saved.selection, selection: saved.selection, reloaded: saved.reloaded };
+});
+app.post("/api/skills/reload", async () => ({ reloaded: await skills.reloadIdleSessions() }));
+app.get<{ Querystring: { workspaceId?: string } }>("/api/mcp", async (request) => mcp.list(workspaceFromQuery(request.query.workspaceId)));
+app.put<{ Params: { name: string }; Body: { enabled?: unknown } }>("/api/mcp/servers/:name/state", async (request) => {
+  if (typeof request.body?.enabled !== "boolean") throw Object.assign(new Error("MCP server state must be a boolean"), { statusCode: 400 });
+  await mcp.setEnabled(request.params.name, request.body.enabled);
+  return { ok: true };
+});
+app.get("/api/mcp/browser", async () => mcp.browserStatus());
+app.post("/api/mcp/install-browser", async () => mcp.installBrowser());
 app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/api/workspaces/:workspaceId/files", async (request) => {
   const workspace = workspaces.get(request.params.workspaceId);
   const preferences = await loadGlobalPreferences();

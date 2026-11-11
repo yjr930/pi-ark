@@ -497,14 +497,16 @@ Settings 的 Server 设置对所有 Workspace 使用统一的配置，Terminal �
 1. Interface
 2. Models & providers
 3. Agent behavior
-4. Files
-5. Terminal
-6. Maintenance
-7. Account
+4. Skills
+5. MCP
+6. Files
+7. Terminal
+8. Maintenance
+9. Account
 
 普通选择、开关和完成输入的数值会立即保存。需要确认的内容（API key、Global system prompt append 与 Terminal 的复杂 shell 字段）使用对应区域内的 Save 与 Cancel。
 
-首次进入 Settings 后，浏览器保留已经加载的设置、所选类别、各类别的滚动位置，以及尚未保存的草稿（提示词与 Terminal shell 设置）。切换页面后返回可以继续操作。Refresh settings 会主动重新读取设置。Effective prompt preview 在展开时读取，Terminal shell 配置与 Maintenance 的版本信息在首次进入对应类别时读取。离开 Settings 后，页面会清空尚未提交的 API key。
+首次进入 Settings 后，浏览器保留已经加载的设置、所选类别、各类别的滚动位置，以及尚未保存的草稿（提示词与 Terminal shell 设置）。切换页面后返回可以继续操作。Refresh settings 会主动重新读取设置。Effective prompt preview 在展开时读取；Skills 与 MCP 数据在首次进入对应类别时读取；Terminal shell 配置与 Maintenance 的版本信息在首次进入对应类别时读取。离开 Settings 后，页面会清空尚未提交的 API key。
 
 ### Interface
 
@@ -560,6 +562,56 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 
 以上选择和开关会立即保存。
 
+### Skills
+
+1. 打开 Settings → Skills。页面先加载 Workspace 列表，并显示 Built-in skills、Global skills 和 Workspace skills 三段列表。
+2. 在 Workspace skills 顶部选择 Workspace。选择器默认使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。
+3. 勾选或取消勾选 skill 左侧的复选框。修改立即保存，页面显示保存结果；保存失败时列表恢复为服务端状态。
+4. 查看每行的状态：Enabled 表示启用；Disabled 表示停用；Explicit only 表示 skill 已启用，但只进入显式调用，不进入模型可见的 skill 描述。
+5. 点击 View 查看来源、作用域、调用模式和目录。需要阅读正文时，在 Terminal 中打开该目录下的 SKILL.md。
+6. 点击 Refresh 重新扫描目录。Diagnostics 区域列出同名冲突和解析错误。
+
+`browser` 是内置 skill。`playwright` server 未启用时，`browser` 行显示 Requires playwright。
+
+#### Skill 文件位置
+
+Pi-Ark 从以下目录读取 skill：
+
+| 作用域 | 目录 | 管理方式 |
+|---|---|---|
+| Built-in | `<安装根目录>/skills/<skill-name>/SKILL.md` | 随 release 更新 |
+| Global | `PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md` | 用户创建与编辑 |
+| Workspace | `<workspace>/.pi-ark/skills/<skill-name>/SKILL.md` | 用户创建与编辑 |
+
+内置 `browser` skill 位于 `<安装根目录>/skills/browser/SKILL.md`。每个 skill 使用一个目录，目录中的 SKILL.md 包含 YAML frontmatter：
+
+```yaml
+---
+name: my-skill
+description: 说明这个 skill 的用途和适用场景。
+---
+```
+
+`name` 只使用小写字母、数字与连字符，最长 64 个字符；`description` 最长 1024 个字符。加上 `disable-model-invocation: true` 后，skill 不进入模型可见的 skill 描述，只进入列表和显式调用。新建目录后点击 Skills 页面的 Refresh。
+
+Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户维护。Skill 名称相同时，扫描顺序中先发现的 skill 生效，后续同名项进入 Diagnostics。
+
+### MCP
+
+1. 打开 Settings → MCP。页面使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace，并显示 server 列表。
+2. 查看每行的 Source、Transport、Exposure、Tools 和连接状态。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。
+3. 使用行右侧开关启用或停用 server。修改立即保存，Server 重新加载空闲 Session。
+4. 需要 OAuth 登录时，行内显示 `pi-ark mcp login <server>`；在服务器终端执行该命令，完成登录后点击 Refresh。
+5. 点击 Refresh 重新读取 server 列表、连接状态、工具数量和诊断。
+6. 需要添加、删除或修改 server 时，在服务器终端使用 `pi-ark mcp` 命令，或编辑 `PI_ARK_AGENT_DIR/mcp.json`。
+
+#### 启用 playwright 与安装浏览器
+
+1. 在 Settings → MCP 找到 `playwright` 行。该行带 Recommended 标记，并显示 Browser runtime 区域。
+2. 打开 `playwright` 的启用开关。浏览器运行时尚未安装时，Pi-Ark 自动执行安装，状态显示 Installing，目标目录显示在 Browser runtime 区域。
+3. 等待状态变为 Installed。安装成功后，`playwright` 保存为启用状态；失败时日志显示在该行，server 保持未启用，可以再次打开开关重试。
+4. 启用后新建 Session，Agent 可以使用 `browser` skill 调用 `playwright` 工具。
+
 ### Files
 
 Show hidden files 控制所有 Workspace 的普通 dotfile 是否进入 Files 列表，切换后立即保存。Maximum preview size 控制文本、Markdown 和支持图片的预览上限，默认是 10 MB，可设置范围是 1–100 MB；输入完成并离开输入框后保存，超过该值的文件仍可下载。
@@ -607,6 +659,46 @@ Development checkout 或带 `dev` prerelease 的本机安装会显示 developmen
 ### Account
 
 点击 Sign out 结束当前浏览器的登录会话。
+
+## MCP server 管理
+
+MCP server 定义保存在 `PI_ARK_AGENT_DIR/mcp.json`。`playwright` 条目由 Pi-Ark 初始化；其他 server 通过命令行或直接编辑该文件管理。以下命令中的 `pi-ark` 指安装目录中的稳定 CLI；未加入 PATH 时使用 `node "<prefix>/bin/pi-ark.mjs"` 替换。
+
+列出 server 与连接状态：
+
+```bash
+pi-ark mcp list
+pi-ark mcp list --json
+```
+
+添加 stdio server：
+
+```bash
+pi-ark mcp add <server-name> -- <command> [args...]
+```
+
+添加 HTTP server：
+
+```bash
+pi-ark mcp add <server-name> --url <https-url>
+```
+
+添加时可以通过 `--env KEY=VALUE`、`--header KEY=VALUE` 和 `--bearer-token-env-var NAME` 传入认证信息；需要引用环境变量时使用 `${NAME}`。`--` 之后的参数属于 server 启动命令。
+
+删除 server：
+
+```bash
+pi-ark mcp remove <server-name>
+```
+
+OAuth 登录与退出：
+
+```bash
+pi-ark mcp login <server-name>
+pi-ark mcp logout <server-name>
+```
+
+`login` 在服务器上打开浏览器，默认等待 300 秒，`--timeout <seconds>` 可以调整等待时间。登录或修改配置后，在 Settings → MCP 点击 Refresh 查看最新状态。新 Session 使用最新配置。
 
 ## 浏览器布局设置
 
@@ -732,6 +824,8 @@ PI_ARK_HOME/
     auth.json
     settings.json
     models.json
+    mcp.json
+    skills/
     SYSTEM.md
     APPEND_SYSTEM.md
 ```
@@ -743,6 +837,7 @@ Workspace data：
   config.json
   notebook.md
   sessions-meta.json
+  skills/
   attachments/
   sessions/
 ```

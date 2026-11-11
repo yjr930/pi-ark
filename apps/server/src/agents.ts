@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { createAgentSession, DefaultResourceLoader, SessionManager, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -18,6 +17,7 @@ import { createSubagentTool, SUBAGENT } from "./agent-tools/subagent.js";
 import { SubagentService, SUBAGENT_ROLE_PROMPT, type SubagentConfiguration } from "./subagents.js";
 import { type SubagentTaskInput } from "./subagent-types.js";
 import { validLeafEntryId } from "./internal-links.js";
+import { createResourceLoader as createWorkspaceResourceLoader } from "./resource-loader.js";
 export { buildSessionDisplayMessages, MAX_SESSION_MESSAGES, sessionMessageId } from "./session-display.js";
 
 const FILE_TOOLS = ["read", "bash", "edit", "write"] as const;
@@ -302,6 +302,7 @@ export class AgentService {
       handle.session.clearQueue();
       if (!handle.session.isIdle) await handle.session.abort();
       handle.unsubscribe();
+      await this.shutdownSession(handle.session);
       handle.session.dispose();
       for (const client of handle.clients.keys()) client.close(1000, "Session deleted");
       this.handles.delete(key);
@@ -438,12 +439,8 @@ export class AgentService {
     finally { session.dispose(); }
   }
 
-  private async createResourceLoader(workspace: WorkspaceDefinition, globalAppend: string, settingsManager = createGlobalSettingsManager(workspace.path)): Promise<DefaultResourceLoader> {
-    const systemPromptPath = join(piArkAgentDir, "SYSTEM.md");
-    const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
-    const resourceLoader = new DefaultResourceLoader({ cwd: workspace.path, agentDir: piArkAgentDir, settingsManager, ...(existsSync(systemPromptPath) ? { systemPrompt: systemPromptPath } : { systemPromptOverride: () => undefined }), appendSystemPrompt: existsSync(appendSystemPromptPath) ? [appendSystemPromptPath] : [], appendSystemPromptOverride: (base) => globalAppend ? [...base, globalAppend] : base });
-    await resourceLoader.reload();
-    return resourceLoader;
+  private createResourceLoader(workspace: WorkspaceDefinition, globalAppend: string, settingsManager = createGlobalSettingsManager(workspace.path)): Promise<DefaultResourceLoader> {
+    return createWorkspaceResourceLoader({ workspace, globalAppend, settingsManager });
   }
 
   private instantiate(workspace: WorkspaceDefinition, manager: SessionManager, configuration?: SubagentConfiguration): Promise<AgentHandle> {
@@ -460,9 +457,12 @@ export class AgentService {
     const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;
-    const tools = [...FILE_TOOLS, READ_PI_ARK_LINK, ...(!origin ? [SUBAGENT] : [])];
+    const activeTools = [...FILE_TOOLS, READ_PI_ARK_LINK, ...(!origin ? [SUBAGENT] : [])];
+    const tools = [...activeTools, "codemode"];
     const customTools = [createReadPiArkLinkTool(this.sessionReader), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : [])];
     const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader, model: configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model), thinkingLevel: configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels });
+    session.setActiveToolsByName(activeTools);
+    await session.bindExtensions({});
     const handle: AgentHandle = {
       workspace,
       systemPromptAppend,
@@ -650,12 +650,35 @@ export class AgentService {
     for (const client of handle.clients.keys()) send(client, payload);
   }
 
+  async reloadIdleSessions(): Promise<number> {
+    const idle = [...this.handles.values()].filter((handle) => handle.runtimeState !== "running");
+    const results = await Promise.allSettled(idle.map((handle) => handle.session.reload()));
+    let reloaded = 0;
+    results.forEach((result, index) => {
+      const handle = idle[index];
+      if (result.status === "fulfilled") {
+        reloaded += 1;
+        handle.displayMessages = undefined;
+        this.sendSnapshot(handle);
+      } else {
+        this.setRuntimeStatus(handle, "error", result.reason instanceof Error ? result.reason.message : "Session reload failed");
+      }
+    });
+    return reloaded;
+  }
+
+  private async shutdownSession(session: AgentSession): Promise<void> {
+    try { await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); }
+    catch { /* Extension cleanup is best effort. */ }
+  }
+
   async dispose(): Promise<void> {
     await this.subagents.dispose();
     await Promise.allSettled([...this.opening.values()]);
     await Promise.all([...this.handles.values()].map(async (handle) => {
       handle.unsubscribe();
       if (!handle.session.isIdle) await handle.session.abort();
+      await this.shutdownSession(handle.session);
       handle.session.dispose();
     }));
     this.handles.clear();

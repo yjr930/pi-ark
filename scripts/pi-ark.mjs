@@ -41,12 +41,15 @@ Usage:
   pi-ark update [--no-restart]
   pi-ark rollback [--no-restart]
   pi-ark verify [--release <path>]
+  pi-ark mcp <list|add|remove|login|logout> ...
   pi-ark help
 
 Portable installations run as the current user. serve stays in the foreground.
 Portable logs prints the log; --follow follows new output.
+mcp passes its arguments to the pi core MCP command and uses PI_ARK_AGENT_DIR as the pi agent directory.
 Environment:
   PI_ARK_HOME                Pi-Ark data directory
+  PI_ARK_AGENT_DIR           pi agent data directory (default: PI_ARK_HOME/pi-agent)
   PI_ARK_INSTALL_PREFIX      Release installation prefix
   PI_ARK_PORTABLE            1 for current-user background process management
   PI_ARK_INSTANCE            Instance identity used for cookie and service isolation
@@ -493,6 +496,26 @@ async function rollbackRelease() {
   if (!args.includes("--no-restart")) await restartService();
 }
 
+async function runMcpCommand() {
+  const candidates = [
+    join(projectRoot, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
+    join(projectRoot, "apps/server/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
+  ];
+  let coreCli;
+  for (const candidate of candidates) {
+    if (await stat(candidate).then(() => true, () => false)) { coreCli = candidate; break; }
+  }
+  if (!coreCli) throw new Error(`The pi core command line entry is unavailable under ${projectRoot}`);
+  const agentDir = resolve(process.env.PI_ARK_AGENT_DIR || join(arkHome, "pi-agent"));
+  const result = await new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(nodeExecutable, [coreCli, "mcp", ...args.slice(1)], { stdio: "inherit", env: { ...process.env, PI_CODING_AGENT_DIR: agentDir }, windowsHide: true });
+    child.once("error", rejectPromise);
+    child.once("exit", (code, signal) => resolvePromise({ code, signal }));
+  });
+  if (result.signal) throw new Error(`pi mcp stopped by signal ${result.signal}`);
+  process.exitCode = result.code ?? 1;
+}
+
 async function runServiceCommand(name) {
   if (portable) return portableCommand(name);
   const service = systemdServiceName();
@@ -512,6 +535,7 @@ try {
   else if (command === "update") await updateRelease();
   else if (command === "rollback") await rollbackRelease();
   else if (command === "verify") { const manifest = await verifyRelease(option("--release") || projectRoot); console.log(`Pi-Ark ${manifest.version} release check passed`); }
+  else if (command === "mcp") await runMcpCommand();
   else if (["start", "stop", "status", "logs", "restart"].includes(command)) await runServiceCommand(command);
   else if (!command || command === "help" || command === "--help" || command === "-h") printHelp();
   else { printHelp(); process.exitCode = 1; }

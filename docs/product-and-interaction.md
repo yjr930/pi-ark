@@ -216,6 +216,8 @@ Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Termina
 - Interface：Appearance，包含紧凑的主题色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）、Hide reasoning 和 Keep line breaks。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
+- Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。
+- MCP：MCP server 列表、启用开关、连接状态、诊断与浏览器运行时。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
 - Terminal：Server shell profile、自定义程序的绝对路径、附加参数、环境变量、浏览器字体和键盘操作说明。
 - Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及指向稳定 CLI 的完整 Node 调用命令（status、logs 与 restart 等）。
@@ -223,7 +225,7 @@ Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Termina
 
 Keep line breaks（按原文换行）默认开启，会话和 Markdown 文件中的普通文本会按原文的单次换行显示。关闭后，同一段落内的普通换行合并显示，空行继续分隔段落。该设置在切换后立即保存并应用到当前页面，刷新后保留选择。
 
-Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和草稿（提示词与 Terminal shell 设置）。模型数据独立加载；effective prompt preview 在展开时加载；Terminal shell 设置在首次进入 Terminal 类别时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取当前类别需要的数据；在 Terminal 类别中刷新时，页面更新 Server 配置与 profiles，同时保留尚未保存的草稿和刷新期间的新编辑内容。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
+Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和草稿（提示词与 Terminal shell 设置）。模型数据独立加载；effective prompt preview 在展开时加载；Skills 与 MCP 数据在首次进入对应类别时加载；Terminal shell 设置在首次进入 Terminal 类别时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取当前类别需要的数据；在 Terminal 类别中刷新时，页面更新 Server 配置与 profiles，同时保留尚未保存的草稿和刷新期间的新编辑内容。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
 
 模型 checkbox 使用填色表示启用，使用空白状态表示关闭。切换非默认模型的启用状态时，页面保留当前的 default model 和 Default thinking level。关闭 default model 时，页面选择模型列表中第一个仍启用的模型作为新 default，并将 thinking level 调整为新 default 支持的等级。最后一个启用的模型保持启用，并显示 Select at least one model 提示。
 
@@ -231,9 +233,29 @@ Settings 默认在选择、切换或输入完成后立即保存，页面底部�
 
 Update Pi-Ark 根据当前操作系统与 architecture 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent、pi-ai 和 native dependencies。更新过程保留 Global data 与 Workspace data，并将当前 release 记录为 previous release；POSIX 切换 `current` symlink，Windows 更新 `release-state.json`。Roll back 将当前与上一 release 对调。Web 响应返回后，Server 正常关闭，后台管理器或 Linux systemd 下的 supervisor 从当前 release 重新启动并执行 health check；启动检查失败时恢复 previous release。Maintenance 从相同的 release state 显示 previous release，并提供稳定 CLI 的完整 Node 调用命令。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
 
+### Skills
+
+Skills 类别按固定顺序显示三段列表：Built-in skills、Global skills 和 Workspace skills。Built-in 区域说明 skill 随 Pi-Ark release 更新；Global 区域说明 skill 在所有 Workspace 可用；Workspace 区域顶部提供 Workspace 选择器，默认使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。
+
+每一行包含启用复选框、skill 名称、来源标记（Built-in 或 Managed）、状态（Enabled、Disabled 或 Explicit only）、description、skill 目录和 View。勾选或取消勾选后立即保存，页面显示 Saving selection；保存完成后通知 `Skill selection saved. New Sessions use the updated set.`，列表按服务端返回结果更新。保存失败时恢复服务端列表并显示错误。Built-in skill 行同样可以停用；停用记录按名称保存，release 更新后继续有效。
+
+页面顶部显示启用 skill 数量、模型可见 description 的总字符数和估算 token；Explicit only 的 skill 不进入模型可见 description 统计。Refresh 重新扫描三段目录。扫描失败、同名 skill 冲突或 skill 文件解析失败时，Diagnostics 区域列出路径与说明。View 展开 Source、Scope、Mode 与 Location；正文通过 Terminal 打开该目录下的 SKILL.md 阅读。
+
+`browser` 是内置 skill；`playwright` server 未启用时，该行显示 Requires playwright。
+
+### MCP
+
+MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、来源（Built-in 或 User）、启用开关、连接状态、Transport、Exposure、工具数量和诊断。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。`playwright` 行额外显示 Recommended 标记和 Browser runtime 区域。
+
+启用开关保存 server 的 `enabled` 字段。启用 `playwright` 时，页面先检查浏览器运行时；未安装或上次安装失败时自动开始安装 Chromium headless shell，并在 Browser runtime 区域显示 Installing 状态与目标目录，页面轮询安装状态。安装完成后保存启用状态；安装仍在进行或失败时，server 保持未启用，页面显示对应提示，失败日志显示在 `playwright` 行内。其他 server 的开关直接保存。
+
+`playwright` 行显示 Browser runtime 状态（Not installed、Installing、Installed 或 Failed）、已安装版本与目标目录。Needs sign-in 的行显示 `pi-ark mcp login <server>` 命令提示。页面不提供添加、编辑、删除和 OAuth 登录按钮；server 定义通过 `pi-ark mcp` 命令或直接编辑 `mcp.json` 管理。配置文件解析失败或 `pi-ark mcp list --json` 返回错误时，列表上方显示 Configuration errors。
+
+Refresh 重新执行列表读取并更新连接状态、工具数量和诊断。页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。列表为空时显示 `pi-ark mcp add <name>` 提示。
+
 ### 配置的生效方式
 
-Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
+Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Skill 启用状态或 MCP server 启用状态保存后，Server 对空闲 Session 执行 reload；正在运行的 Session 保持当前资源集合，新建 Session 使用最新集合。`playwright` 的浏览器运行时安装在服务账号 home 下的 `.cache/ms-playwright`。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
 
 ## 桌面与移动布局
 

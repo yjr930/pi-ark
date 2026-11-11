@@ -266,6 +266,67 @@ export interface TerminalInfo {
   rows: number;
 }
 
+export type SkillScope = "builtin" | "global" | "workspace";
+
+export type SkillSource = "built-in" | "managed";
+
+export interface SkillView {
+  name: string;
+  description: string;
+  scope: SkillScope;
+  source: SkillSource;
+  location: string;
+  enabled: boolean;
+  explicitOnly: boolean;
+}
+
+export interface SkillDiagnostic {
+  path: string;
+  message: string;
+}
+
+export interface SkillsResponse {
+  builtin: SkillView[];
+  global: SkillView[];
+  workspace: SkillView[];
+  diagnostics: SkillDiagnostic[];
+}
+
+export interface SkillSelection {
+  disabledBuiltin: string[];
+  disabledGlobal: string[];
+  disabledWorkspace: Record<string, string[]>;
+}
+
+export type McpServerSource = "built-in" | "user";
+
+export type McpServerState = "connected" | "disabled" | "failed" | "needs-sign-in" | "starting";
+
+export interface McpServerView {
+  name: string;
+  source: McpServerSource;
+  enabled: boolean;
+  exposure: string;
+  transport: string;
+  state: McpServerState;
+  tools: string[];
+  diagnostics: string[];
+}
+
+export interface McpServersResponse {
+  servers: McpServerView[];
+  errors: string[];
+}
+
+export type McpBrowserState = "not-installed" | "installing" | "installed" | "failed";
+
+export interface McpBrowserStatus {
+  state: McpBrowserState;
+  version?: string;
+  directory: string;
+  log?: string;
+}
+
 export interface GlobalPreferences {
   agent: { systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };

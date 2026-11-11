@@ -24,6 +24,7 @@ Fastify server
   ├─ WorkspaceService
   ├─ AgentService
   │   └─ @earendil-works/pi-coding-agent
+  ├─ SkillService and McpService
   ├─ SettingsService and AuthFlowService
   ├─ Release manager
   ├─ Session metadata store
@@ -56,7 +57,7 @@ docs/               产品、架构、使用和集成文档
 2. 将 `PI_CODING_AGENT_DIR` 指向该专用目录，使 pi SDK 使用相同的 settings、credential 和 resource files。
 3. 读取 Global config 与 TLS key/certificate。
 4. 创建 HTTPS Fastify service；HTTP request body 上限为 1 MB，WebSocket payload 上限为 28 MB。
-5. 创建 Auth、Workspace、Terminal、Settings、Pi-Ark release、OAuth flow 和 Agent services。
+5. 创建 Auth、Workspace、Terminal、Settings、Pi-Ark release、OAuth flow、Agent、Skills 和 MCP services。
 6. 注册 HTTP routes、Agent WebSocket 和 Terminal WebSocket。
 7. 注册静态 Web asset fallback。
 8. 监听配置的 HTTPS 地址。
@@ -72,6 +73,9 @@ docs/               产品、架构、使用和集成文档
 | Authentication | `apps/server/src/auth.ts` | scrypt password、内存 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
 | Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments、自带工具注册和广播 |
+| Agent resources | `apps/server/src/resource-loader.ts` | 三个 skill 目录、`skillsOverride`、MCP 与 codemode extension 和 Session resource loader |
+| Skills | `apps/server/src/skills.ts` | skill 目录扫描、同名冲突、停用过滤、选择保存和空闲 Session 重载 |
+| MCP | `apps/server/src/mcp.ts` | `mcp.json` 初始化、server 列表、启用状态、浏览器运行时状态与安装 |
 | Internal links | `apps/server/src/internal-links.ts` | Web 与 Server 共用的 Workspace、Session 和 Message 内部链接解析与生成 |
 | Session display | `apps/server/src/session-display.ts` | 完整活动分支的 display projection、短 Message ID、Compact 统计和旧数字目标的定位 |
 | Compact statistics | `apps/server/src/compaction-stats.ts` | 按压缩时的 projection 估算上下文组成，并关联压缩耗时 |
@@ -111,6 +115,8 @@ docs/               产品、架构、使用和集成文档
 | Terminal tooltip | `apps/web/src/components/TerminalTooltip.tsx` | Terminal 的 hover、focus 与触屏详情，portal 定位与交互式连接说明 |
 | Terminal settings | `apps/web/src/components/TerminalSettings.tsx` | 按需加载 Server shell 配置、草稿与保存队列、Refresh 草稿保留及浏览器字体编辑 |
 | Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示设置，保留页面状态，并按需加载 prompt preview、Terminal 配置与 release 信息 |
+| Skills settings | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、Workspace 选择器、启用复选框、诊断和 Refresh |
+| MCP settings | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断、浏览器运行时和安装进度 |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
 | Permalinks | `apps/web/src/permalinks.ts` | Browser URL 与 `pi-ark://` link 的生成和解析 |
 | Theme | `apps/web/src/theme.ts` | Theme metadata、应用和本地初始化 |
@@ -372,7 +378,7 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
-- UI settings（`ui.theme`、`ui.hideReasoning` 和 `ui.markdownLineBreaks`）、Workspace registry 和共享 `preferences`（Global prompt append、Files preferences 和 Terminal shell 设置）：`PI_ARK_HOME/config.json`。
+- UI settings（`ui.theme`、`ui.hideReasoning` 和 `ui.markdownLineBreaks`）、Workspace registry 和共享 `preferences`（Global prompt append、Files preferences、Terminal shell 设置和 Skills 停用清单）：`PI_ARK_HOME/config.json`。
 - Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
@@ -403,6 +409,38 @@ SettingsService 调用 `ModelRuntime.login(provider, "oauth", interaction, { get
 
 Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同时保留一个 pending flow；启动同一个 Provider 的新登录时，AuthFlowService 会取消此前的 pending flow，使 OAuth callback listener 和 ModelRuntime credential 操作可以释放。不同 Provider 的登录 flow 可以同时进行。Flow event 最多保留最近 50 条。
 
+### Skills
+
+`resource-loader.ts` 定义三个 skill 目录：
+
+| 作用域 | 目录 | 来源标记 |
+|---|---|---|
+| Built-in | `<install-root>/skills` | `built-in` |
+| Global | `PI_ARK_AGENT_DIR/skills` | `managed` |
+| Workspace | `<workspace>/.pi-ark/skills` | `managed` |
+
+安装根目录由 `resource-loader.ts` 从自身模块位置向上解析，源码的 `apps/server/src` 与 release 的 `apps/server/dist` 都指向项目或安装根目录。
+
+`createResourceLoader()` 把存在的目录加入 `additionalSkillPaths`，并通过 `skillsOverride` 按 `skill.filePath` 判断作用域，过滤对应停用清单中的名称。loader 同时挂载 `createMcpExtension()` 与 `createCodemodeExtension()`。`codemode` 注册为默认停用；Session 把 `codemode` 加入工具列表，再用初始活动工具集合将其排除。MCP extension 在 Session 启动时根据启用且 `exposure` 为 `codemode` 的 server 配置把 `codemode` 加入活动工具，连接后的工具即可从脚本调用。
+
+`SkillService` 每次请求调用 `loadSkillsFromDir()` 扫描三段目录。扫描顺序为 Built-in、Global、Workspace，同名 skill 保留先发现的项，后续同名项写入诊断。`SkillService` 保存选择时校验 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace`，对已注册的 Workspace 丢弃扫描结果中不存在的名称，去重后写入 `config.json`。保存完成后 `SkillService` 调用 `AgentService.reloadIdleSessions()`，对非 running 的 Session 执行 `session.reload()`；正在运行的 Session 保持当前资源集合。
+
+`preferences.skills` 的读取、归一化与保存位于 `config.ts`。字段默认值为空数组与空对象；`disabledWorkspace` 以 Workspace ID 为键，保存时保留其他 Workspace 的停用记录。
+
+### MCP server
+
+`McpService.ensureConfig()` 在 Server 启动时创建 `PI_ARK_AGENT_DIR/mcp.json`，文件已存在时保留原内容。初始内容为 `playwright` server：`command` 为 `npx`，`args` 为 `@playwright/mcp@0.0.85`，`enabled` 为 `false`，`exposure` 为 `codemode`，并带 `description`。
+
+`McpService.list()` 运行 `process.execPath <pi-core-cli> mcp list --json`，工作目录为目标 Workspace，环境变量设置 `PI_CODING_AGENT_DIR` 与 `NO_COLOR=1`，超时 120 秒。Server 把返回的 `state` 映射为 `connected`、`starting`、`needs-sign-in`、`failed`，并把 `enabled` 为 false 的 server 显示为 `disabled`；`tools`、每个 server 的 `error` 与顶层 `errors` 进入列表和诊断。
+
+`McpService.setEnabled()` 校验 server 名称与 boolean，串行读取 `mcp.json`，只更新目标条目的 `enabled` 字段，以 temporary file 加 rename 原子写入，然后调用 `reloadIdleSessions()`。`mcp.json` 解析失败、条目不存在或写入失败时返回对应的 HTTP 错误。
+
+`McpService.browserStatus()` 检查服务账号 home 下的 `.cache/ms-playwright`，识别 `chromium_headless_shell-<数字>` 与 `chromium-<数字>` 目录并优先使用 headless shell。`installBrowser()` 在状态为 `not-installed` 或 `failed` 时执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`，设置 `npm_config_yes=true`，超时 15 分钟，并保留最多 64 KiB 的安装日志。安装目录出现后状态变为 `installed`；命令失败或没有生成目录时保持 `failed` 并保留日志。
+
+`scripts/pi-ark.mjs` 的 `mcp` 子命令查找项目或安装包内的 pi core CLI，以 `PI_ARK_AGENT_DIR` 作为 `PI_CODING_AGENT_DIR`，把 `list`、`add`、`remove`、`login` 与 `logout` 参数透传给 `pi mcp`，并沿用子进程退出码。
+
+`scripts/build-release.mjs` 在 staging 目录创建 `skills/`，把源码根目录的 `skills/` 整体复制到安装包；服务端从安装根目录读取 Built-in skill。
+
 ### System prompt
 
 Global system prompt 的可选文件是：
@@ -423,18 +461,23 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
       "systemPrompt": { "append": "" }
     },
     "files": { "showHiddenFiles": true, "maxPreviewSizeMb": 10 },
-    "terminal": { "shell": "auto", "executable": "", "args": [], "env": {} }
+    "terminal": { "shell": "auto", "executable": "", "args": [], "env": {} },
+    "skills": {
+      "disabledBuiltin": [],
+      "disabledGlobal": [],
+      "disabledWorkspace": {}
+    }
   }
 }
 ```
 
-缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。所有 Workspace 使用同一份配置；历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词、文件偏好与 Terminal 设置。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append；Terminal PUT 使用 `TerminalSettings` 更新 `preferences.terminal`。这些写入入口共享 Global config 的串行原子写入，各入口保留其他设置字段。
+缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，`preferences.skills` 保存 Skills 的停用清单，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。所有 Workspace 使用同一份配置；历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词、文件偏好与 Terminal 设置。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append；Terminal PUT 使用 `TerminalSettings` 更新 `preferences.terminal`。这些写入入口共享 Global config 的串行原子写入，各入口保留其他设置字段。
 
 ### Settings 的页面缓存
 
-Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Interface、Models & providers、Agent behavior、Files、Terminal、Maintenance 和 Account。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
+Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Interface、Models & providers、Agent behavior、Skills、MCP、Files、Terminal、Maintenance 和 Account。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，Skills 与 MCP 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
 
-Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的内容；选择普通 profile 且其他字段保持已保存内容时立即保存。Terminal 使用独立的保存队列与请求序号，保留请求期间的新编辑内容。该类别的 Refresh settings 等待已有保存队列，再请求 Server 的设置和 profiles，并保留尚未保存的草稿。其他类别的 Refresh settings 读取 Global settings 和模型数据，Maintenance 同时刷新 release 信息。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
+Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的内容；选择普通 profile 且其他字段保持已保存内容时立即保存。Terminal 使用独立的保存队列与请求序号，保留请求期间的新编辑内容。该类别的 Refresh settings 等待已有保存队列，再请求 Server 的设置和 profiles，并保留尚未保存的草稿。其他类别的 Refresh settings 读取 Global settings 和模型数据，Maintenance 同时刷新 release 信息；Skills 与 MCP 使用各自的 Refresh 读取资源列表。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
 
 ### Pi-Ark release 管理
 
@@ -462,10 +505,12 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 | 路径 | 内容 |
 |---|---|
-| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、UI settings（`theme`、`hideReasoning` 和 `markdownLineBreaks`）和共享 preferences（提示词、Files 与 Terminal shell） |
+| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、UI settings（`theme`、`hideReasoning` 和 `markdownLineBreaks`）和共享 preferences（提示词、Files、Terminal shell 与 Skills 停用清单） |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
+| `PI_ARK_AGENT_DIR/mcp.json` | MCP server 定义、`enabled`、`exposure`、`toolExposure`、`timeout` 与 `description` |
+| `PI_ARK_AGENT_DIR/skills/` | Global user skills |
 | `PI_ARK_AGENT_DIR/models.json` | Custom provider/model config |
 | `PI_ARK_AGENT_DIR/SYSTEM.md` | 可选 Global replacement prompt |
 | `PI_ARK_AGENT_DIR/APPEND_SYSTEM.md` | 可选 Global append prompt |
@@ -477,6 +522,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | `<workspace>/.pi-ark/sessions/*.jsonl` | pi session tree |
 | `<workspace>/.pi-ark/subagent-runs/*.json` | 委派关系、配置快照、状态、结果引用与用量 |
 | `<workspace>/.pi-ark/notebook.md` | Workspace Notebook 的 UTF-8 Markdown 文本 |
+| `<workspace>/.pi-ark/skills/` | Workspace user skills |
 | `<workspace>/.pi-ark/sessions-meta.json` | Pin、Archive、groups 和 group definitions |
 | `<workspace>/.pi-ark/attachments/<session>/` | Session attachments |
 
@@ -563,6 +609,20 @@ interface TerminalInfo {
 | POST/GET/DELETE | `/api/settings/subscription-logins...` | OAuth flow start、poll 和 cancel |
 | POST | `/api/settings/subscription-logins/:flowId/answer` | OAuth prompt answer |
 
+### Skills 与 MCP
+
+| Method | Path | 用途 |
+|---|---|---|
+| GET | `/api/skills?workspaceId=` | 返回 `builtin`、`global`、`workspace` 三段 skill 列表与 `diagnostics` |
+| PUT | `/api/skills/selection` | 保存 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace`，返回刷新后的列表、`selection` 与 `reloaded` |
+| POST | `/api/skills/reload` | 重新加载空闲 Session，返回 `{ reloaded }` |
+| GET | `/api/mcp?workspaceId=` | 返回 `servers` 与配置级 `errors` |
+| PUT | `/api/mcp/servers/:name/state` | Body 为 `{ enabled: boolean }`，保存 server 启用状态 |
+| GET | `/api/mcp/browser` | 返回浏览器运行时状态、版本、目录与日志 |
+| POST | `/api/mcp/install-browser` | 启动 Chromium headless shell 安装并返回当前状态 |
+
+Skills 与 MCP 的列表端点要求 `workspaceId`。MCP server 名称只允许字母、数字、`_` 与 `-`。`PUT /api/mcp/servers/:name/state` 与 `PUT /api/skills/selection` 保存后都会重新加载空闲 Session。
+
 ### Session
 
 | Method | Path | 用途 |
@@ -642,7 +702,7 @@ PTY 自然退出时发送 `exit`，随后继续保留 Tab 和连接；重新连�
 
 ## Release 构建与安装
 
-`npm run release:build` 从 Git checkout 在原生平台构建 release，目标 platform、Node architecture 与主机 architecture 相同。Artifact 包含编译后的 Server/Web、production dependencies、native node-pty、运行脚本（`pi-ark.mjs`、`install-release.mjs`、`platform.mjs`、`setup.mjs`）和 `RELEASE.json`。
+`npm run release:build` 从 Git checkout 在原生平台构建 release，目标 platform、Node architecture 与主机 architecture 相同。Artifact 包含编译后的 Server/Web、production dependencies、native node-pty、Built-in `skills/` 目录、运行脚本（`pi-ark.mjs`、`install-release.mjs`、`platform.mjs`、`setup.mjs`）和 `RELEASE.json`。
 
 `scripts/release-source.mjs` 在构建前后读取源码 commit 与工作区状态。`RELEASE.json` 的 `sourceCommit` 记录该 commit，`sourceDirty` 记录构建期间的未提交源码状态。构建期间源码 commit 发生变化时，构建报错；正式版本从已提交的源码构建。开发版本可以记录 `sourceDirty: true`，发布准备从 `sourceDirty: false` 的开发 artifact 取得来源。
 

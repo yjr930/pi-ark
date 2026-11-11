@@ -1286,7 +1286,7 @@ try {
   await page.locator(".workspace-list-item").first().waitFor();
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
   await page.getByRole("navigation", { name: "Settings categories" }).waitFor();
-  assert.deepEqual(await page.locator(".settings-tabs > button").allTextContents(), ["Interface", "Models & providers", "Agent behavior", "Files", "Terminal", "Maintenance", "Account"]);
+  assert.deepEqual(await page.locator(".settings-tabs > button").allTextContents(), ["Interface", "Models & providers", "Agent behavior", "Skills", "MCP", "Files", "Terminal", "Maintenance", "Account"]);
   await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
   const appearanceSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Appearance", exact: true }) });
   const hideReasoningSwitch = appearanceSection.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch");

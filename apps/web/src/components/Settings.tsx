@@ -1,9 +1,11 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Star, TerminalSquare, Unplug } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, Plug, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { applyTheme, themes } from "../theme";
 import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, UiSettings, GlobalPreferences } from "../types";
 import { Select } from "./Select";
+import { McpSettings } from "./McpSettings";
+import { SkillsSettings } from "./SkillsSettings";
 import { SubscriptionLogin } from "./SubscriptionLogin";
 import { TerminalSettings } from "./TerminalSettings";
 import type { TerminalSettingsHandle } from "./TerminalSettings";
@@ -12,6 +14,8 @@ const categories = [
   { id: "interface", label: "Interface", description: "Appearance and conversation visibility.", icon: Palette },
   { id: "models", label: "Models & providers", description: "Credentials, available models, and defaults for new Sessions.", icon: Cpu },
   { id: "agent", label: "Agent behavior", description: "Shared instructions and conversation defaults.", icon: SlidersHorizontal },
+  { id: "skills", label: "Skills", description: "Agent skills available globally and in each workspace.", icon: Sparkles },
+  { id: "mcp", label: "MCP", description: "Agent tool servers, connection state, and browser runtime.", icon: Plug },
   { id: "files", label: "Files", description: "File browsing and preview preferences.", icon: Eye },
   { id: "terminal", label: "Terminal", description: "Server shell profiles and browser font preferences.", icon: TerminalSquare },
   { id: "maintenance", label: "Maintenance", description: "Version, installation, and service management.", icon: PackageOpen },
@@ -342,17 +346,23 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
   if (loading) return <section className="settings-page"><div className="page-loading"><LoaderCircle size={20} />Loading settings</div></section>;
 
   return <section className="settings-page">
-    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces, plus browser appearance</p></div><button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={saving || (category === "terminal" && terminalBusy)} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button></header>
+    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces, plus Agent resources and browser appearance</p></div>{category !== "skills" && category !== "mcp" && <button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={saving || (category === "terminal" && terminalBusy)} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button>}</header>
     <div className="settings-layout">
       <nav className="settings-tabs" aria-label="Settings categories">
         <span className="settings-nav-label">Preferences</span>
         {categories.map((item) => <button type="button" key={item.id} className={category === item.id ? "active" : ""} aria-current={category === item.id ? "page" : undefined} onClick={() => { setCategory(item.id); setNotice(null); }}><item.icon size={16} /><span>{item.label}</span></button>)}
       </nav>
       <main className="settings-content" ref={contentRef} onScroll={(event) => { if (active) scrollPositions.current[category] = event.currentTarget.scrollTop; }}>
-        <div className="settings-content-heading"><span>{category === "terminal" ? "Server and browser settings" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
+        <div className="settings-content-heading"><span>{category === "terminal" ? "Server and browser settings" : category === "skills" || category === "mcp" ? "Agent resources" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
         {notice && <div role="status" className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={15} /> : <CircleAlert size={15} />}{notice.text}</div>}
         <div className="settings-category" hidden={category !== "terminal"}>
           <TerminalSettings ref={terminalSettingsRef} active={active && category === "terminal"} onBusyChange={setTerminalBusy} />
+        </div>
+        <div className="settings-category" hidden={category !== "skills"}>
+          <SkillsSettings active={active && category === "skills"} />
+        </div>
+        <div className="settings-category" hidden={category !== "mcp"}>
+          <McpSettings active={active && category === "mcp"} />
         </div>
         {global && <>
           <div className="settings-category" hidden={category !== "interface"}>
