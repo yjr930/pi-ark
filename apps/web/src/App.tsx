@@ -10,6 +10,7 @@ import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
 import { appLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
 import { cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionUiState, sessionCacheKey } from "./session-cache";
+import { resolveActiveSessionId } from "./session-selection";
 import { acknowledgeSessionStatus, mergeSessionStatuses, type SessionStatusMap } from "./session-status";
 import { applyTheme } from "./theme";
 import type { SessionInfo, UiSettings, Workspace } from "./types";
@@ -25,6 +26,8 @@ export default function App() {
   const pendingInternalTarget = useRef<InternalSessionTarget | undefined>(undefined);
   const lastSessionByWorkspace = useRef<Record<string, string>>({});
   const pendingNewSessionByWorkspace = useRef<Record<string, string>>({});
+  const openSessionIdsRef = useRef<Record<string, string[]>>({});
+  const selectionRevision = useRef(0);
   const currentWorkspaceId = useRef("");
   const [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -69,15 +72,18 @@ export default function App() {
     if (auth !== "in") return;
     if (!workspaceId) { setSessions([]); setSessionsWorkspaceId(""); setSessionId(""); setSessionsLoading(false); return; }
     let active = true;
+    const requestRevision = selectionRevision.current;
     setSessionId(""); setError(""); setSessionsLoading(true);
     api.sessions(workspaceId).then((result) => {
       if (!active) return;
+      setSessions(result.sessions); setSessionsWorkspaceId(workspaceId); setSessionsLoading(false);
+      if (selectionRevision.current !== requestRevision) { pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" }; return; }
       const pendingTarget = pendingInternalTarget.current?.workspaceId === workspaceId ? pendingInternalTarget.current : undefined;
       const initialTarget = initialPermalink.current;
       const linkedSessionId = pendingTarget?.sessionId || (initialTarget.workspaceId === workspaceId ? initialTarget.sessionId : undefined);
       const rememberedSessionId = lastSessionByWorkspace.current[workspaceId];
       const selectedId = result.sessions.find((session) => session.id === linkedSessionId)?.id || result.sessions.find((session) => session.id === rememberedSessionId)?.id || result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
-      setSessions(result.sessions); setSessionsWorkspaceId(workspaceId); setSessionId(selectedId); setSessionsLoading(false);
+      setSessionId(selectedId);
       if (pendingTarget && selectedId === pendingTarget.sessionId) {
         setTargetMessageId(pendingTarget.messageId); setLeafEntryId(pendingTarget.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageId, pendingTarget.leafEntryId));
       } else {
@@ -87,7 +93,9 @@ export default function App() {
       pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" };
     }).catch((reason) => {
       if (!active) return;
-      setSessions([]); setSessionsWorkspaceId(workspaceId); setSessionId(""); setSessionsLoading(false); setError(reason.message);
+      setSessionsLoading(false); setError(reason.message);
+      if (selectionRevision.current !== requestRevision) return;
+      setSessions([]); setSessionsWorkspaceId(workspaceId); setSessionId("");
     });
     return () => { active = false; };
   }, [workspaceId, auth]);
@@ -112,7 +120,9 @@ export default function App() {
     const refresh = () => { void api.sessionStatuses(workspaceId).then((result) => {
       if (!current) return;
       setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: mergeSessionStatuses(workspaces[workspaceId] || {}, result.statuses, page === "agent" && document.visibilityState === "visible" ? sessionId : undefined) }));
-      setOpenSessionIds((ids) => ({ ...ids, [workspaceId]: result.statuses.map((status) => status.id) }));
+      const openIds = result.statuses.map((status) => status.id);
+      openSessionIdsRef.current = { ...openSessionIdsRef.current, [workspaceId]: openIds };
+      setOpenSessionIds((ids) => ({ ...ids, [workspaceId]: openIds }));
     }).catch(() => undefined); };
     refresh();
     const timer = window.setInterval(refresh, 1000);
@@ -142,7 +152,7 @@ export default function App() {
       }
       setSessions(result.sessions); setSessionsWorkspaceId(workspaceId);
       setSessionId((current) => {
-        const next = current !== removedFromActiveId && result.sessions.some((session) => session.id === current) ? current : result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
+        const next = resolveActiveSessionId({ currentSessionId: current, sessions: result.sessions, removedFromActiveId, liveSessionIds: openSessionIdsRef.current[workspaceId] || [], pendingSessionId: pendingNewSessionByWorkspace.current[workspaceId] });
         if (next !== current) window.history.replaceState(null, "", appLocation(page, workspaceId, next));
         return next;
       });
@@ -182,6 +192,7 @@ export default function App() {
     if (!workspace) return;
     const pendingId = pendingNewSessionByWorkspace.current[workspace.id];
     if (pendingId && (pendingId === sessionId || openSessionIds[workspace.id]?.includes(pendingId))) {
+      selectionRevision.current += 1;
       setTargetMessageId(undefined); setLeafEntryId(undefined); setSessionId(pendingId); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, pendingId));
       return;
     }
@@ -189,14 +200,17 @@ export default function App() {
     try {
       const created = await api.createSession(workspace.id);
       pendingNewSessionByWorkspace.current[workspace.id] = created.id;
+      selectionRevision.current += 1;
+      if (currentWorkspaceId.current !== workspace.id) return;
       if (previousDraft?.trim()) cacheSessionUiState(sessionCacheKey(workspace.id, created.id), { draft: previousDraft, attachments: [], disclosures: {} });
-      setSessions(await api.sessions(workspace.id).then((result) => result.sessions)); setSessionsWorkspaceId(workspace.id);
       setSessionId(created.id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, created.id));
+      refreshSessions();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Cannot create session"); }
   }
 
   async function openCreatedSession(createdSessionId: string) {
     if (!workspaceId) return;
+    selectionRevision.current += 1;
     setSessions(await api.sessions(workspaceId).then((result) => result.sessions)); setSessionsWorkspaceId(workspaceId);
     setSessionId(createdSessionId); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, createdSessionId));
   }
@@ -211,6 +225,7 @@ export default function App() {
   }
 
   function selectSession(id: string) {
+    selectionRevision.current += 1;
     setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, id) }));
     setSessionId(id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, id));
   }
@@ -226,6 +241,7 @@ export default function App() {
     const result = await api.sessions(target.workspaceId);
     if (!result.sessions.some((item) => item.id === target.sessionId)) throw new Error("The linked session does not exist");
     setSessionLinkOpen(false); setShowArchivedSessions(false); setSidebar(false);
+    selectionRevision.current += 1;
     if (target.workspaceId === workspaceId) {
       setSessions(result.sessions); setSessionsWorkspaceId(target.workspaceId); setSessionId(target.sessionId); setTargetMessageId(target.messageId); setLeafEntryId(target.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(target.workspaceId, target.sessionId, target.messageId, target.leafEntryId));
     } else {
@@ -234,6 +250,7 @@ export default function App() {
   }
 
   function workspaceAdded(added: Workspace) {
+    selectionRevision.current += 1;
     setWorkspaces((current) => [...current, added]);
     setWorkspaceId(added.id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setAddWorkspaceOpen(false); setSidebar(false); window.history.replaceState(null, "", workspaceLocation(added.id));
   }
