@@ -266,6 +266,8 @@ Snapshot 包含以下状态：
 
 同一模块还保存最多五个 Session 的 memory-only UI state，包括 composer draft、待发送 attachments 和 conversation disclosures。Disclosure key 使用 source entry ID、tool call ID 或 run 中首条 source entry ID，因此 Server snapshot 更新和 earlier-message pagination 不改变该 identity。Session 删除或 UI cache 淘汰时，Web 释放对应 attachment preview object URLs。发送或手动移除 attachment 时也立即释放 preview。该 cache 不写入 localStorage，浏览器刷新后重新从 Server 加载。
 
+App 在当前页面内按 Workspace 记录最后查看的 Session。切换 Workspace 时，Session 选择顺序是 URL 指定的 Session、该 Workspace 上次查看的 Session、第一个未归档的普通 Session，选中结果写回 URL。Session 列表与产生它的 Workspace ID 一起保存，请求完成前主内容区显示 Loading sessions，侧栏不渲染上一个 Workspace 的 Session，也不显示空会话提示。切换 Workspace 时，旧 Workspace 尚未返回的列表响应会被丢弃。
+
 ### Streaming events
 
 AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled 和 queue update 后的权威 snapshot。该时序使 snapshot 包含刚完成持久化的 message。Server 为每个 client 保留 display window 起点，并只发送该起点到最新 message 的 projection slice；Agent runtime 继续使用 pi 的 compaction-aware Session projection 生成后续模型上下文。

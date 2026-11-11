@@ -23,11 +23,16 @@ type Page = AppPage;
 export default function App() {
   const initialPermalink = useRef(readPermalink());
   const pendingInternalTarget = useRef<InternalSessionTarget | undefined>(undefined);
+  const lastSessionByWorkspace = useRef<Record<string, string>>({});
+  const currentWorkspaceId = useRef("");
   const [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspacesLoading, setWorkspacesLoading] = useState(true);
   const [uiSettings, setUiSettings] = useState<UiSettings>({ theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true });
   const [workspaceId, setWorkspaceId] = useState("");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [sessionsWorkspaceId, setSessionsWorkspaceId] = useState("");
+  const [sessionsLoading, setSessionsLoading] = useState(true);
   const [statusesByWorkspace, setStatusesByWorkspace] = useState<Record<string, SessionStatusMap>>({});
   const sessionStatuses = statusesByWorkspace[workspaceId] || {};
   const [sessionId, setSessionId] = useState("");
@@ -48,23 +53,29 @@ export default function App() {
   const [error, setError] = useState("");
 
   const loadWorkspaces = useCallback(async () => {
-    const [workspaceResult, ui] = await Promise.all([api.workspaces(), api.uiSettings()]);
-    applyTheme(ui.theme); setUiSettings(ui);
-    setWorkspaces(workspaceResult.workspaces);
-    setWorkspaceId((current) => workspaceResult.workspaces.some((item) => item.id === current) ? current : workspaceResult.workspaces.find((item) => item.id === initialPermalink.current.workspaceId)?.id || workspaceResult.workspaces[0]?.id || "");
+    setWorkspacesLoading(true);
+    try {
+      const [workspaceResult, ui] = await Promise.all([api.workspaces(), api.uiSettings()]);
+      applyTheme(ui.theme); setUiSettings(ui);
+      setWorkspaces(workspaceResult.workspaces);
+      setWorkspaceId((current) => workspaceResult.workspaces.some((item) => item.id === current) ? current : workspaceResult.workspaces.find((item) => item.id === initialPermalink.current.workspaceId)?.id || workspaceResult.workspaces[0]?.id || "");
+    } finally { setWorkspacesLoading(false); }
   }, []);
 
   useEffect(() => { api.session().then(() => { setAuth("in"); return loadWorkspaces(); }).catch(() => setAuth("out")); }, [loadWorkspaces]);
   useEffect(() => {
     if (auth !== "in") return;
-    if (!workspaceId) { setSessions([]); setSessionId(""); return; }
-    setSessionId(""); setError("");
+    if (!workspaceId) { setSessions([]); setSessionsWorkspaceId(""); setSessionId(""); setSessionsLoading(false); return; }
+    let active = true;
+    setSessionId(""); setError(""); setSessionsLoading(true);
     api.sessions(workspaceId).then((result) => {
+      if (!active) return;
       const pendingTarget = pendingInternalTarget.current?.workspaceId === workspaceId ? pendingInternalTarget.current : undefined;
       const initialTarget = initialPermalink.current;
       const linkedSessionId = pendingTarget?.sessionId || (initialTarget.workspaceId === workspaceId ? initialTarget.sessionId : undefined);
-      const selectedId = result.sessions.find((session) => session.id === linkedSessionId)?.id || result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
-      setSessions(result.sessions); setSessionId(selectedId);
+      const rememberedSessionId = lastSessionByWorkspace.current[workspaceId];
+      const selectedId = result.sessions.find((session) => session.id === linkedSessionId)?.id || result.sessions.find((session) => session.id === rememberedSessionId)?.id || result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
+      setSessions(result.sessions); setSessionsWorkspaceId(workspaceId); setSessionId(selectedId); setSessionsLoading(false);
       if (pendingTarget && selectedId === pendingTarget.sessionId) {
         setTargetMessageId(pendingTarget.messageId); setLeafEntryId(pendingTarget.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageId, pendingTarget.leafEntryId));
       } else {
@@ -72,8 +83,20 @@ export default function App() {
         if ((!initialTarget.messageId && !initialTarget.leafEntryId) || selectedId !== linkedSessionId) window.history.replaceState(null, "", appLocation(initialTarget.page, workspaceId, selectedId));
       }
       pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" };
-    }).catch((reason) => setError(reason.message));
+    }).catch((reason) => {
+      if (!active) return;
+      setSessions([]); setSessionsWorkspaceId(workspaceId); setSessionId(""); setSessionsLoading(false); setError(reason.message);
+    });
+    return () => { active = false; };
   }, [workspaceId, auth]);
+
+  useEffect(() => { currentWorkspaceId.current = workspaceId; }, [workspaceId]);
+
+  useEffect(() => {
+    if (page !== "agent" || !workspaceId || !sessionId || sessionsWorkspaceId !== workspaceId) return;
+    if (!sessions.some((session) => session.id === sessionId)) return;
+    lastSessionByWorkspace.current[workspaceId] = sessionId;
+  }, [page, sessionId, sessions, sessionsWorkspaceId, workspaceId]);
 
   useEffect(() => {
     if (auth !== "in" || !workspaceId) return;
@@ -93,12 +116,16 @@ export default function App() {
   }, [page, workspaceId]);
 
   const workspace = workspaces.find((item) => item.id === workspaceId);
-  const selectedSession = sessions.find((item) => item.id === sessionId) || (workspace && sessionId ? { id: sessionId, cwd: workspace.path, created: new Date().toISOString(), modified: new Date().toISOString(), messageCount: 0, firstMessage: "", pinned: false, archived: false, groups: [] } : undefined);
+  const sessionListReady = sessionsWorkspaceId === workspaceId;
+  const workspaceSessions = sessionListReady ? sessions : [];
+  const loadingSessions = sessionsLoading || !sessionListReady;
+  const selectedSession = workspaceSessions.find((item) => item.id === sessionId) || (sessionListReady && workspace && sessionId ? { id: sessionId, cwd: workspace.path, created: new Date().toISOString(), modified: new Date().toISOString(), messageCount: 0, firstMessage: "", pinned: false, archived: false, groups: [] } : undefined);
   const refreshSessions = useCallback((removedFromActiveId?: string) => {
     if (!workspaceId) return;
     void api.sessions(workspaceId).then((result) => {
+      if (currentWorkspaceId.current !== workspaceId) return;
       if (removedFromActiveId && !result.sessions.some((session) => session.id === removedFromActiveId)) deleteCachedSessionSnapshot(sessionCacheKey(workspaceId, removedFromActiveId));
-      setSessions(result.sessions);
+      setSessions(result.sessions); setSessionsWorkspaceId(workspaceId);
       setSessionId((current) => {
         const next = current !== removedFromActiveId && result.sessions.some((session) => session.id === current) ? current : result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
         if (next !== current) window.history.replaceState(null, "", appLocation(page, workspaceId, next));
@@ -140,14 +167,14 @@ export default function App() {
     if (!workspace) return;
     try {
       const created = await api.createSession(workspace.id);
-      setSessions(await api.sessions(workspace.id).then((result) => result.sessions));
+      setSessions(await api.sessions(workspace.id).then((result) => result.sessions)); setSessionsWorkspaceId(workspace.id);
       setSessionId(created.id); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspace.id, created.id));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Cannot create session"); }
   }
 
   async function openCreatedSession(createdSessionId: string) {
     if (!workspaceId) return;
-    setSessions(await api.sessions(workspaceId).then((result) => result.sessions));
+    setSessions(await api.sessions(workspaceId).then((result) => result.sessions)); setSessionsWorkspaceId(workspaceId);
     setSessionId(createdSessionId); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, createdSessionId));
   }
 
@@ -177,7 +204,7 @@ export default function App() {
     if (!result.sessions.some((item) => item.id === target.sessionId)) throw new Error("The linked session does not exist");
     setSessionLinkOpen(false); setShowArchivedSessions(false); setSidebar(false);
     if (target.workspaceId === workspaceId) {
-      setSessions(result.sessions); setSessionId(target.sessionId); setTargetMessageId(target.messageId); setLeafEntryId(target.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(target.workspaceId, target.sessionId, target.messageId, target.leafEntryId));
+      setSessions(result.sessions); setSessionsWorkspaceId(target.workspaceId); setSessionId(target.sessionId); setTargetMessageId(target.messageId); setLeafEntryId(target.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(target.workspaceId, target.sessionId, target.messageId, target.leafEntryId));
     } else {
       pendingInternalTarget.current = target; setWorkspaceId(target.workspaceId);
     }
@@ -230,15 +257,15 @@ export default function App() {
       </nav>
       <section className="sidebar-section sessions-section">
         <div className="sidebar-section-header"><span>Sessions</span><div className="sidebar-header-actions"><button className={`icon-button ${showArchivedSessions ? "active" : ""}`} title={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-label={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchivedSessions} onClick={() => setShowArchivedSessions((current) => !current)}><Archive size={14} /></button><button className="icon-button" title="Open Pi-Ark session link" aria-label="Open Pi-Ark session link" onClick={() => setSessionLinkOpen(true)}><Link2 size={14} /></button><button className="icon-button" title="New session group" aria-label="New session group" onClick={() => setCreateGroupOpen(true)}><FolderPlus size={14} /></button><button className="icon-button" title="New session" aria-label="New session" onClick={() => void createSession()}><Plus size={15} /></button></div></div>
-        {workspace && <SessionList workspaceId={workspace.id} sessions={sessions} statuses={sessionStatuses} activeSessionId={sessionId} showArchived={showArchivedSessions} notebookActive={page === "notebook"} createGroupOpen={createGroupOpen} onSelect={selectSession} onOpenNotebook={openNotebook} onCreateGroupClose={() => setCreateGroupOpen(false)} onChanged={refreshSessions} />}
+        {workspace && <SessionList workspaceId={workspace.id} sessions={workspaceSessions} statuses={sessionStatuses} activeSessionId={sessionId} showArchived={showArchivedSessions} notebookActive={page === "notebook"} createGroupOpen={createGroupOpen} onSelect={selectSession} onOpenNotebook={openNotebook} onCreateGroupClose={() => setCreateGroupOpen(false)} onChanged={refreshSessions} />}
       </section>
     </aside>
     <div className="sidebar-resizer desktop-only" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={beginSidebarResize}><button title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onPointerDown={(event) => event.stopPropagation()} onClick={toggleSidebar}>{sidebarCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}</button></div>
     <div className="mobile-bar"><button onClick={() => setSidebar(true)}><Menu size={20} /></button><div><Box size={17} /><strong>{workspace?.name || "Pi-Ark"}</strong></div><button onClick={() => void createSession()}><Plus size={20} /></button></div>
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
-      {!workspace && page !== "settings" && <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>}
-      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}`} workspace={workspace} session={selectedSession} sessions={sessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
+      {!workspace && page !== "settings" && (workspacesLoading ? <div className="page-loading"><LoaderCircle size={20} />Loading workspaces</div> : <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>)}
+      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}`} workspace={workspace} session={selectedSession} sessions={workspaceSessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : loadingSessions ? <div className="page-loading"><LoaderCircle size={20} />Loading sessions</div> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} />}
         {workspace && page === "files" && <Files workspace={workspace} />}

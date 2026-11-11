@@ -268,7 +268,7 @@ node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" password --no-restart
 
 ### 切换 Workspace
 
-点击侧栏中的 Workspace。Agent、Files 和 Terminal 会切换到该目录；Settings 使用统一的全局配置。
+点击侧栏中的 Workspace。Agent、Files 和 Terminal 会切换到该目录；Settings 使用统一的全局配置。回到本次页面打开过的 Workspace 时，Agent 页面恢复该 Workspace 上次查看的 Session，该 Session 的 conversation 缓存与 Composer 中尚未发送的内容一并恢复。
 
 ### 重命名 Workspace
 
