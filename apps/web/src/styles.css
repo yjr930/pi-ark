@@ -523,3 +523,10 @@ html, body { color: var(--text); background: var(--bg); }
 .feed-text-block + .feed-tool-call-slot { margin-top: 8px; }
 .feed-text-footer { margin: 6px 0 6px; }
 .run-collapse > div { padding-top: 4px; }
+
+/* On narrow screens the model menu anchors to the composer instead of the trigger, so it stays inside the viewport. */
+@media (max-width: 760px) {
+  .composer-model .ark-select { position: static; }
+  .composer-model .ark-select-menu { right: 0; left: 0; width: auto; }
+}
+.ark-select-menu em { max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
