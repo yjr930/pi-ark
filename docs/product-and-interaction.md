@@ -265,7 +265,7 @@ MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Wor
 
 `playwright` 行显示 Browser runtime 状态（Not installed、Installing、Installed 或 Failed）、已安装版本与目标目录。Needs sign-in 的行显示 `pi-ark mcp login <server>` 命令提示。页面不提供添加、编辑、删除和 OAuth 登录按钮；server 定义通过 `pi-ark mcp` 命令或直接编辑 `mcp.json` 管理。配置文件解析失败或 `pi-ark mcp list --json` 返回错误时，列表上方显示 Configuration errors。
 
-Refresh 重新执行列表读取并更新连接状态、注册动作数量和诊断。页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。列表为空时显示 `pi-ark mcp add <name>` 提示。
+Refresh 重新执行列表读取并更新连接状态、注册动作数量和诊断。页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。打开时先读取 `mcp.json` 渲染 server 行，行内状态显示 Checking connection、注册动作显示 `—`；随后连接 server 的请求完成后填入连接状态、工具数量与诊断。连接失败时保留已渲染的行并显示错误提示。列表为空时显示 `pi-ark mcp add <name>` 提示。
 
 ### 配置的生效方式
 

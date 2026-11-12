@@ -481,7 +481,7 @@ Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同
 
 ### MCP server
 
-`McpService.listConfigured()` 直接读取 `mcp.json`，不启动子进程也不连接 server，供 Composer 的 `$` 候选使用。`McpService.list()` 执行 `pi mcp list --json`，会连接每个已启用的 server，耗时取决于 server 的启动时间。
+Settings 的 MCP 类别分两阶段读取：先调用 `/api/mcp/configured` 渲染行，再调用 `/api/mcp` 填入状态、工具数量与诊断。`McpService.listConfigured()` 直接读取 `mcp.json`，不启动子进程也不连接 server，供 Composer 的 `$` 候选使用。`McpService.list()` 执行 `pi mcp list --json`，会连接每个已启用的 server，耗时取决于 server 的启动时间。
 
 `McpService.ensureConfig()` 在 Server 启动时创建 `PI_ARK_AGENT_DIR/mcp.json`，文件已存在时保留原内容。初始内容为 `playwright` server：`command` 为 `npx`，`args` 为 `@playwright/mcp@0.0.85`、`--browser=chromium`、`--headless` 与 `--caps=config,network,storage,devtools,vision`，`enabled` 为 `false`，`exposure` 为 `codemode`，并带 `description`。`--browser=chromium` 使用 Playwright 自带的 Chromium，`--headless` 适配无显示的服务器。已有配置的 `args` 只含 `@playwright/mcp@0.0.85` 与可选的 `--caps` 时，`ensureConfig()` 补上 browser 与 headless 参数，其他自定义参数保持原样。
 

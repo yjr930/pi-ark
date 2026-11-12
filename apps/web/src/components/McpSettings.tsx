@@ -1,9 +1,25 @@
 import { Check, CircleAlert, Globe2, LoaderCircle, Plug, RefreshCw, ShieldAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { McpBrowserStatus, McpServerState, McpServerView, McpServersResponse, Workspace } from "../types";
+import type { McpBrowserStatus, McpConfiguredServer, McpServerState, McpServerView, McpServersResponse, Workspace } from "../types";
 
 type Notice = { kind: "success" | "error"; text: string };
+type ServerRow = McpServerView & { pending?: boolean };
+
+function configuredRow(server: McpConfiguredServer): ServerRow {
+  return {
+    name: server.name,
+    source: server.name === "playwright" ? "built-in" : "user",
+    advanced: server.transport.includes("--caps="),
+    enabled: server.enabled,
+    exposure: server.exposure,
+    transport: server.transport,
+    state: server.enabled ? "starting" : "disabled",
+    tools: [],
+    diagnostics: [],
+    pending: server.enabled,
+  };
+}
 
 const stateLabels: Record<McpServerState, string> = {
   connected: "Connected",
@@ -46,7 +62,7 @@ function Toggle({ checked, onChange, label, disabled = false }: { checked: boole
 export function McpSettings({ active }: { active: boolean }) {
   const [workspaceId, setWorkspaceId] = useState("");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [data, setData] = useState<McpServersResponse | null>(null);
+  const [data, setData] = useState<{ servers: ServerRow[]; errors: string[] } | null>(null);
   const [browser, setBrowser] = useState<McpBrowserStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -56,6 +72,12 @@ export function McpSettings({ active }: { active: boolean }) {
   const started = useRef(false);
   const mounted = useRef(true);
   const urlWorkspaceRef = useRef("");
+  const activeWorkspaceRef = useRef("");
+
+  function selectWorkspace(id: string) {
+    activeWorkspaceRef.current = id;
+    setWorkspaceId(id);
+  }
 
   useEffect(() => {
     mounted.current = true;
@@ -76,7 +98,7 @@ export function McpSettings({ active }: { active: boolean }) {
     if (!target) return;
     urlWorkspaceRef.current = currentUrlWorkspace;
     if (target.id === workspaceId || loading || refreshing || busyName) return;
-    setWorkspaceId(target.id);
+    selectWorkspace(target.id);
     setData(null);
     void loadData(target.id);
   }, [active]);
@@ -85,12 +107,18 @@ export function McpSettings({ active }: { active: boolean }) {
     if (mode === "refresh") setRefreshing(true); else setLoading(true);
     setNotice(null);
     try {
-      const [servers, browserStatus] = await Promise.all([api.mcpServers(id), api.mcpBrowser().catch(() => null)]);
-      if (!mounted.current) return;
-      setData(servers);
+      const [configured, browserStatus] = await Promise.all([api.mcpConfigured(), api.mcpBrowser().catch(() => null)]);
+      if (!mounted.current || activeWorkspaceRef.current !== id) return;
       setBrowser(browserStatus);
+      if (mode === "initial") setData({ servers: configured.servers.map(configuredRow), errors: [] });
+      const servers = await api.mcpServers(id);
+      if (!mounted.current || activeWorkspaceRef.current !== id) return;
+      setData(servers);
     } catch (reason) {
-      if (mounted.current) setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot load MCP servers" });
+      if (mounted.current) {
+        setData((current) => current ? { ...current, servers: current.servers.map((server) => ({ ...server, pending: false })) } : current);
+        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot load MCP servers" });
+      }
     } finally {
       if (mounted.current) { setLoading(false); setRefreshing(false); }
     }
@@ -103,7 +131,7 @@ export function McpSettings({ active }: { active: boolean }) {
       setWorkspaces(result.workspaces);
       urlWorkspaceRef.current = new URLSearchParams(window.location.search).get("workspace") || "";
       const id = preferredWorkspaceId(result.workspaces);
-      setWorkspaceId(id);
+      selectWorkspace(id);
       if (!id) return;
       await loadData(id);
     } catch (reason) {
@@ -237,7 +265,7 @@ export function McpSettings({ active }: { active: boolean }) {
     </div>;
   }
 
-  function renderServer(server: McpServerView) {
+  function renderServer(server: ServerRow) {
     const busy = busyName === server.name;
     return <div className="mcp-server-row" key={server.name}>
       <div className="mcp-server-head">
@@ -245,7 +273,7 @@ export function McpSettings({ active }: { active: boolean }) {
           <div className="agent-resource-title">
             <strong>{server.name}</strong>
             {server.name === "playwright" && <span className="agent-resource-badge recommended">Recommended</span>}
-            <span className={`agent-resource-status ${stateClasses[server.state]}`}>{stateLabels[server.state]}</span>
+            <span className={`agent-resource-status ${server.pending ? "starting" : stateClasses[server.state]}`}>{server.pending ? "Checking connection" : stateLabels[server.state]}</span>
           </div>
         </div>
         {busy ? <LoaderCircle size={16} className="agent-resource-spin" /> : <Toggle checked={server.enabled} disabled={busyName !== null || loading || refreshing} onChange={(checked) => void toggleServer(server, checked)} label={`${server.enabled ? "Disable" : "Enable"} ${server.name}`} />}
@@ -254,7 +282,7 @@ export function McpSettings({ active }: { active: boolean }) {
         <span><em>Source</em><strong>{server.source === "built-in" ? "Built-in" : "User"}</strong></span>
         <span><em>Transport</em><strong>{server.transport || "—"}</strong></span>
         <span><em>Exposure</em><strong>{server.exposure || "—"}</strong></span>
-        <span><em>Registered actions</em><strong>{server.tools.length}</strong></span>
+        <span><em>Registered actions</em><strong>{server.pending ? "—" : server.tools.length}</strong></span>
       </div>
       {server.state === "needs-sign-in" && <div className="mcp-login-command"><ShieldAlert size={13} /><span>Sign in with</span><code>pi-ark mcp login {server.name}</code></div>}
       {server.diagnostics.length > 0 && <ul className="mcp-server-diagnostics">{server.diagnostics.map((diagnostic, index) => <li key={index}>{diagnostic}</li>)}</ul>}
