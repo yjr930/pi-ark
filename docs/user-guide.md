@@ -392,7 +392,7 @@ Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面
 
 连续的工具调用按可见内容分组，默认显示最后 3 个调用，点击 `show more tool calls (N)` 可显示较早的调用，N 是被折叠调用的数量；点击 `show fewer tool calls` 可恢复折叠。一个 message 中的多个调用分别计数。开启 Hide reasoning 后，隐藏的 thinking block（包括只包含 thinking 的独立 message）前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，包含普通正文或图片的 message 按原样显示。分组保留原始消息及其 permalink，并随 Session UI cache 恢复展开状态；较早调用的 permalink 会在首次访问时展开对应分组。
 
-`subagent` 的工具行使用普通工具行 3 倍的收起高度，并独立于连续 tool call 的折叠分组显示。
+`subagent` 的工具行分成左右两部分：左侧的分支 logo 与 `subagent` 文字点击后打开对应的子 Session；中间的竖线用来分隔；右侧显示委派任务标题与状态，点击展开工具参数与结果。该工具行使用普通工具行的高度，并独立于连续 tool call 的折叠分组显示。
 
 Compact 的收起高度为普通工具行的 3 倍，并显示压缩耗时、压缩前后的 token 用量，以及 System prompt、Summary 和 Retained 的 token 用量。`≈` 表示 pi SDK 的估算值。展开后可以查看触发原因、生成摘要的 token 用量、source Message ID、内部链接和 compact summary。后续压缩会记录实际耗时；历史字段按已有记录展示。compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
 

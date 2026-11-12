@@ -32,6 +32,7 @@ function appendCalls(manager, calls) {
   message.stopReason = "toolUse";
   manager.appendMessage(message);
   for (const call of message.content) manager.appendMessage({ role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text: `Fixture result for ${call.name}` }], isError: false, timestamp: Date.now() });
+  return message.content.map((call) => call.id);
 }
 const normalCalls = (prefix, count = 5) => Array.from({ length: count }, (_, index) => ({ label: `${prefix}-${index + 1}.md` }));
 
@@ -68,12 +69,12 @@ try {
     tasks.push({ title: `Child task ${index + 1}`, task: "Inspect the parent request", expectedResult: "A concise report", references: [], sessionId: child.getSessionId(), sessionLink: internalSessionLink(workspace.id, child.getSessionId()), state: "completed", startedAt: time(0), updatedAt, finishedAt: updatedAt, result: `Completed child result ${index + 1}`, resultEntryId: result.entryId, resultLeafEntryId: leaf, resultLink: pinnedPiArkLink(internalMessageLink(workspace.id, child.getSessionId(), result.messageId), leaf), usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0 } });
   }
   appendCalls(parent, normalCalls("before"));
-  appendCalls(parent, [{ name: "subagent", label: "Standalone delegation" }]);
+  const standaloneCallIds = appendCalls(parent, [{ name: "subagent", label: "Standalone delegation" }]);
   appendCalls(parent, normalCalls("between"));
   appendCalls(parent, [...normalCalls("mixed-before"), { name: "subagent", label: "Mixed message delegation" }, ...normalCalls("mixed-after")]);
   appendCalls(parent, normalCalls("after"));
   parent.appendMessage(answer(`[Read delegated result](${tasks[0].resultLink})`));
-  const run = { version: 1, id: randomUUID(), parentSessionId: parent.getSessionId(), parentLink: pinnedPiArkLink(internalMessageLink(workspace.id, parent.getSessionId(), parentSource.messageId), parentLeaf), parentLeafEntryId: parentLeaf, toolCallId: "fixture-delegation", createdAt: time(0), revision: 1, model: { provider: "openai", id: "fixture" }, thinkingLevel: "off", tools: ["read", "read_pi_ark_link"], systemPromptAppend: "", tasks };
+  const run = { version: 1, id: randomUUID(), parentSessionId: parent.getSessionId(), parentLink: pinnedPiArkLink(internalMessageLink(workspace.id, parent.getSessionId(), parentSource.messageId), parentLeaf), parentLeafEntryId: parentLeaf, toolCallId: standaloneCallIds[0], createdAt: time(0), revision: 1, model: { provider: "openai", id: "fixture" }, thinkingLevel: "off", tools: ["read", "read_pi_ark_link"], systemPromptAppend: "", tasks };
   const runDir = join(workspace.path, ".pi-ark", "subagent-runs"); await mkdir(runDir); await writeFile(join(runDir, `${run.id}.json`), JSON.stringify(run));
   const metadata = (groups = [], archived = false) => ({ pinned: false, archived, groups, updatedAt: time(0) });
   await writeFile(join(workspace.path, ".pi-ark", "sessions-meta.json"), JSON.stringify({ version: 2, groups: [{ id: "fixture-group", name: "Fixture group" }], sessions: { [parent.getSessionId()]: metadata(["fixture-group"]), [tasks[0].sessionId]: metadata(["fixture-group"]), [tasks[1].sessionId]: metadata(["fixture-group"], true), [tasks[2].sessionId]: metadata(), [archived.getSessionId()]: metadata([], true) } }));
@@ -192,7 +193,16 @@ try {
   }
   const sizes = await page.evaluate(() => ({ normal: [...document.querySelectorAll(".feed-tool-details:not(.is-subagent-tool) > summary")].map((element) => element.getBoundingClientRect().height).find((height) => height > 0), subagents: [...document.querySelectorAll(".is-subagent-tool > summary")].map((element) => element.getBoundingClientRect().height) }));
   assert.ok(sizes.normal > 0, JSON.stringify(sizes));
-  for (const height of sizes.subagents) assert.ok(Math.abs(height - sizes.normal * 3) <= 1, JSON.stringify(sizes));
+  for (const height of sizes.subagents) assert.ok(Math.abs(height - sizes.normal) <= 1, JSON.stringify(sizes));
+  const splitRow = subagentTools.first();
+  assert.equal(await splitRow.locator(".feed-tool-divider").count(), 1);
+  const jump = splitRow.locator(".feed-tool-jump");
+  assert.equal(await jump.evaluate((element) => element.tagName), "A");
+  assert.match(await jump.getAttribute("href"), /session=/);
+  assert.match((await jump.textContent()) || "", /subagent/);
+  assert.ok(((await splitRow.locator(".feed-tool-title").textContent()) || "").trim().length > 0);
+  await splitRow.locator(".feed-tool-title").click();
+  await expect(splitRow).toHaveAttribute("open", "");
   for (const prefix of ["before", "between", "after"]) {
     await expect(page.locator(".feed-tool-details > summary code").filter({ hasText: new RegExp(`^${prefix}-1\\.md$`) })).not.toBeVisible();
     await expect(page.locator(".feed-tool-details > summary code").filter({ hasText: new RegExp(`^${prefix}-5\\.md$`) })).toBeVisible();
