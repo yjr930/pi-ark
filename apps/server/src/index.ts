@@ -18,6 +18,7 @@ import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInpu
 import { TerminalService } from "./terminal.js";
 import { discoverTerminalProfiles } from "./terminal-shells.js";
 import { WorkspaceService } from "./workspaces.js";
+import { startHeartbeat } from "./websocket-heartbeat.js";
 import { resolveFileLinks } from "./file-links.js";
 import { FileSearchIndex } from "./file-search.js";
 import { readWorkspaceNotebook, saveWorkspaceNotebook } from "./workspace-notebook.js";
@@ -266,6 +267,7 @@ app.post<{ Params: { workspaceId: string; sessionId: string; toolCallId: string 
 });
 
 app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string; leafEntryId?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
+  startHeartbeat(socket, { notice: true });
   const workspace = workspaces.get(request.params.workspaceId);
   const targetMessage = request.query.message?.trim() || undefined;
   const requestedStart = Number(request.query.start);
@@ -299,6 +301,7 @@ app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { mes
 });
 
 app.get<{ Params: { workspaceId: string } }>("/ws/terminal/:workspaceId", { websocket: true }, (socket, request) => {
+  startHeartbeat(socket);
   const pending: Buffer[] = [];
   const bufferInput = (raw: Buffer) => pending.push(raw);
   socket.on("message", bufferInput);
@@ -315,6 +318,7 @@ app.get<{ Params: { workspaceId: string } }>("/ws/terminal/:workspaceId", { webs
   });
 });
 app.get<{ Params: { workspaceId: string; terminalId: string }; Querystring: { offset?: string } }>("/ws/terminal/:workspaceId/:terminalId", { websocket: true }, (socket, request) => {
+  startHeartbeat(socket);
   try { terminals.connect(request.params.workspaceId, request.params.terminalId, socket, request.query.offset ?? "0"); }
   catch (error) {
     socket.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Terminal connection failed" }));

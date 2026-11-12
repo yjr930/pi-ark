@@ -69,6 +69,7 @@ docs/               产品、架构、使用和集成文档
 | 模块 | 文件 | 职责 |
 |---|---|---|
 | Server composition | `apps/server/src/index.ts` | 启动、认证 hook、HTTP/WebSocket routes、静态资源和 shutdown |
+| WebSocket heartbeat | `apps/server/src/websocket-heartbeat.ts` | 协议 ping、心跳消息与半开连接清理 |
 | Global config | `apps/server/src/config.ts` | 配置解析、data directory、共享 preferences 和串行原子写入 |
 | Authentication | `apps/server/src/auth.ts` | scrypt password、持久化 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
@@ -103,7 +104,8 @@ docs/               产品、架构、使用和集成文档
 | 模块 | 文件 | 职责 |
 |---|---|---|
 | Application shell | `apps/web/src/App.tsx` | Auth 状态、Workspace/Session 选择、页面导航、URL 和响应式侧栏 |
-| Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、message renderer、composer、queue、fork 和 rollback |
+| Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、自动重连与心跳超时、message renderer、composer、queue、fork 和 rollback |
+| Connection retry | `apps/web/src/connection-retry.ts` | 重连等待时间、心跳超时判定与 watchdog 间隔 |
 | Subagent list | `apps/web/src/components/SubagentRun.tsx`、`apps/web/src/subagent-view.ts` | 按子 Session 合并最新任务、状态栏数量、活动列表、Completed 分组与父子导航 |
 | Session browser cache | `apps/web/src/session-cache.ts` | IndexedDB 中最近 50 个 Session 的 snapshot、UI state 与文件路径确认结果 LRU cache，并提供清理入口 |
 | Session status projection | `apps/web/src/session-status.ts` | 合并 runtime revision、计算 unread output、统计运行中的 Session 数量，并记录当前浏览器的查看状态 |
@@ -235,6 +237,8 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 - Sidebar 使用的 runtime state、status revision、completed update revision 和最后一次 error message
 
 多个浏览器连接共享同一个 Session runtime。浏览器断开不会中止 Agent；重新连接会收到当前 snapshot。Session message/tree 变化时，AgentService 清除 display projection cache；后续 snapshot 重新构建 projection。
+
+Server 每 15 秒向 WebSocket 发送协议 ping 和 `ping` 消息；一个心跳周期内没有收到 pong 时 Server 关闭该连接。Web 在连接中断后按 500 ms 起步、逐次翻倍、上限 10 秒的等待时间重连，`online` 事件和文档恢复可见时立即重连，45 秒没有收到任何 Server 消息时关闭当前连接并重连。重连请求沿用已加载的 display window 起点（最近一次 snapshot 的 `messageNumberOffset`），成功后以最新 snapshot 替换 conversation 内容；composer 草稿保存在组件状态与浏览器 cache 中，conversation 阅读位置保持原来的滚动位置。
 
 ### Session 创建与恢复
 
@@ -784,6 +788,7 @@ Server messages：
 - `agent-event`
 - `notice`
 - `error`
+- `ping`，Server 每 15 秒发送一次，Web 只用于刷新连接活跃时间
 - `session-deleted`
 
 ### Terminal
@@ -952,4 +957,4 @@ npm run release:build
 
 `check:terminal` 将对应的服务源码转为 JavaScript，再以独立 Node 进程使用临时配置与实际 PTY；该进程沿用安装版的 helper 启动方式，并在超时后清理进程树。该检查覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
 
-Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU 与清理、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB draft/attachment/disclosure 恢复、Browser cache 清理、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。
+Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU 与清理、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB draft/attachment/disclosure 恢复、Browser cache 清理、连接中断后的自动重连与草稿和阅读位置保持、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

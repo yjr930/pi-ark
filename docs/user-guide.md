@@ -483,7 +483,7 @@ Agent 委派后，父 Session 的状态左侧显示 subagent 的分支 logo 与 
 
 ### 查看 Session information
 
-会话状态栏左侧依次显示标题、编辑标题按钮和状态。标题组不占用剩余空间；标题根据实际文字长度占用空间，达到当前上限后截断；编辑按钮紧跟标题。右侧只显示 context 百分比数字和信息按钮。Disconnected、Connection error 和其他错误状态使用完整红灯、红色系底色和边框。移动端的过长状态文字会省略，红灯保持完整显示。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
+会话状态栏左侧依次显示标题、编辑标题按钮和状态。标题组不占用剩余空间；标题根据实际文字长度占用空间，达到当前上限后截断；编辑按钮紧跟标题。右侧只显示 context 百分比数字和信息按钮。网络中断后状态显示 `Reconnecting…`，页面自动重连，输入框草稿和 conversation 阅读位置保持不变。Server 拒绝连接时状态显示 `Disconnected`；`Disconnected` 和其他错误状态使用完整红灯、红色系底色和边框。移动端的过长状态文字会省略，红灯保持完整显示。点击信息按钮可以查看时间、消息数量、context 使用情况、token 总量和费用，并可以 Copy session URL 或选择 Compact、Wide、Full conversation width。
 
 ## Files 页面
 
@@ -734,7 +734,7 @@ Check for updates 查询 GitHub Releases 的 latest stable release。Update Pi-A
 
 Web 更新或回退的响应返回后，Server 正常关闭。Portable 后台管理器或 Linux 系统安装的 supervisor 从当前 release 重新启动，并请求 `/api/health`；启动检查失败时，管理器恢复 previous release。
 
-Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开；认证 cookie 在 service 重启后继续有效。
+Development checkout 或带 `dev` prerelease 的本机安装会显示 development channel，并隐藏 stable update 操作。Update Pi-Ark 需要从 stable release 安装运行。更新或回退期间应保存当前输入，并预期现有连接在 service 重启时断开；service 恢复后页面自动重连，认证 cookie 继续有效。
 
 ### Account
 
@@ -948,6 +948,10 @@ Workspace data：
 ### Session 长时间显示 Loading conversation
 
 Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/agent/...` 的连接、服务日志和 Session JSONL 的读取权限。如果刷新后仍显示旧的缓存内容，可以在 Settings → Maintenance 清理 Browser cache 后重试。
+
+### Session 一直显示 Reconnecting…
+
+会话连接中断后，页面按 500 ms 起步、逐次翻倍、上限 10 秒的间隔自动重连，网络恢复或页面重新可见时立即重连。检查浏览器到 `/ws/agent/...` 的连接和服务日志。Server 每 15 秒发送一次心跳，浏览器 45 秒没有收到任何 Server 消息时重新连接。
 
 ### Terminal 显示 Disconnected
 

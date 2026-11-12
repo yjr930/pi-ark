@@ -2,6 +2,7 @@ import { FormEvent, createContext, useContext, useCallback, useEffect, useLayout
 import { createPortal } from "react-dom";
 import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, CircleStop, Clock3, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { api, websocketUrl } from "../api";
+import { connectionWatchdogIntervalMs, isConnectionStale, reconnectDelay } from "../connection-retry";
 import { buildConversationSegments, buildToolCallGroups } from "../conversation";
 import { formatMessageTime } from "../message-time";
 import { internalMessageLink, internalSessionLink, sessionPermalink } from "../permalinks";
@@ -411,19 +412,35 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   useEffect(() => {
     setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageId(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setOptimisticQueueOperations([]); setRetryNotice(null); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = restorePosition?.followOutput ?? true;
     let active = true;
-    const connectionQuery = new URLSearchParams();
-    if (leafEntryId) connectionQuery.set("leafEntryId", leafEntryId);
-    if (restorePosition && cachedSnapshot) connectionQuery.set("start", String(cachedSnapshot.messageNumberOffset || 0));
-    else if (targetMessageId) connectionQuery.set("message", targetMessageId);
-    else if (cachedSnapshot) connectionQuery.set("start", String(cachedSnapshot.messageNumberOffset || 0));
-    const socket = new WebSocket(websocketUrl(`/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}${connectionQuery.size ? `?${connectionQuery}` : ""}`));
-    socketRef.current = socket;
-    socket.onopen = () => { if (active) setStatus(cachedSnapshot ? "Refreshing conversation" : "Loading conversation"); };
-    socket.onclose = () => { if (active) { setStatus("Disconnected"); setLoadingEarlierMessages(false); setPendingQueuedMessages((current) => current.map((item) => item.status === "scheduling" ? { ...item, status: "failed", error: "Connection lost" } : item)); } };
-    socket.onerror = () => { if (active) { setStatus("Connection error"); setLoadingEarlierMessages(false); } };
-    socket.onmessage = (event) => {
+    let socket: WebSocket | null = null;
+    let retryTimer: number | undefined;
+    let retries = 0;
+    let lastMessageAt = Date.now();
+    let receivedSnapshot = false;
+    let windowStart = 0;
+    let windowHasEarlier = false;
+    const baseQuery = new URLSearchParams();
+    if (leafEntryId) baseQuery.set("leafEntryId", leafEntryId);
+    if (restorePosition && cachedSnapshot) baseQuery.set("start", String(cachedSnapshot.messageNumberOffset || 0));
+    else if (targetMessageId) baseQuery.set("message", targetMessageId);
+    else if (cachedSnapshot) baseQuery.set("start", String(cachedSnapshot.messageNumberOffset || 0));
+    const connectionPath = `/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}`;
+    const connectionUrl = () => {
+      const query = new URLSearchParams(baseQuery);
+      if (receivedSnapshot) {
+        query.delete("message");
+        if (windowHasEarlier) query.set("start", String(windowStart));
+        else query.delete("start");
+      }
+      return websocketUrl(`${connectionPath}${query.size ? `?${query}` : ""}`);
+    };
+    const failPendingQueue = (error: string) => { setPendingQueuedMessages((current) => current.map((item) => item.status === "scheduling" ? { ...item, status: "failed", error } : item)); };
+    const handleMessage = (event: MessageEvent) => {
       if (!active) return;
+      lastMessageAt = Date.now();
       const payload = JSON.parse(event.data);
+      if (payload.type === "snapshot") { retries = 0; receivedSnapshot = true; windowStart = payload.session.messageNumberOffset || 0; windowHasEarlier = Boolean(payload.session.hasEarlierMessages); }
+      if (payload.type === "ping") return;
       if (payload.type === "snapshot") {
         const nextSnapshot = payload.session as AgentSnapshot;
         if (nextSnapshot.rollback && rollbackDraftRef.current !== nextSnapshot.rollback.id) { rollbackDraftRef.current = nextSnapshot.rollback.id; setDraft(nextSnapshot.rollback.draft); window.requestAnimationFrame(() => composerTextareaRef.current?.focus()); }
@@ -462,7 +479,63 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       }
       if (payload.type === "error") { setStatus(payload.message); setLoadingEarlierMessages(false); setQuestionBusyId(undefined); setPendingQueuedMessages((current) => { let pendingIndex = -1; for (let index = current.length - 1; index >= 0; index -= 1) if (current[index].status === "scheduling") { pendingIndex = index; break; } return pendingIndex < 0 ? current : current.map((item, index) => index === pendingIndex ? { ...item, status: "failed", error: payload.message } : item); }); }
     };
-    return () => { active = false; socket.close(); };
+    const scheduleReconnect = () => {
+      if (!active) return;
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(connect, reconnectDelay(retries++));
+    };
+    const connect = () => {
+      if (!active) return;
+      window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+      const previous = socket;
+      const next = new WebSocket(connectionUrl());
+      socket = next;
+      socketRef.current = next;
+      lastMessageAt = Date.now();
+      if (previous && previous.readyState !== WebSocket.CLOSED) previous.close();
+      next.onopen = () => {
+        if (!active || socket !== next) return;
+        lastMessageAt = Date.now();
+        if (!receivedSnapshot) setStatus(cachedSnapshot ? "Refreshing conversation" : "Loading conversation");
+      };
+      next.onclose = (event) => {
+        if (!active || socket !== next) return;
+        setLoadingEarlierMessages(false);
+        failPendingQueue("Connection lost");
+        if (event.code === 1008) { setStatus("Disconnected"); return; }
+        setStatus("Reconnecting…");
+        scheduleReconnect();
+      };
+      next.onmessage = (event) => { if (socket === next) handleMessage(event); };
+    };
+    const reconnectIfClosed = () => {
+      if (!active) return;
+      if (socket?.readyState === WebSocket.OPEN) return;
+      if (socket?.readyState === WebSocket.CONNECTING && !isConnectionStale(lastMessageAt, Date.now())) return;
+      retries = 0;
+      connect();
+    };
+    const reconnectWhenVisible = () => { if (document.visibilityState === "visible") reconnectIfClosed(); };
+    const watchdog = window.setInterval(() => {
+      if (!active || socket?.readyState !== WebSocket.OPEN) return;
+      if (!isConnectionStale(lastMessageAt, Date.now())) return;
+      lastMessageAt = Date.now();
+      socket.close();
+    }, connectionWatchdogIntervalMs);
+    window.addEventListener("online", reconnectIfClosed);
+    document.addEventListener("visibilitychange", reconnectWhenVisible);
+    connect();
+    return () => {
+      active = false;
+      window.clearTimeout(retryTimer);
+      window.clearInterval(watchdog);
+      window.removeEventListener("online", reconnectIfClosed);
+      document.removeEventListener("visibilitychange", reconnectWhenVisible);
+      const current = socket;
+      socketRef.current = null;
+      current?.close();
+    };
   }, [workspace.id, session.id, targetMessageId, leafEntryId, restorePosition?.scrollTop, restorePosition?.followOutput, onSessionChanged, cachedSnapshot]);
 
   useEffect(() => {
@@ -521,7 +594,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     onAnswer: (toolCallId, answers) => { if (!send({ type: "answer-question", toolCallId, answers })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
     onDismiss: (toolCallId) => { if (!send({ type: "dismiss-question", toolCallId })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
   }), [snapshot?.questions, questionBusyId]);
-  const statusIsError = Boolean(runtimeError) || !["Connecting session", "Loading conversation", "Refreshing conversation", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
+  const statusIsError = Boolean(runtimeError) || !["Connecting session", "Loading conversation", "Refreshing conversation", "Reconnecting…", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
 
   function applyAuthoritativeQueueState(state: QueueState) {
     if (state.confirmedOperationId) setOptimisticQueueOperations((current) => current.filter((operation) => operation.id !== state.confirmedOperationId));
