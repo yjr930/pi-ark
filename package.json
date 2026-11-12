@@ -1,6 +1,6 @@
 {
   "name": "pi-ark",
-  "version": "0.1.9-dev.20",
+  "version": "0.1.9",
   "private": true,
   "description": "Workspace-oriented web interface for the pi coding agent",
   "type": "module",
