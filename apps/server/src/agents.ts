@@ -372,7 +372,9 @@ export class AgentService {
     const attachmentNote = saved.length ? `\n\nAttached files:\n${saved.map((attachment) => `- ${attachment.name}: ${attachment.path}`).join("\n")}` : "";
     const promptText = `${text.trim() || (saved.length ? "Review the attached files." : "")}${attachmentNote}`;
     const images = saved.flatMap((attachment) => attachment.image ? [attachment.image] : []);
-    if (handle.session.isStreaming) {
+    if (handle.session.isStreaming && this.isExtensionCommand(handle, promptText)) {
+      await handle.session.prompt(promptText, { images });
+    } else if (handle.session.isStreaming) {
       const queued: QueueItem = { id: randomUUID(), mode: "followUp", text: promptText, images };
       handle.queue.push(queued);
       this.publishQueueState(handle);
@@ -394,6 +396,13 @@ export class AgentService {
         throw error;
       }
     }
+  }
+
+  private isExtensionCommand(handle: AgentHandle, text: string): boolean {
+    if (!text.startsWith("/")) return false;
+    const spaceIndex = text.indexOf(" ");
+    const name = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+    return Boolean(name && handle.session.extensionRunner.getCommand(name));
   }
 
   async answerQuestion(workspace: WorkspaceDefinition, sessionId: string, toolCallId: string, answers: unknown): Promise<void> {
