@@ -301,7 +301,7 @@ Sessions 标题右侧的四个按钮从左到右依次是显示归档 Session、
 
 打开 Session 行的操作菜单可以执行以下操作：
 
-- Rename：设置便于查找的标题。
+- Rename：设置便于查找的标题，保存后会话标题与左侧列表立即更新；会话正在运行时也可以修改。
 - Copy session link：复制 Pi-Ark 内部链接。
 - Manage groups：选择一个或多个 Session group。
 - Pin 或 Unpin：调整活跃 Session 的置顶状态。

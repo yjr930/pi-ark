@@ -432,6 +432,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
         if (agentEvent.type === "auto_retry_start") { setRetryNotice({ attempt: agentEvent.attempt, maxAttempts: agentEvent.maxAttempts, errorMessage: agentEvent.errorMessage || "Unknown error" }); setStatus(`Retrying (${agentEvent.attempt}/${agentEvent.maxAttempts})`); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
         if (agentEvent.type === "auto_retry_end") { setRetryNotice(null); if (!agentEvent.success) setStatus(`Retry failed: ${agentEvent.finalError || "Unknown error"}`); }
         if (agentEvent.type === "message_end" && agentEvent.message?.role === "user" && !sessionListedRef.current) { sessionListedRef.current = true; onSessionChanged(); }
+        if (agentEvent.type === "session_info_changed") { setSnapshot((current) => current ? { ...current, name: agentEvent.name } : current); onSessionChanged(); }
         if (agentEvent.type === "agent_settled") { setRetryNotice(null); setStatus("Ready"); setSnapshot((current) => current ? { ...current, isStreaming: false, isIdle: true } : current); onSessionChanged(); }
         if (agentEvent.type === "tool_execution_start") { setStatus(`Running ${agentEvent.toolName}`); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
         if (["message_start", "message_update", "message_end"].includes(agentEvent.type) && agentEvent.message) {

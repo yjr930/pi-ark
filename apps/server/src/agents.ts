@@ -173,7 +173,6 @@ export class AgentService {
     const metadataPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "name")) as { pinned?: boolean; archived?: boolean; groups?: string[] };
     const current = (await getSessionMetadata(workspace))[sessionId] || { pinned: false, archived: false, groups: [], updatedAt: new Date(0).toISOString() };
     const metadata = Object.keys(metadataPatch).length ? await setSessionMetadata(workspace, sessionId, metadataPatch) : current;
-    if (handle) this.sendSnapshot(handle);
     return { name: handle?.session.sessionName || info?.name, ...metadata };
   }
 
@@ -645,7 +644,7 @@ export class AgentService {
     }
     handle.displayMessages = undefined;
     for (const [client, state] of handle.clients) if (!state.leafEntryId) send(client, { type: "agent-event", event });
-    if (event.type === "message_end" || event.type === "agent_settled" || event.type === "compaction_end") this.scheduleSnapshot(handle);
+    if (event.type === "message_end" || event.type === "agent_settled" || event.type === "compaction_end" || event.type === "session_info_changed") this.scheduleSnapshot(handle);
   }
 
   private setRuntimeStatus(handle: AgentHandle, state: SessionRuntimeState, errorMessage?: string): void {

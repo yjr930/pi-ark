@@ -66,7 +66,7 @@ Session row 的右侧状态区域使用以下优先级：Agent 正在运行时�
 
 每个 Session 提供以下操作：
 
-- Rename：修改 Session 标题。
+- Rename：修改 Session 标题。保存后会话标题与左侧列表立即更新，Agent 正在运行时也可以修改。
 - Copy session link：复制 `pi-ark://` 内部链接。
 - Manage groups：将 Session 同时分配到多个 group。
 - Pin 或 Unpin：调整活跃 Session 的置顶状态。
