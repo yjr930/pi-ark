@@ -250,6 +250,7 @@ Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Appeara
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。
 - MCP：MCP server 列表、启用开关、连接状态、诊断与浏览器运行时。
+- Extensions：用户安装的扩展、加载状态、注册工具与命令、诊断和安装目录。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
 - Terminal：Server shell profile、自定义程序的绝对路径、附加参数、环境变量、浏览器字体和键盘操作说明。
 - Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及指向稳定 CLI 的完整 Node 调用命令（status、logs 与 restart 等）；Browser cache 显示当前实例与账号的缓存数量，并提供 Clear browser cache。
@@ -257,7 +258,7 @@ Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Appeara
 
 Keep line breaks（按原文换行）默认开启，会话和 Markdown 文件中的普通文本会按原文的单次换行显示。关闭后，同一段落内的普通换行合并显示，空行继续分隔段落。该设置在切换后立即保存并应用到当前页面，刷新后保留选择。
 
-Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和草稿（提示词与 Terminal shell 设置）。模型数据独立加载；effective prompt preview 在展开时加载；Skills 与 MCP 数据在首次进入对应类别时加载；Terminal shell 设置在首次进入 Terminal 类别时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取当前类别需要的数据；在 Terminal 类别中刷新时，页面更新 Server 配置与 profiles，同时保留尚未保存的草稿和刷新期间的新编辑内容。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
+Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和草稿（提示词与 Terminal shell 设置）。模型数据独立加载；effective prompt preview 在展开时加载；Skills、MCP 与 Extensions 数据在首次进入对应类别时加载；Terminal shell 设置在首次进入 Terminal 类别时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取当前类别需要的数据；在 Terminal 类别中刷新时，页面更新 Server 配置与 profiles，同时保留尚未保存的草稿和刷新期间的新编辑内容。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
 
 模型 checkbox 使用填色表示启用，使用空白状态表示关闭。切换非默认模型的启用状态时，页面保留当前的 default model 和 Default thinking level。关闭 default model 时，页面选择模型列表中第一个仍启用的模型作为新 default，并将 thinking level 调整为新 default 支持的等级。最后一个启用的模型保持启用，并显示 Select at least one model 提示。
 
@@ -285,9 +286,17 @@ MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Wor
 
 Refresh 重新执行列表读取并更新连接状态、注册动作数量和诊断。页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。打开时先读取 `mcp.json` 渲染 server 行，行内状态显示 Checking connection、注册动作显示 `—`；随后连接 server 的请求完成后填入连接状态、工具数量与诊断。连接失败时保留已渲染的行并显示错误提示。列表为空时显示 `pi-ark mcp add <name>` 提示。
 
+### Extensions
+
+Extensions 类别显示用户扩展目录、已加载扩展数量、注册工具数量和扩展列表。列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、加载状态（Loaded 或 Failed）、注册工具数量、扩展路径、工具标记、命令和诊断。工具标记显示工具名，带 ` · on demand` 表示工具已注册但没有自动激活；不带该后缀表示模型可以直接调用。加载失败的行显示错误原因，没有注册工具的扩展显示 No tools registered。
+
+Refresh 重新读取扩展目录与加载结果，然后重载空闲 Session，并在通知中显示使用新集合的 Session 数量。页面首次进入 Extensions 类别时读取一次，停留在该类别期间不自动刷新。页面不提供启用开关、安装与删除按钮；用户把 `.ts` 或 `.js` 文件放入 Install directory 显示的目录，或放入包含 `index.ts` 或 `index.js` 的目录、包含 `pi.extensions` 声明的 `package.json` 目录，然后新建 Session。列表为空时显示添加文件的提示。
+
+扩展的交互式 UI 调用在 Pi-Ark 中返回空结果。扩展可以通过事件钩子、注册工具、命令与会话状态写入工作。
+
 ### 配置的生效方式
 
-Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Skill 启用状态或 MCP server 启用状态保存后，Server 对空闲 Session 执行 reload；正在运行的 Session 保持当前资源集合，新建 Session 使用最新集合。`playwright` 的浏览器运行时安装在服务账号 home 下的 `.cache/ms-playwright`。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
+Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Skill 启用状态或 MCP server 启用状态保存后，Server 对空闲 Session 执行 reload；正在运行的 Session 保持当前资源集合，新建 Session 使用最新集合。扩展文件变化后，新建 Session 使用最新内容，Extensions 的 Refresh 同时重载空闲 Session。`playwright` 的浏览器运行时安装在服务账号 home 下的 `.cache/ms-playwright`。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
 
 ## 桌面与移动布局
 

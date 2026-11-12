@@ -57,7 +57,7 @@ docs/               产品、架构、使用和集成文档
 2. 将 `PI_CODING_AGENT_DIR` 指向该专用目录，使 pi SDK 使用相同的 settings、credential 和 resource files。
 3. 读取 Global config 与 TLS key/certificate。
 4. 创建 HTTPS Fastify service；HTTP request body 上限为 1 MB，WebSocket payload 上限为 28 MB。
-5. 创建 Auth、Workspace、Terminal、Settings、Pi-Ark release、OAuth flow、Agent、Skills 和 MCP services。
+5. 创建 Auth、Workspace、Terminal、Settings、Pi-Ark release、OAuth flow、Agent、Skills、MCP 和 Extensions services。
 6. 注册 HTTP routes、Agent WebSocket 和 Terminal WebSocket。
 7. 注册静态 Web asset fallback。
 8. 监听配置的 HTTPS 地址。
@@ -76,6 +76,7 @@ docs/               产品、架构、使用和集成文档
 | Agent resources | `apps/server/src/resource-loader.ts` | 三个 skill 目录、`skillsOverride`、MCP 与 codemode extension 和 Session resource loader |
 | Skills | `apps/server/src/skills.ts` | skill 目录扫描、同名冲突、停用过滤、选择保存和空闲 Session 重载 |
 | MCP | `apps/server/src/mcp.ts` | `mcp.json` 初始化、server 列表、启用状态、浏览器运行时状态与安装 |
+| Extensions | `apps/server/src/extensions.ts` | 用户扩展目录扫描、加载结果与诊断、扩展工具名收集和空闲 Session 重载 |
 | Internal links | `apps/server/src/internal-links.ts` | Web 与 Server 共用的 Workspace、Session 和 Message 内部链接解析与生成 |
 | Session display | `apps/server/src/session-display.ts` | 完整活动分支的 display projection、短 Message ID、Compact 统计和旧数字目标的定位 |
 | Compact statistics | `apps/server/src/compaction-stats.ts` | 按压缩时的 projection 估算上下文组成，并关联压缩耗时 |
@@ -121,6 +122,7 @@ docs/               产品、架构、使用和集成文档
 | Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示设置，保留页面状态，并按需加载 prompt preview、Terminal 配置与 release 信息 |
 | Skills settings | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、Workspace 选择器、启用复选框、诊断和 Refresh |
 | MCP settings | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断、浏览器运行时和安装进度 |
+| Extensions settings | `apps/web/src/components/ExtensionsSettings.tsx` | 扩展列表、加载状态、注册工具与命令、诊断、安装目录和 Refresh |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
 | Question card | `apps/web/src/components/QuestionCard.tsx` | 问题卡片、选项选择、自由输入、提交与 Unanswered |
 | Permalinks | `apps/web/src/permalinks.ts` | Browser URL 与 `pi-ark://` link 的生成和解析 |
@@ -511,6 +513,16 @@ Settings 的 MCP 类别分两阶段读取：先调用 `/api/mcp/configured` 渲�
 
 `McpService.browserStatus()` 检查服务账号 home 下的 `.cache/ms-playwright`，识别 `chromium_headless_shell-<数字>` 与 `chromium-<数字>` 目录并优先使用 headless shell。`installBrowser()` 在状态为 `not-installed` 或 `failed` 时执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`，设置 `npm_config_yes=true`，超时 15 分钟，并保留最多 64 KiB 的安装日志。安装目录出现后状态变为 `installed`；命令失败或没有生成目录时保持 `failed` 并保留日志。
 
+### Extensions
+
+`PI_ARK_AGENT_DIR/extensions` 是用户扩展目录，`ensurePiArkAgentState()` 在 Server 启动时创建该目录。`DefaultResourceLoader` 的 `agentDir` 指向 `PI_ARK_AGENT_DIR`，SDK 自动发现该目录下一层的 `.ts` 与 `.js` 文件、包含 `index.ts` 或 `index.js` 的目录，以及 `package.json` 中声明 `pi.extensions` 的目录。Workspace 下的 `.pi/extensions` 不加载，因为 pi-ark 以 `projectTrusted: false` 创建 `SettingsManager`。
+
+`ExtensionService.list()` 每次请求重新扫描目录，并用与 Session 相同的配置创建 `DefaultResourceLoader`，读取 `getExtensions()` 得到的扩展、注册工具、命令、加载错误与警告。列表字段为 `name`、`path`、`entry`、`status`、`tools`、`commands` 与 `diagnostics`；`status` 取 `loaded` 或 `failed`，`tools` 中每项的 `active` 表示该工具会进入 Session 的模型工具列表。
+
+`AgentService` 在创建 Session 前调用 `extensionToolNames()` 收集用户扩展注册的工具名。只有 `exposure` 为 `direct` 或 `model-only`、且 `defaultActive` 不为 `false` 的工具加入 Session 的工具允许名单与初始活动工具。`<inline:...>` 与 `builtin:` 扩展的工具不参与收集，MCP 工具继续由 MCP extension 的 `codemode` 暴露机制管理。Global system prompt 预览使用同一套工具名，保证预览与运行时一致。
+
+扩展运行在 Session 的 extension runtime 中。pi-ark 调用 `session.bindExtensions({})`，SDK 使用空操作 UI 上下文与 `print` 模式，扩展的事件钩子、工具、命令与会话状态写入可用，需要用户确认或输入的 UI 调用返回空结果。扩展文件变化后，新建 Session 使用最新内容，Extensions 页面的 Refresh 对空闲 Session 执行 `session.reload()`。
+
 `scripts/pi-ark.mjs` 的 `mcp` 子命令查找项目或安装包内的 pi core CLI，以 `PI_ARK_AGENT_DIR` 作为 `PI_CODING_AGENT_DIR`，把 `list`、`add`、`remove`、`login` 与 `logout` 参数透传给 `pi mcp`，并沿用子进程退出码。
 
 `scripts/build-release.mjs` 在 staging 目录创建 `skills/`，把源码根目录的 `skills/` 整体复制到安装包；服务端从安装根目录读取 Built-in skill。
@@ -549,7 +561,7 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
 
 ### Settings 的页面缓存
 
-Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Appearance、Models & providers、Agent behavior、Skills、MCP、Files、Terminal、Maintenance 和 Account。Appearance 的三个区域直接读写浏览器 localStorage，改动立即生效。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，Skills 与 MCP 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
+Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Appearance、Models & providers、Agent behavior、Skills、MCP、Extensions、Files、Terminal、Maintenance 和 Account。Appearance 的三个区域直接读写浏览器 localStorage，改动立即生效。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，Skills、MCP 与 Extensions 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
 
 Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的内容；选择普通 profile 且其他字段保持已保存内容时立即保存。Terminal 使用独立的保存队列与请求序号，保留请求期间的新编辑内容。该类别的 Refresh settings 等待已有保存队列，再请求 Server 的设置和 profiles，并保留尚未保存的草稿。其他类别的 Refresh settings 读取 Global settings 和模型数据，Maintenance 同时刷新 release 信息；Skills 与 MCP 使用各自的 Refresh 读取资源列表。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
 
@@ -585,6 +597,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
 | `PI_ARK_AGENT_DIR/mcp.json` | MCP server 定义、`args`、`enabled`、`exposure`、`toolExposure`、`timeout` 与 `description` |
+| `PI_ARK_AGENT_DIR/extensions` | 用户扩展文件与扩展目录；Server 启动时创建，Session 创建时加载 |
 | `PI_ARK_AGENT_DIR/skills/` | Global user skills |
 | `PI_ARK_AGENT_DIR/models.json` | Custom provider/model config |
 | `PI_ARK_AGENT_DIR/SYSTEM.md` | 可选 Global replacement prompt |
@@ -703,7 +716,7 @@ interface TerminalInfo {
 | POST/GET/DELETE | `/api/settings/subscription-logins...` | OAuth flow start、poll 和 cancel |
 | POST | `/api/settings/subscription-logins/:flowId/answer` | OAuth prompt answer |
 
-### Skills 与 MCP
+### Skills、MCP 与 Extensions
 
 | Method | Path | 用途 |
 |---|---|---|
@@ -716,8 +729,10 @@ interface TerminalInfo {
 | PUT | `/api/mcp/servers/:name/advanced` | Body 为 `{ enabled: boolean }`，保存 playwright 的高级 capability 开关 |
 | GET | `/api/mcp/browser` | 返回浏览器运行时状态、版本、目录与日志 |
 | POST | `/api/mcp/install-browser` | 启动 Chromium headless shell 安装并返回当前状态 |
+| GET | `/api/extensions?workspaceId=` | 返回用户扩展目录、扩展列表、注册工具与命令、加载状态和诊断 |
+| POST | `/api/extensions/reload` | 重新加载空闲 Session，返回 `{ reloaded }` |
 
-Skills 与 MCP 的列表端点要求 `workspaceId`。MCP server 名称只允许字母、数字、`_` 与 `-`。`PUT /api/mcp/servers/:name/state` 与 `PUT /api/skills/selection` 保存后都会重新加载空闲 Session。
+Skills、MCP 与 Extensions 的列表端点要求 `workspaceId`。MCP server 名称只允许字母、数字、`_` 与 `-`。`PUT /api/mcp/servers/:name/state` 与 `PUT /api/skills/selection` 保存后都会重新加载空闲 Session。
 
 ### Session
 

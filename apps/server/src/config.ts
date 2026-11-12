@@ -38,6 +38,7 @@ export const configPath = join(arkHome, "config.json");
 
 export async function ensurePiArkAgentState(previousAgentDir?: string): Promise<void> {
   await mkdir(piArkAgentDir, { recursive: true, mode: 0o700 });
+  await mkdir(join(piArkAgentDir, "extensions"), { recursive: true, mode: 0o700 });
   const markerPath = join(piArkAgentDir, ".pi-ark-migration.json");
   try { await access(markerPath); return; } catch { /* first Pi-Ark agent directory initialization */ }
   const copied: string[] = [];

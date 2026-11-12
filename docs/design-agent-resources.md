@@ -1,8 +1,8 @@
-# Agent 资源联合设计：Skills 与 MCP
+# Agent 资源联合设计：Skills、MCP 与 Extensions
 
 状态：已实现。页面行为见[功能与交互设计](product-and-interaction.md)，模块与数据流见[程序实现架构](architecture.md)，操作步骤见[使用手册](user-guide.md)。
 
-本文档合并两项设计：Skills 管理（Global 与 Workspace 两级）和内置 MCP server（`playwright` 与 `exa`）的接入。两者在 pi-ark 里属于同一类 Agent 资源，共用发现、启用、诊断与生效流程。
+本文档合并三项设计：Skills 管理（Global 与 Workspace 两级）、内置 MCP server（`playwright` 与 `exa`）的接入，以及用户扩展（Extensions）的加载与工具接入。三者在 pi-ark 里属于同一类 Agent 资源，共用发现、诊断与生效流程。
 
 ## 实现入口
 
@@ -15,6 +15,8 @@
 | HTTP API | `apps/server/src/index.ts` | Skills 与 MCP 的读取、保存、刷新和浏览器安装端点 |
 | Skills 页面 | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、Workspace 选择器、启用复选框和 Refresh |
 | MCP 页面 | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断和浏览器运行时 |
+| 扩展服务 | `apps/server/src/extensions.ts` | 扫描 `PI_ARK_AGENT_DIR/extensions`、读取加载结果与诊断、收集扩展工具名 |
+| Extensions 页面 | `apps/web/src/components/ExtensionsSettings.tsx` | 扩展列表、加载状态、注册工具与命令、安装目录和 Refresh |
 | 命令行 | `scripts/pi-ark.mjs` | `pi-ark mcp` 子命令，透传 pi core 的 `mcp` 命令 |
 | 发布 | `scripts/build-release.mjs` | 把源码根目录的 `skills/` 复制到安装包 |
 
@@ -26,15 +28,17 @@
 - 网页检索与页面抓取通过内置的 `exa` 远程 server 提供，默认启用，不需要密钥。
 - 系统自带 skill 与 MCP server 的启用状态可在 Settings 页面修改，修改后对空闲 Session 生效，新建 Session 使用最新状态。
 - 通用 MCP server 通过 `pi-ark mcp` 命令与 `mcp.json` 管理，Settings 页面只展示列表与启用开关。
+- 用户可以通过文件系统安装 pi extension，扩展注册的工具在新建 Session 中可用，Settings 页面能查看加载状态与诊断。
 
 ## 2. 资源模型
 
-### 2.1 两类资源
+### 2.1 三类资源
 
 | 资源 | 提供的内容 | 生效方式 |
 |---|---|---|
 | Skill | 操作流程与领域说明 | 名称与描述进入 system prompt，正文按需读取 |
 | MCP server | 可执行工具 | 工具注册到 Session，按 exposure 决定模型可见性 |
+| Extension | 事件钩子、工具、命令与资源 | Session 创建时加载，注册的工具进入工具集合 |
 
 ### 2.2 两类来源
 
@@ -43,8 +47,9 @@
 | Built-in | Global | 安装根目录 `skills/` | 否 | 是 |
 | User | Global | `PI_ARK_AGENT_DIR/skills/` | 是 | 是 |
 | User | Workspace | `<workspace>/.pi-ark/skills/` | 是 | 是 |
+| User | Global | `PI_ARK_AGENT_DIR/extensions/` | 是 | 否（移走文件即卸载） |
 
-Built-in 与 User 来源由 pi-ark 管理。
+Built-in 与 User 来源由 pi-ark 管理。扩展目录只支持 User Global，Workspace 下的 `.pi/extensions` 不加载。
 
 ### 2.3 MCP server 来源
 
@@ -96,7 +101,8 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 | `resource-loader.ts` | 定义三个 skill 目录，创建带 `additionalSkillPaths` 与 `skillsOverride` 的 `DefaultResourceLoader`，并挂载 MCP 与 codemode extension |
 | `skills.ts` | `SkillService` 扫描三段目录、处理同名冲突、应用停用清单、保存选择并重新加载空闲 Session |
 | `mcp.ts` | `McpService` 初始化 `mcp.json`、读取 `pi mcp list --json`、保存启用状态、检查并安装浏览器运行时 |
-| `config.ts` | `SkillSelection` 的归一化、校验、读取与原子保存 |
+| `extensions.ts` | `ExtensionService` 扫描用户扩展目录、读取加载结果与诊断、收集扩展工具名并重载空闲 Session |
+| `config.ts` | `SkillSelection` 的归一化、校验、读取与原子保存；启动时创建扩展目录 |
 | `index.ts` | 创建 `SkillService` 与 `McpService`，注册 Skills 与 MCP 端点 |
 
 - Skill 行字段为 `name`、`description`、`scope`、`source`、`location`、`enabled` 与 `explicitOnly`。
@@ -108,6 +114,8 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - Built-in、Global 与 Workspace 目录存在时都通过 `additionalSkillPaths` 传给 `DefaultResourceLoader`。
 - `skillsOverride` 按 `skill.filePath` 判断来源，再根据对应作用域的停用清单过滤。
 - MCP 通过 `createMcpExtension` 挂载，`codemode` 通过 `createCodemodeExtension` 挂载。
+- 用户扩展由 `DefaultResourceLoader` 从 `PI_ARK_AGENT_DIR/extensions` 自动发现，与 MCP、codemode 的 inline 扩展共用同一个 loader。
+- `extensionToolNames()` 只收集 `exposure` 为 `direct` 或 `model-only`、且 `defaultActive` 不为 `false` 的用户扩展工具，并加入 Session 的工具允许名单与初始活动工具。
 - `codemode` 注册为默认停用；Session 把 codemode 加入可用工具，再用初始活动工具集合将其排除。MCP extension 在 Session 启动时根据启用且 `exposure` 为 `codemode` 的 server 配置把 `codemode` 加入活动工具。
 - MCP server 的连接在 `session_start` 建立，在 `session_shutdown` 关闭。
 - Settings 的启用开关修改后，Server 保存配置并对空闲 Session 调用 `session.reload()`。
@@ -234,9 +242,47 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - 推荐步骤不阻塞其他功能，用户可以从 MCP 页面随时进入。
 - `browser` 的启用状态由 `playwright` MCP server 控制；Skills 页面不为该行提供开关，未启用时显示 Disabled 与到 MCP 打开的提示。
 
-## 9. Settings 页面
+## 9. Extensions
 
-### 9.1 Skills
+### 9.1 目录与布局
+
+`PI_ARK_AGENT_DIR/extensions` 是唯一扩展目录，`ensurePiArkAgentState()` 在 Server 启动时创建。该目录支持三种布局：
+
+| 布局 | 入口 |
+|---|---|
+| 单文件 | `<name>.ts` 或 `<name>.js` |
+| 目录与入口文件 | `index.ts` 或 `index.js` |
+| 带依赖的目录 | `package.json` 中的 `pi.extensions` 字段声明一个或多个入口 |
+
+Workspace 下的 `.pi/extensions` 不加载，因为 `SettingsManager` 以 `projectTrusted: false` 创建。扩展可以在 `resources_discover` 中返回 skill、prompt 与 theme 路径，这些资源按临时作用域加入 Session。
+
+### 9.2 加载与工具接入
+
+- `DefaultResourceLoader` 的 `agentDir` 为 `PI_ARK_AGENT_DIR`，SDK 自动发现扩展目录，与 MCP、codemode 的 inline 扩展共用同一个 loader。
+- `ExtensionService.list()` 用与 Session 相同的 loader 配置执行 `reload()`，读取 `getExtensions()` 的扩展、工具、命令、错误与警告。每次请求重新加载，列表反映当前文件。
+- `extensionToolNames()` 只收集 `exposure` 为 `direct` 或 `model-only`、且 `defaultActive` 不为 `false` 的用户扩展工具。`<inline:...>` 与 `builtin:` 扩展不参与收集，MCP 工具继续由 `codemode` 暴露机制管理。
+- `AgentService` 在创建 Session 前把收集到的工具名加入 `createAgentSession` 的 `tools` 参数与初始活动工具；Global system prompt 预览使用同一套工具名。
+- 扩展注册与内置工具同名的工具时，同名工具覆盖内置实现，因为 SDK 在建立工具表时先写入内置工具、再写入扩展工具。
+- 扩展文件变化后，新建 Session 使用最新内容；Extensions 页面的 Refresh 对空闲 Session 执行 `session.reload()`，正在运行的 Session 保持当前集合。
+- 扩展运行在 Session 的 extension runtime 中。pi-ark 调用 `session.bindExtensions({})`，SDK 使用空操作 UI 上下文与 `print` 模式；事件钩子、工具、命令与会话状态写入可用，确认、选择与输入返回空结果。
+
+### 9.3 状态与诊断
+
+- `status` 取 `loaded` 或 `failed`。目录中的入口文件没有加载成功时标记为 `failed`。
+- `tools` 中每项的 `active` 表示工具会进入 Session 的模型工具列表；`active` 为 false 的工具已注册，但需要显式激活。
+- `commands` 列出扩展注册的命令名，页面显示为 `/命令名`。
+- `diagnostics` 来自 loader 的错误与警告，按扩展入口归属。不在扩展目录内的加载错误（例如 `settings.json` 中声明的其他路径）进入响应的顶层 `diagnostics`。
+- 目录下不以 `.ts` 或 `.js` 结尾的单文件、没有入口的目录与 dotfile 不进入列表。
+
+### 9.4 边界
+
+- 第一版不提供启用开关，卸载方式是从扩展目录移走文件或目录。
+- 扩展在 Session 进程内执行，拥有服务账号权限；安装扩展等同于授予该扩展同等的系统权限。
+- 交互式 UI 不可用；需要用户回答时使用 Agent 自带的提问工具。
+
+## 10. Settings 页面
+
+### 10.1 Skills
 
 页面分三段，顺序固定：
 
@@ -252,7 +298,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - 创建与编辑通过 Terminal 完成，页面给出目录路径。
 - Diagnostics 区域列出扫描错误与同名冲突。
 
-### 9.2 MCP
+### 10.2 MCP
 
 页面只有一个列表，覆盖内置与用户 server：
 
@@ -268,7 +314,11 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - 列表为空时显示 `pi-ark mcp add <name>` 提示。
 - `browser` 的启用状态由 `playwright` MCP server 控制；Skills 页面不为该行提供开关，未启用时显示 Disabled 与到 MCP 打开的提示。
 
-## 10. API
+### 10.3 Extensions
+
+Extensions 类别显示已加载扩展数量、注册工具数量与扩展列表。每行包含名称、加载状态、注册工具数量、扩展路径、工具标记、命令和诊断。列表上方提供 Refresh，刷新后对空闲 Session 执行 reload。页面底部显示 Install directory 路径与文件布局说明；列表为空时显示添加文件的提示。
+
+## 11. API
 
 | 方法与路径 | 作用 |
 |---|---|
@@ -280,8 +330,10 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 | `PUT /api/mcp/servers/:name/advanced` | 保存 playwright 的高级 capability 开关 |
 | `GET /api/mcp/browser` | 返回浏览器安装状态、版本、目录与安装日志 |
 | `POST /api/mcp/install-browser` | 启动浏览器运行时安装并返回当前状态 |
+| `GET /api/extensions?workspaceId=` | 返回扩展目录、扩展列表、注册工具与命令、加载状态与诊断 |
+| `POST /api/extensions/reload` | 重新加载空闲 Session |
 
-## 11. 诊断与升级
+## 12. 诊断与升级
 
 - `mcp.json` 解析失败、server 连接失败与浏览器安装失败时，诊断进入 Settings 页面。
 - `pi-ark mcp list --json` 返回的 `errors` 与每个 server 的 `error` 进入列表诊断。
@@ -292,12 +344,13 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - 内置 skill 升级时整体替换 `skills/`，用户停用记录保留。
 - `mcp.json` 已存在时 Server 保留原内容，内置 server 的版本与启用状态由该文件保存。
 
-## 12. 实施顺序（已完成）
+## 13. 实施顺序（已完成）
 
 1. 抽取 `createResourceLoader()`，加入 `additionalSkillPaths` 与 `skillsOverride` 支持。
 2. 增加 `SkillService` 与 Skills 页面，覆盖 Built-in、Global、Workspace 三段。
 3. 挂载 `createMcpExtension` 与 `createCodemodeExtension`，初始化 `mcp.json`。
 4. 增加 MCP 列表与启用开关、`pi-ark mcp` 命令透传、手动刷新、浏览器自动安装与推荐标记。
 5. 加入 `browser` 内置 skill，与 MCP 页面联动显示依赖状态。
-6. 更新 `docs/product-and-interaction.md`、`docs/architecture.md`、`docs/user-guide.md` 与 `docs/index.md`。
+6. 增加用户扩展目录、`ExtensionService`、扩展工具名接入 Session 工具集合与 Extensions 页面。
+7. 更新 `docs/product-and-interaction.md`、`docs/architecture.md`、`docs/user-guide.md` 与 `docs/index.md`。
 

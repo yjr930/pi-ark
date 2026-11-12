@@ -55,6 +55,8 @@ export const api = {
   skills: (workspaceId: string) => request<import("./types").SkillsResponse>(`/api/skills?workspaceId=${encodeURIComponent(workspaceId)}`),
   saveSkillSelection: (selection: import("./types").SkillSelection) => request<import("./types").SkillsResponse>("/api/skills/selection", { method: "PUT", body: JSON.stringify(selection) }),
   reloadSkills: () => request<{ reloaded: number }>("/api/skills/reload", { method: "POST" }),
+  extensions: (workspaceId: string) => request<import("./types").ExtensionsResponse>(`/api/extensions?workspaceId=${encodeURIComponent(workspaceId)}`),
+  reloadExtensions: () => request<{ reloaded: number }>("/api/extensions/reload", { method: "POST" }),
   mcpConfigured: () => request<{ servers: import("./types").McpConfiguredServer[] }>("/api/mcp/configured"),
   mcpServers: (workspaceId: string) => request<import("./types").McpServersResponse>(`/api/mcp?workspaceId=${encodeURIComponent(workspaceId)}`),
   setMcpServerState: (name: string, enabled: boolean) => request<{ ok: true }>(`/api/mcp/servers/${encodeURIComponent(name)}/state`, { method: "PUT", body: JSON.stringify({ enabled }) }),

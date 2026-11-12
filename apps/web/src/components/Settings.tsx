@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, Puzzle, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { clearSessionCache, getSessionCacheSummary } from "../session-cache";
@@ -8,6 +8,7 @@ import type { AppearanceSettings } from "../appearance";
 import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, GlobalPreferences } from "../types";
 import { Select } from "./Select";
 import { McpSettings } from "./McpSettings";
+import { ExtensionsSettings } from "./ExtensionsSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { SubscriptionLogin } from "./SubscriptionLogin";
 import { TerminalSettings } from "./TerminalSettings";
@@ -19,6 +20,7 @@ const categories = [
   { id: "agent", label: "Agent behavior", description: "Shared instructions and conversation defaults.", icon: SlidersHorizontal },
   { id: "skills", label: "Skills", description: "Agent skills available globally and in each workspace.", icon: Sparkles },
   { id: "mcp", label: "MCP", description: "Agent tool servers, connection state, and browser runtime.", icon: Plug },
+  { id: "extensions", label: "Extensions", description: "User-installed extensions and the tools they register.", icon: Puzzle },
   { id: "files", label: "Files", description: "File browsing and preview preferences.", icon: Eye },
   { id: "terminal", label: "Terminal", description: "Server shell profiles and browser font preferences.", icon: TerminalSquare },
   { id: "maintenance", label: "Maintenance", description: "Version, installation, service management, and browser cache.", icon: PackageOpen },
@@ -349,14 +351,14 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
   if (loading) return <section className="settings-page"><div className="page-loading"><LoaderCircle size={20} />Loading settings</div></section>;
 
   return <section className="settings-page">
-    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces, plus Agent resources and browser appearance</p></div>{category !== "skills" && category !== "mcp" && <button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={saving || (category === "terminal" && terminalBusy)} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button>}</header>
+    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces, plus Agent resources and browser appearance</p></div>{category !== "skills" && category !== "mcp" && category !== "extensions" && <button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={saving || (category === "terminal" && terminalBusy)} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button>}</header>
     <div className="settings-layout">
       <nav className="settings-tabs" aria-label="Settings categories">
         <span className="settings-nav-label">Preferences</span>
         {categories.map((item) => <button type="button" key={item.id} className={category === item.id ? "active" : ""} aria-current={category === item.id ? "page" : undefined} onClick={() => { setCategory(item.id); setNotice(null); }}><item.icon size={16} /><span>{item.label}</span></button>)}
       </nav>
       <main className="settings-content" ref={contentRef} onScroll={(event) => { if (active) scrollPositions.current[category] = event.currentTarget.scrollTop; }}>
-        <div className="settings-content-heading"><span>{category === "terminal" ? "Server and browser settings" : category === "appearance" || category === "account" ? "Browser settings" : category === "skills" || category === "mcp" ? "Agent resources" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
+        <div className="settings-content-heading"><span>{category === "terminal" ? "Server and browser settings" : category === "appearance" || category === "account" ? "Browser settings" : category === "skills" || category === "mcp" || category === "extensions" ? "Agent resources" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
         {notice && <div role="status" className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={15} /> : <CircleAlert size={15} />}{notice.text}</div>}
         <div className="settings-category" hidden={category !== "terminal"}>
           <TerminalSettings ref={terminalSettingsRef} active={active && category === "terminal"} onBusyChange={setTerminalBusy} />
@@ -366,6 +368,9 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
         </div>
         <div className="settings-category" hidden={category !== "mcp"}>
           <McpSettings active={active && category === "mcp"} />
+        </div>
+        <div className="settings-category" hidden={category !== "extensions"}>
+          <ExtensionsSettings active={active && category === "extensions"} />
         </div>
         {global && <>
           <div className="settings-category" hidden={category !== "appearance"}>

@@ -312,6 +312,34 @@ export interface SkillSelection {
   disabledWorkspace: Record<string, string[]>;
 }
 
+export type ExtensionStatus = "loaded" | "failed";
+
+export interface ExtensionToolView {
+  name: string;
+  active: boolean;
+}
+
+export interface ExtensionView {
+  name: string;
+  path: string;
+  entry: string;
+  status: ExtensionStatus;
+  tools: ExtensionToolView[];
+  commands: string[];
+  diagnostics: string[];
+}
+
+export interface ExtensionDiagnostic {
+  path: string;
+  message: string;
+}
+
+export interface ExtensionsResponse {
+  directory: string;
+  extensions: ExtensionView[];
+  diagnostics: ExtensionDiagnostic[];
+}
+
 export type McpServerSource = "built-in" | "user";
 
 export type McpServerState = "connected" | "disabled" | "failed" | "needs-sign-in" | "starting";

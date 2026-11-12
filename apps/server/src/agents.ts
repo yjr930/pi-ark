@@ -21,6 +21,7 @@ import { SubagentService, SUBAGENT_ROLE_PROMPT, type SubagentConfiguration } fro
 import { type SubagentTaskInput } from "./subagent-types.js";
 import { validLeafEntryId } from "./internal-links.js";
 import { createResourceLoader as createWorkspaceResourceLoader } from "./resource-loader.js";
+import { extensionToolNames } from "./extensions.js";
 export { buildSessionDisplayMessages, MAX_SESSION_MESSAGES, sessionMessageId } from "./session-display.js";
 
 const FILE_TOOLS = ["read", "bash", "edit", "write"] as const;
@@ -547,7 +548,9 @@ export class AgentService {
     const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
     const settingsManager = createGlobalSettingsManager(workspace.path);
     const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
-    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, SUBAGENT, ...QUESTION_TOOLS], customTools: [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), this.subagentTool(workspace, "preview"), ...createQuestionTools(() => Promise.reject(new Error("Questions are unavailable in the system prompt preview")), () => Promise.reject(new Error("Questions are unavailable in the system prompt preview")))], resourceLoader });
+    const extensionTools = extensionToolNames(resourceLoader);
+    const tools = [...new Set([...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, SUBAGENT, ...QUESTION_TOOLS, ...extensionTools])];
+    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools, customTools: [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), this.subagentTool(workspace, "preview"), ...createQuestionTools(() => Promise.reject(new Error("Questions are unavailable in the system prompt preview")), () => Promise.reject(new Error("Questions are unavailable in the system prompt preview")))], resourceLoader });
     try { return { content: session.systemPrompt, systemPromptPath, appendSystemPromptPath }; }
     finally { session.dispose(); }
   }
@@ -582,7 +585,8 @@ export class AgentService {
       return this.askBackgroundQuestion(handle, toolCallId, questions);
     };
     const questionTools = origin ? [] : createQuestionTools(askQuestion, askBackgroundQuestion);
-    const activeTools = [...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT, ...QUESTION_TOOLS] : [])];
+    const extensionTools = extensionToolNames(resourceLoader);
+    const activeTools = [...new Set([...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT, ...QUESTION_TOOLS] : []), ...extensionTools])];
     const tools = [...activeTools, "codemode"];
     const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : []), ...questionTools];
     const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader, model: configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model), thinkingLevel: configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels });

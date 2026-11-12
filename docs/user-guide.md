@@ -648,6 +648,48 @@ Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户�
 4. 等待状态变为 Installed。安装成功后，`playwright` 保存为启用状态；失败时日志显示在该行，server 保持未启用，可以再次打开开关重试。
 5. 启用后新建 Session，Agent 可以使用 `browser` skill 调用 `playwright` 工具。
 
+### Extensions
+
+1. 打开 Settings → Extensions。页面显示已安装扩展、加载状态、注册工具数量与扩展目录。
+2. 把扩展文件放入页面 Install directory 显示的目录。单文件直接放在该目录，多文件扩展放一个子目录并按下面三种布局之一组织。
+3. 在列表中确认扩展状态变为 Loaded。注册的工具显示在 Tools 一行；带 ` · on demand` 的工具不会自动加入模型工具列表。
+4. 新建 Session 使用新扩展。已经打开的 Session 保持加载时的扩展集合；需要让空闲 Session 使用新集合时点击 Refresh。
+5. 加载失败时，行内显示错误原因。修正文件后再次点击 Refresh。
+6. 需要卸载时，从扩展目录移走对应文件或目录，然后点击 Refresh。
+
+#### Extension 目录与文件布局
+
+Pi-Ark 从 `PI_ARK_AGENT_DIR/extensions` 读取扩展，支持三种布局：
+
+| 布局 | 示例 |
+|---|---|
+| 单文件 | `PI_ARK_AGENT_DIR/extensions/my-extension.ts` |
+| 目录与入口文件 | `PI_ARK_AGENT_DIR/extensions/my-extension/index.ts` |
+| 带依赖的目录 | `PI_ARK_AGENT_DIR/extensions/my-extension/package.json` 声明 `pi.extensions`，并在目录中执行 `npm install` |
+
+扩展文件默认导出一个函数，函数参数为 pi 的扩展接口。文件可以用 TypeScript 编写，不需要预先编译：
+
+```typescript
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+  pi.on("tool_call", async (event) => {
+    if (event.toolName === "write" && String(event.input.path).includes(".env")) {
+      return { block: true, reason: "Writes to .env are protected" };
+    }
+  });
+}
+```
+
+扩展可以订阅生命周期与工具事件、注册工具与命令、在会话中写入状态、通过 `resources_discover` 增加 skill 与 prompt。Pi-Ark 以非交互模式运行扩展，`ctx.ui` 的确认、选择与输入调用返回空结果；需要在会话中提问时，使用 Agent 自带的提问工具。
+
+#### 安装示例扩展
+
+pi 的自带示例位于安装包的 `node_modules/@earendil-works/pi-coding-agent/examples/extensions` 目录。可以把 `protected-paths.ts` 与 `session-name.ts` 复制到扩展目录后试用：
+
+- `protected-paths.ts` 阻止 `write` 与 `edit` 写入 `.env`、`.git/` 和 `node_modules/`。
+- `session-name.ts` 注册 `/session-name` 命令，在输入框发送 `/session-name 名称` 可以改当前 Session 的名字。
+
 ### Files
 
 Show hidden files 控制所有 Workspace 的普通 dotfile 是否进入 Files 列表，切换后立即保存。Maximum preview size 控制文本、Markdown 和支持图片的预览上限，默认是 10 MB，可设置范围是 1–100 MB；输入完成并离开输入框后保存，超过该值的文件仍可下载。
