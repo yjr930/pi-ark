@@ -72,6 +72,7 @@ if (!portable && serviceUser !== "root") {
 }
 await mkdir(prefix, { recursive: true, mode: 0o755 });
 await mkdir(dataDir, { recursive: true, mode: 0o700 });
+await mkdir(join(dataDir, "pi-agent", "secrets"), { recursive: true, mode: 0o700 });
 if (sourceData && resolve(sourceData) !== dataDir && !await optionalJson(join(dataDir, "config.json"))) {
   await cp(resolve(sourceData), dataDir, { recursive: true, force: false, dereference: process.platform === "win32", verbatimSymlinks: process.platform !== "win32" });
   const configPath = join(dataDir, "config.json");

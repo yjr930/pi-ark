@@ -120,8 +120,9 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 | Skill | 用途 | 依赖 |
 |---|---|---|
 | `browser` | 用 MCP `playwright` server 打开网页、点击、输入、截图 | `playwright` MCP server 已启用且浏览器运行时已安装 |
+| `mcp-servers` | 接入、验证和维护 MCP server，包含密钥通道与排查步骤 | 无 |
 
-首版只内置 `browser`。后续新增内置 skill 时同时更新本表与 `docs/index.md`。
+后续新增内置 skill 时同时更新本表与 `docs/index.md`。
 
 ### 7.2 browser skill 的内容要点
 
@@ -133,6 +134,16 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - 页面依赖异步加载时，用 `browser_wait_for` 等待目标元素出现再继续。
 - 脚本失败时保留部分输出，按 `Script error` 调整参数后重试。
 - 工具不可用时，先确认 `playwright` server 已启用、浏览器运行时已安装。
+
+### 7.3 mcp-servers skill 的内容要点
+
+- 说明 server 定义文件、命令行入口、支持的传输与生效时机。
+- 给出 stdio 与 HTTP 两种添加命令，以及 server 名与工具标识符的命名规则。
+- 规定搜索类 server 保持 `exposure` 为 `codemode`，需要直接可见时用 `toolExposure` 单独放开。
+- 说明写入 `description` 会影响系统提示词与 `searchTools()` 的排序。
+- 列出密钥的三条通道与推荐顺序，密钥目录为 `PI_ARK_AGENT_DIR/secrets`。
+- 给出用户自行写入密钥的四步流程，密钥内容不进入对话。
+- 给出验证命令与排查顺序，包括 `mcp.log` 与 OAuth 登录。
 
 ## 8. MCP 接入
 
@@ -154,7 +165,8 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 - `pi-ark mcp add <name>` 写 `mcp.json`，stdio 用 `--env` 与 `--` 后的命令定义，HTTP 用 `--url`、`--header`、`--bearer-token-env-var`。
 - `pi-ark mcp remove <name>` 删除配置，已保存的 OAuth 凭据保留。
 - `pi-ark mcp login <name>` 与 `pi-ark mcp logout <name>` 处理 OAuth 登录与退出。
-- 密钥通过 `--env`、`--header` 与 `--bearer-token-env-var` 引用环境变量，pi-ark 不提供单独的密钥存储。
+- 密钥通过 `--env`、`--header` 与 `--bearer-token-env-var` 引用环境变量，pi-ark 不提供单独的密钥存储界面。
+- 安装器创建 `PI_ARK_AGENT_DIR/secrets` 目录并保持 0700，`env` 与 `headers` 的值用 `!command` 引用该目录下的文件。用户自行写入密钥时只接触该目录，密钥内容不进入对话。
 - 用户可以直接编辑 `PI_ARK_AGENT_DIR/mcp.json`，格式与 pi 的 `mcp.json` 一致。
 - 配置变化后，Settings 页面通过 `Refresh` 按钮重新执行 `pi-ark mcp list --json` 并更新列表。
 - 新 Session 启动时读取最新配置，运行中的 Session 需要重建后使用新配置。

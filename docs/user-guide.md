@@ -712,6 +712,10 @@ pi-ark mcp logout <server-name>
 
 `login` 在服务器上打开浏览器，默认等待 300 秒，`--timeout <seconds>` 可以调整等待时间。登录或修改配置后，在 Settings → MCP 点击 Refresh 查看最新状态。新 Session 使用最新配置。
 
+密钥可以放在 `PI_ARK_AGENT_DIR/secrets` 目录，`mcp.json` 的 `env` 或 `headers` 用 `!command` 引用该文件，例如 `"Authorization": "!echo Bearer $(cat /var/lib/pi-ark-dev/pi-agent/secrets/tavily)"`。安装器创建该目录并保持 0700，密钥文件使用 0600。改动密钥文件后新 Session 生效，不需要重启服务。
+
+Agent 自带 `mcp-servers` skill，可以直接让它读取 `PI_ARK_AGENT_DIR/mcp.json`、执行 `pi-ark mcp add` 并验证连接。不希望把密钥发给 Agent 时，让它先写好配置，再由你在 Terminal 里把密钥写入 `secrets` 目录下的文件。
+
 ## 浏览器布局设置
 
 桌面侧栏 separator 上的箭头用于折叠和展开。拖动 separator 可以调整侧栏宽度。

@@ -409,6 +409,8 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 迁移状态写入 `.pi-ark-migration.json`。完成初始化后，Server 将 `PI_CODING_AGENT_DIR` 设置为 Pi-Ark agent directory。
 
+安装器创建 `PI_ARK_AGENT_DIR/secrets`，权限 0700，用于存放 `mcp.json` 中 `!command` 引用的密钥文件。安装过程只创建目录，不写入内容。
+
 ### Global settings
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
