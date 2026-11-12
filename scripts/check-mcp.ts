@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, posix, resolve, win32 } from "node:path";
 
 const temporaryRoot = join(process.cwd(), ".tmp");
 await mkdir(temporaryRoot, { recursive: true });
@@ -14,7 +14,7 @@ process.env.PI_ARK_AGENT_DIR = agentDir;
 process.env.PI_CODING_AGENT_DIR = agentDir;
 
 try {
-  const { McpService } = await import("../apps/server/src/mcp.ts");
+  const { McpService, playwrightBrowsersDirectory } = await import("../apps/server/src/mcp.ts");
   await mkdir(agentDir, { recursive: true });
   await mkdir(workspace.path, { recursive: true });
   const service = new McpService();
@@ -75,8 +75,21 @@ try {
   assert.deepEqual(migratedConfig.mcpServers.playwright.args, ["@playwright/mcp@0.0.85", "--browser=chromium", "--headless"]);
   assert.ok(migratedConfig.mcpServers.exa, "ensureConfig must add the exa entry to an existing config");
 
+  assert.equal(playwrightBrowsersDirectory({ platform: "linux", home: "/home/ark", env: {} }), posix.join("/home/ark", ".cache", "ms-playwright"));
+  assert.equal(playwrightBrowsersDirectory({ platform: "linux", home: "/home/ark", env: { XDG_CACHE_HOME: "/var/cache/ark" } }), posix.join("/var/cache/ark", "ms-playwright"));
+  assert.equal(playwrightBrowsersDirectory({ platform: "darwin", home: "/Users/ark", env: {} }), posix.join("/Users/ark", "Library", "Caches", "ms-playwright"));
+  assert.equal(playwrightBrowsersDirectory({ platform: "win32", home: "C:\\Users\\ark", env: { LOCALAPPDATA: "C:\\Users\\ark\\AppData\\Local" } }), win32.join("C:\\Users\\ark\\AppData\\Local", "ms-playwright"));
+  assert.equal(playwrightBrowsersDirectory({ platform: "linux", home: "/home/ark", env: { PLAYWRIGHT_BROWSERS_PATH: "/srv/browsers" } }), resolve("/srv/browsers"));
+
+  const expectedBrowserDirectory = process.env.PLAYWRIGHT_BROWSERS_PATH && process.env.PLAYWRIGHT_BROWSERS_PATH !== "0"
+    ? resolve(process.env.PLAYWRIGHT_BROWSERS_PATH)
+    : process.platform === "win32"
+      ? win32.join(process.env.LOCALAPPDATA || win32.join(homedir(), "AppData", "Local"), "ms-playwright")
+      : process.platform === "darwin"
+        ? posix.join(homedir(), "Library", "Caches", "ms-playwright")
+        : posix.join(process.env.XDG_CACHE_HOME || posix.join(homedir(), ".cache"), "ms-playwright");
   const browser = await service.browserStatus();
-  assert.equal(browser.directory, join(homedir(), ".cache", "ms-playwright"));
+  assert.equal(browser.directory, expectedBrowserDirectory);
   assert.equal(["not-installed", "installing", "installed", "failed"].includes(browser.state), true);
   console.log("MCP checks passed");
 } finally {

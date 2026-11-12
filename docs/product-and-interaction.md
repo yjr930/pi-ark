@@ -296,7 +296,7 @@ Refresh 重新读取扩展目录与加载结果，然后重载空闲 Session，�
 
 ### 配置的生效方式
 
-Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Skill 启用状态或 MCP server 启用状态保存后，Server 对空闲 Session 执行 reload；正在运行的 Session 保持当前资源集合，新建 Session 使用最新集合。扩展文件变化后，新建 Session 使用最新内容，Extensions 的 Refresh 同时重载空闲 Session。`playwright` 的浏览器运行时安装在服务账号 home 下的 `.cache/ms-playwright`。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
+Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Skill 启用状态或 MCP server 启用状态保存后，Server 对空闲 Session 执行 reload；正在运行的 Session 保持当前资源集合，新建 Session 使用最新集合。扩展文件变化后，新建 Session 使用最新内容，Extensions 的 Refresh 同时重载空闲 Session。`playwright` 的浏览器运行时安装在 Playwright 的浏览器缓存目录：设置 `PLAYWRIGHT_BROWSERS_PATH` 时取该变量的值，否则 Linux 使用服务账号 home 下的 `.cache/ms-playwright`，macOS 使用 `Library/Caches/ms-playwright`，Windows 使用 `%LOCALAPPDATA%` 下的 `ms-playwright`。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
 
 ## 桌面与移动布局
 

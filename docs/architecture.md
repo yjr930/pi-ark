@@ -511,7 +511,7 @@ Settings 的 MCP 类别分两阶段读取：先调用 `/api/mcp/configured` 渲�
 
 `McpService.setEnabled()` 校验 server 名称与 boolean，串行读取 `mcp.json`，只更新目标条目的 `enabled` 字段，以 temporary file 加 rename 原子写入，然后调用 `reloadIdleSessions()`。`McpService.setAdvanced()` 只接受 `playwright`，过滤 `args` 中已有的 `--caps=` 后按开关追加或移除 `--caps=config,network,storage,devtools,vision`，写回配置并重载空闲 Session。`mcp.json` 解析失败、条目不存在或写入失败时返回对应的 HTTP 错误。
 
-`McpService.browserStatus()` 检查服务账号 home 下的 `.cache/ms-playwright`，识别 `chromium_headless_shell-<数字>` 与 `chromium-<数字>` 目录并优先使用 headless shell。`installBrowser()` 在状态为 `not-installed` 或 `failed` 时执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`，设置 `npm_config_yes=true`，超时 15 分钟，并保留最多 64 KiB 的安装日志。安装目录出现后状态变为 `installed`；命令失败或没有生成目录时保持 `failed` 并保留日志。
+`McpService.browserStatus()` 检查 Playwright 的浏览器缓存目录：设置 `PLAYWRIGHT_BROWSERS_PATH` 时取该变量的值，否则取平台缓存目录下的 `ms-playwright`，其中 macOS 是服务账号 home 下的 `Library/Caches`，Windows 是 `%LOCALAPPDATA%`（变量缺失时取 home 下的 `AppData/Local`），Linux 是 `XDG_CACHE_HOME`（变量缺失时取 home 下的 `.cache`）。状态检查识别 `chromium_headless_shell-<数字>` 与 `chromium-<数字>` 目录并优先使用 headless shell。`installBrowser()` 在状态为 `not-installed` 或 `failed` 时执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`，设置 `npm_config_yes=true`，超时 15 分钟，并保留最多 64 KiB 的安装日志。安装目录出现后状态变为 `installed`；命令失败或没有生成目录时保持 `failed` 并保留日志。
 
 ### Extensions
 

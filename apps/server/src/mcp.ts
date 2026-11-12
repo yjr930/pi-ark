@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { piArkAgentDir, type WorkspaceDefinition } from "./config.js";
 
@@ -162,8 +162,23 @@ function mapServer(report: McpListReport): McpServerView | undefined {
   };
 }
 
+export interface PlaywrightDirectoryOptions {
+  platform: NodeJS.Platform;
+  home: string;
+  env: NodeJS.ProcessEnv;
+}
+
+// Playwright keeps its browsers in the registry directory, which is PLAYWRIGHT_BROWSERS_PATH when set, and otherwise the platform cache directory plus `ms-playwright`.
+export function playwrightBrowsersDirectory(options: PlaywrightDirectoryOptions): string {
+  const configured = options.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (configured && configured !== "0") return resolve(configured);
+  if (options.platform === "win32") return win32.join(options.env.LOCALAPPDATA || win32.join(options.home, "AppData", "Local"), "ms-playwright");
+  if (options.platform === "darwin") return posix.join(options.home, "Library", "Caches", "ms-playwright");
+  return posix.join(options.env.XDG_CACHE_HOME || posix.join(options.home, ".cache"), "ms-playwright");
+}
+
 function browserCacheDirectory(): string {
-  return join(homedir(), ".cache", "ms-playwright");
+  return playwrightBrowsersDirectory({ platform: process.platform, home: homedir(), env: process.env });
 }
 
 async function atomicWriteJson(path: string, value: unknown): Promise<void> {

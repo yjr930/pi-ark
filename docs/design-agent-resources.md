@@ -219,7 +219,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 
 ### 8.5 浏览器运行时
 
-- 浏览器二进制不进入 pi-ark 发布包，安装到服务用户 home 下的 `.cache/ms-playwright`。
+- 浏览器二进制不进入 pi-ark 发布包，安装到 Playwright 的浏览器缓存目录；设置 `PLAYWRIGHT_BROWSERS_PATH` 时取该变量的值，否则 Linux 使用服务用户 home 下的 `.cache/ms-playwright`，macOS 使用 `Library/Caches/ms-playwright`，Windows 使用 `%LOCALAPPDATA%` 下的 `ms-playwright`。
 - 用户在 Settings 启用 `playwright` server 时，Server 检查缓存目录中是否存在 Chromium 目录。
 - 缺失时 Server 自动执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`。
 - 安装任务在 Server 内串行执行，同一时间只允许一个任务。
