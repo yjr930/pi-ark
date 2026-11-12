@@ -134,6 +134,8 @@ Files、Terminal 和 Settings 使用 React lazy loading。Chat 保持在主 bund
 
 App 从浏览器 appearance 设置读取 `markdownLineBreaks`，并通过 React Context 将该设置传给共享的 Markdown renderer。Renderer 调用 `marked.parse(..., { breaks: markdownLineBreaks })`，使 conversations 与 Markdown files 使用相同的单次换行显示规则。该设置默认开启，控制 Markdown 的显示；原始文本、复制的 Markdown、Session JSONL 和 model context 保持原内容。
 
+Renderer 在解析后把 `style`、`script`、`link`、`meta`、`base`、`iframe`、`form`、`object` 与 `embed` 元素替换为它们的文本内容，再交给 DOMPurify 清理。消息与文件预览里出现的这类 HTML 因此只显示为文本，不会作用于 App 自身的页面样式、资源或文档基地址。
+
 ## Authentication
 
 Password 使用 scrypt 保存为 `scrypt$salt$digest`。登录成功后，AuthService 生成随机 token，将 token 的 SHA-256 哈希与 24 小时后的 expiry 写入 `PI_ARK_HOME/auth-sessions.json`。文件使用 `0o600`，并通过同目录临时文件与 rename 原子替换。Server 启动时在注册 routes 前读取该文件，因此服务重启后浏览器已有 cookie 继续有效。
@@ -909,7 +911,7 @@ Server 从 `apps/web/dist` 读取 Web assets。带 hash 的文件使用一年 im
 - File API 使用 realpath 防止相对路径和 symlink 离开 Workspace；图片与下载 stream 从已打开并再次核对 Workspace 边界的 file descriptor 读取。
 - `.pi-ark` state 无法通过 Files API 读取。
 - Attachment filename 会清理，并在 Session directory 中添加随机前缀。
-- HTML Markdown 使用 DOMPurify 清理。
+- HTML Markdown 使用 DOMPurify 清理，并把 `style`、`script`、`link`、`meta`、`base`、`iframe`、`form`、`object`、`embed` 替换为文本。
 - Terminal 与 Agent tools 拥有服务进程的系统权限。
 - Workspace path 是产品范围，不是操作系统权限隔离。
 - 当前生产服务应使用权限明确的专用系统账号，并只注册该账号需要访问的目录。
@@ -944,7 +946,7 @@ npm run release:build
 
 `check:file-links` 覆盖路径解析、文件访问规则、分片识别、队列去重、内存缓存、持久化确认结果的装载与有效期以及取消。`check:file-links-ui` 使用独立实例检查原文首显、延迟确认期间的输入响应、文件及目录跳转、相对链接、刷新、新标签页与长消息的批量处理。
 
-`check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格。
+`check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格；它还检查这些位置里的 `style` 与 `iframe` HTML 只显示文本，`body` 的内边距保持为零。
 
 `check:typography` 检查七个等级的标识与基准值、倍率范围与步进夹取、像素换算，以及外观设置的字段归一化；该脚本包含在 `check:behavior` 中。`check:typography-ui` 使用 `PI_ARK_CHECK_URL` 指定的实例，检查 Text size 的等级清单与像素显示、倍率改变后的计算字号、刷新后的保持、按浏览器隔离以及移动端布局。
 

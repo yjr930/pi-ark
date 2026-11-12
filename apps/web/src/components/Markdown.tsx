@@ -7,12 +7,16 @@ import { enhanceFileLinks } from "../file-link-dom";
 
 export const MarkdownLineBreaksContext = createContext(true);
 
+const pageScopedHtmlTags = ["style", "script", "link", "meta", "base", "iframe", "form", "object", "embed"];
+const pageScopedHtmlSelector = pageScopedHtmlTags.join(", ");
+
 export function Markdown({ source, className = "", resolveImage, onImageOpen, fileBasePath = "" }: { source: string; className?: string; resolveImage?: (source: string) => string; onImageOpen?: (source: string, alt: string) => void; fileBasePath?: string }) {
   const markdownLineBreaks = useContext(MarkdownLineBreaksContext);
   const fileLinks = useContext(FileLinksContext);
   const article = useRef<HTMLElement>(null);
   const html = useMemo(() => {
     const parsed = new DOMParser().parseFromString(marked.parse(source, { async: false, breaks: markdownLineBreaks }) as string, "text/html");
+    for (const element of parsed.querySelectorAll(pageScopedHtmlSelector)) element.replaceWith(parsed.createTextNode(element.textContent || ""));
     for (const link of parsed.querySelectorAll("a")) {
       const original = link.getAttribute("href") || "";
       const target = parseInternalSessionLink(original);

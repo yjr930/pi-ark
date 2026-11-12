@@ -11,7 +11,8 @@ const screenshots = process.env.PI_ARK_CHECK_SCREENSHOT_DIR || join(import.meta.
 await mkdir(screenshots, { recursive: true });
 const filename = "pi-ark-line-breaks.md";
 const filePath = join(workspace, filename);
-const source = "First line\nSecond line\n\nNext paragraph\n\n```text\ncode line one\ncode line two\n```\n\n- First item\n- Second item\n\n| Label | Value |\n| --- | --- |\n| One | Two |\n";
+const restrictedHtml = 'Inline HTML safety\n\n<style>body{padding:0 20px;background:rgb(1,2,3)}</style>\n\n<iframe src="https://example.com/"></iframe>\n';
+const source = "First line\nSecond line\n\nNext paragraph\n\n```text\ncode line one\ncode line two\n```\n\n- First item\n- Second item\n\n| Label | Value |\n| --- | --- |\n| One | Two |\n\n" + restrictedHtml;
 await writeFile(filePath, source, { flag: "wx" });
 const sessions = join(workspace, ".pi-ark", "sessions");
 await mkdir(sessions, { recursive: true });
@@ -60,6 +61,8 @@ async function checkMarkdown(article, enabled) {
   assert.equal(await article.locator("pre br").count(), 0);
   assert.equal(await article.locator("ul > li").count(), 2);
   assert.equal(await article.locator("table tbody > tr").count(), 1);
+  assert.equal(await article.locator("style, script, iframe, link, meta, base, form, object, embed").count(), 0);
+  await expect(article).toContainText("body{padding:0 20px;background:rgb(1,2,3)}");
 }
 
 async function checkConversation(enabled) {
@@ -72,6 +75,7 @@ async function checkConversation(enabled) {
   await reasoning.waitFor();
   if (await reasoning.getAttribute("open") === null) await reasoning.locator("summary").click();
   await checkMarkdown(reasoning.locator(".markdown-body"), enabled);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.body).padding), "0px");
 }
 
 async function checkFile(enabled) {
