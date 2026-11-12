@@ -40,41 +40,41 @@ try {
   await openAppearance();
 
   assert.deepEqual(await levelRows().locator("> strong").allTextContents(), ["Micro", "Caption", "Dense", "Interface", "Reading", "Section title", "Page title"]);
-  assert.deepEqual(await levelRows().locator("> small").allTextContents(), ["8 px", "9 px", "10 px", "11 px", "14 px", "20 px", "24 px"]);
+  assert.deepEqual(await levelRows().locator("> small").allTextContents(), ["9 px", "10 px", "11 px", "13 px", "15 px", "20 px", "26 px"]);
   assert.equal(await slider().inputValue(), "100");
   assert.equal(await page.locator(".text-size-value").textContent(), "100%");
-  await expectSize(".settings-section-title h3", 14);
-  await expectSize(".settings-row strong", 11);
-  await expectSize(".settings-field small", 9);
-  await expectSize(".text-size-level > small", 9);
+  await expectSize(".settings-section-title h3", 15);
+  await expectSize(".settings-row strong", 13);
+  await expectSize(".settings-field small", 10);
+  await expectSize(".text-size-level > small", 10);
 
   await setScale(115);
   assert.equal(await page.locator(".text-size-value").textContent(), "115%");
-  assert.deepEqual(await levelRows().locator("> small").allTextContents(), ["9.2 px", "10.35 px", "11.5 px", "12.65 px", "16.1 px", "23 px", "27.6 px"]);
-  await expectSize(".settings-section-title h3", 16.1);
-  await expectSize(".settings-row strong", 12.65);
-  await expectSize(".settings-field small", 10.35);
+  assert.deepEqual(await levelRows().locator("> small").allTextContents(), ["10.35 px", "11.5 px", "12.65 px", "14.95 px", "17.25 px", "23 px", "29.9 px"]);
+  await expectSize(".settings-section-title h3", 17.25);
+  await expectSize(".settings-row strong", 14.95);
+  await expectSize(".settings-field small", 11.5);
   assert.deepEqual(await appearance(), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true, fontScale: 1.15, showWorkingCount: true });
   assert.equal(await page.evaluate(() => document.documentElement.style.getPropertyValue("--fs-scale")), "1.15");
 
   await page.reload();
   await openAppearance();
   assert.equal(await slider().inputValue(), "115");
-  await expectSize(".settings-section-title h3", 16.1);
+  await expectSize(".settings-section-title h3", 17.25);
   await page.screenshot({ path: join(screenshots, "appearance-115.png"), fullPage: true });
 
   await setScale(90);
-  await expectSize(".settings-section-title h3", 12.6);
-  await expectSize(".settings-field small", 8.1);
+  await expectSize(".settings-section-title h3", 13.5);
+  await expectSize(".settings-field small", 9);
   await setScale(130);
-  await expectSize(".settings-section-title h3", 18.2);
-  assert.equal(await page.locator(".settings-tabs button span").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize)), 14.3);
+  await expectSize(".settings-section-title h3", 19.5);
+  assert.equal(await page.locator(".settings-tabs button span").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize)), 16.9);
   await page.screenshot({ path: join(screenshots, "appearance-130.png"), fullPage: true });
 
   await setScale(115);
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   assert.equal(await slider().inputValue(), "100");
-  await expectSize(".settings-section-title h3", 14);
+  await expectSize(".settings-section-title h3", 15);
   assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).isDisabled(), true);
 
   const otherContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: true });
@@ -87,7 +87,7 @@ try {
   await otherPage.locator(".sidebar-navigation").getByRole("button", { name: "Settings", exact: true }).click();
   await otherPage.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Appearance", exact: true }).click();
   await expect(otherPage.getByLabel("Text scale")).toHaveValue("100");
-  assert.equal(await otherPage.locator(".settings-section-title h3").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize)), 14);
+  assert.equal(await otherPage.locator(".settings-section-title h3").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize)), 15);
   await otherContext.close();
 
   await page.setViewportSize({ width: 390, height: 844 });

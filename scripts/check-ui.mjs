@@ -114,7 +114,7 @@ async function assertDialogChrome(dialog, { input = false } = {}) {
   assert.equal(metrics.padding, "16px");
   assert.equal(metrics.gap, "14px");
   assert.equal(metrics.radius, 12);
-  assert.equal(metrics.titleSize, 14);
+  assert.equal(metrics.titleSize, 15);
   assert.ok(metrics.buttonHeights.length >= 2 && metrics.buttonHeights.every((height) => Math.abs(height - 34) <= 0.5));
   if (input) assert.equal((await dialog.locator("input").first().boundingBox()).height, 36);
 }

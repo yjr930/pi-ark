@@ -609,13 +609,13 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 
 | 等级 | 变量 | 基准值 | 用途 |
 |---|---|---|---|
-| Micro | `--fs-micro` | 8 px | 徽标、计数、状态文字和工具行内的等宽短串 |
-| Caption | `--fs-caption` | 9 px | 辅助说明、次级标签、行内代码和小按钮 |
-| Dense | `--fs-dense` | 10 px | 密集行、字段说明、工具摘要和元信息行 |
-| Interface | `--fs-ui` | 11 px | 按钮、列表标题、表单值和侧栏项 |
-| Reading | `--fs-reading` | 14 px | 对话 Markdown、Files Markdown 预览、角色名称、对话框标题、错误提示与 reasoning |
+| Micro | `--fs-micro` | 9 px | 徽标、计数、状态文字和工具行内的等宽短串 |
+| Caption | `--fs-caption` | 10 px | 辅助说明、次级标签、行内代码和小按钮 |
+| Dense | `--fs-dense` | 11 px | 密集行、字段说明、工具摘要和元信息行 |
+| Interface | `--fs-ui` | 13 px | 按钮、输入框、导航、菜单项、列表标题和表单标签 |
+| Reading | `--fs-reading` | 15 px | 对话 Markdown、Files Markdown 预览、对话框标题、错误提示、reasoning 与 composer 输入 |
 | Section title | `--fs-section` | 20 px | 页面区块标题与空状态标题 |
-| Page title | `--fs-page` | 24 px | 登录标题与空对话欢迎标题 |
+| Page title | `--fs-page` | 26 px | 登录标题与空对话欢迎标题 |
 
 每个变量按 `calc(<基准值> * var(--fs-scale))` 计算，`--fs-scale` 由 Appearance 中的 Text size 控制，范围 0.9 到 1.3，步进 0.05，默认 1。Markdown 内的标题使用相对单位随 Reading 等级缩放：h1 为 1.7em，h2 为 1.3em，h3 为 1.12em；行内代码为 0.86em。移动端媒体查询在需要更紧凑的文字时切换等级，不写像素值。Terminal 的字号由 xterm 自己的 `fontSize` 控制，不参与这套等级。
 

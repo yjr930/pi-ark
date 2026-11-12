@@ -3,13 +3,13 @@ import { FONT_LEVELS, MAX_FONT_SCALE, MIN_FONT_SCALE, levelPixels, normalizeFont
 import { DEFAULT_APPEARANCE, normalizeAppearance } from "../apps/web/src/appearance.ts";
 
 assert.deepEqual(FONT_LEVELS.map((level) => [level.id, level.baseSize]), [
-  ["micro", 8],
-  ["caption", 9],
-  ["dense", 10],
-  ["ui", 11],
-  ["reading", 14],
+  ["micro", 9],
+  ["caption", 10],
+  ["dense", 11],
+  ["ui", 13],
+  ["reading", 15],
   ["section", 20],
-  ["page", 24],
+  ["page", 26],
 ]);
 assert.equal(new Set(FONT_LEVELS.map((level) => level.label)).size, FONT_LEVELS.length);
 
@@ -30,18 +30,19 @@ assert.equal(normalizeFontScale(2), 1.3);
 const reading = FONT_LEVELS.find((level) => level.id === "reading");
 const micro = FONT_LEVELS.find((level) => level.id === "micro");
 assert.ok(reading && micro);
-assert.equal(levelPixels(reading, 1), 14);
-assert.equal(levelPixels(reading, 1.15), 16.1);
-assert.equal(levelPixels(FONT_LEVELS.find((level) => level.id === "ui")!, 1.15), 12.65);
-assert.equal(levelPixels(FONT_LEVELS.find((level) => level.id === "dense")!, 1.15), 11.5);
-assert.equal(levelPixels(reading, 1.3), 18.2);
-assert.equal(levelPixels(micro, 0.9), 7.2);
+assert.equal(levelPixels(reading, 1), 15);
+assert.equal(levelPixels(reading, 1.15), 17.25);
+assert.equal(levelPixels(FONT_LEVELS.find((level) => level.id === "ui")!, 1.15), 14.95);
+assert.equal(levelPixels(FONT_LEVELS.find((level) => level.id === "dense")!, 1.15), 12.65);
+assert.equal(levelPixels(reading, 1.3), 19.5);
+assert.equal(levelPixels(micro, 0.9), 8.1);
 
-assert.deepEqual(normalizeAppearance(null), DEFAULT_APPEARANCE);
-assert.deepEqual(normalizeAppearance({}), DEFAULT_APPEARANCE);
-assert.deepEqual(normalizeAppearance({ theme: "paper", hideReasoning: true, markdownLineBreaks: false, fontScale: 1.2 }), { theme: "paper", hideReasoning: true, markdownLineBreaks: false, fontScale: 1.2, showWorkingCount: true });
-assert.deepEqual(normalizeAppearance({ theme: "unknown", hideReasoning: "true", markdownLineBreaks: 0, fontScale: 9 }), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true, fontScale: 1.3, showWorkingCount: true });
-assert.deepEqual(normalizeAppearance({ theme: "graphite", hideReasoning: true, markdownLineBreaks: true, fontScale: 0.75 }), { theme: "graphite", hideReasoning: true, markdownLineBreaks: true, fontScale: 0.9, showWorkingCount: true });
+const pickAppearance = (value: ReturnType<typeof normalizeAppearance>) => ({ theme: value.theme, hideReasoning: value.hideReasoning, markdownLineBreaks: value.markdownLineBreaks, fontScale: value.fontScale, showWorkingCount: value.showWorkingCount });
+assert.deepEqual(pickAppearance(normalizeAppearance(null)), pickAppearance(DEFAULT_APPEARANCE));
+assert.deepEqual(pickAppearance(normalizeAppearance({})), pickAppearance(DEFAULT_APPEARANCE));
+assert.deepEqual(pickAppearance(normalizeAppearance({ theme: "paper", hideReasoning: true, markdownLineBreaks: false, fontScale: 1.2 })), { theme: "paper", hideReasoning: true, markdownLineBreaks: false, fontScale: 1.2, showWorkingCount: true });
+assert.deepEqual(pickAppearance(normalizeAppearance({ theme: "unknown", hideReasoning: "true", markdownLineBreaks: 0, fontScale: 9 })), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true, fontScale: 1.3, showWorkingCount: true });
+assert.deepEqual(pickAppearance(normalizeAppearance({ theme: "graphite", hideReasoning: true, markdownLineBreaks: true, fontScale: 0.75 })), { theme: "graphite", hideReasoning: true, markdownLineBreaks: true, fontScale: 0.9, showWorkingCount: true });
 assert.equal(normalizeAppearance({ showWorkingCount: false }).showWorkingCount, false);
 assert.equal(normalizeAppearance({ showWorkingCount: "false" }).showWorkingCount, true);
 

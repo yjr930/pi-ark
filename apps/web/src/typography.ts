@@ -8,13 +8,13 @@ export interface FontLevel {
 }
 
 export const FONT_LEVELS: readonly FontLevel[] = Object.freeze([
-  { id: "micro", label: "Micro", role: "Badges, counts, and status text", baseSize: 8 },
-  { id: "caption", label: "Caption", role: "Hints, secondary labels, and inline code", baseSize: 9 },
-  { id: "dense", label: "Dense", role: "Dense rows, field hints, and tool summaries", baseSize: 10 },
-  { id: "ui", label: "Interface", role: "Buttons, list titles, and form values", baseSize: 11 },
-  { id: "reading", label: "Reading", role: "Conversations, Markdown files, and dialog titles", baseSize: 14 },
+  { id: "micro", label: "Micro", role: "Badges, counts, and status text", baseSize: 9 },
+  { id: "caption", label: "Caption", role: "Hints, secondary labels, and inline code", baseSize: 10 },
+  { id: "dense", label: "Dense", role: "Dense rows, field hints, and tool summaries", baseSize: 11 },
+  { id: "ui", label: "Interface", role: "Buttons, list titles, and form values", baseSize: 13 },
+  { id: "reading", label: "Reading", role: "Conversations, Markdown files, and dialog titles", baseSize: 15 },
   { id: "section", label: "Section title", role: "Page sections and empty states", baseSize: 20 },
-  { id: "page", label: "Page title", role: "Sign-in and welcome headings", baseSize: 24 },
+  { id: "page", label: "Page title", role: "Sign-in and welcome headings", baseSize: 26 },
 ]);
 
 export const MIN_FONT_SCALE = 0.9;
