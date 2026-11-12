@@ -335,6 +335,8 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
 
 Composer 为空时显示 `Send message here`。在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
 
+输入 `/` 会打开 skill 列表，输入 `$` 打开 MCP server 列表，输入 `@` 打开当前 Workspace 的文件列表。继续输入关键词收窄候选；`$` 后面写 `server/` 可以列出该 server 的工具。用 ArrowUp 和 ArrowDown 选择，Enter 或 Tab 插入，Esc 关闭。插入后文本分别是 `/skill-name`、`$server` 或 `$server/tool`、`@relative/path`。
+
 输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。当前 turn 的 user message 越过顶部后会固定显示在 conversation 顶部；向上滚动到原 message 时，顶部 bar 会立即切换到前一个 user message。点击顶部 User bar 的任意位置可以返回原 message；定位后的 User message 位于顶部 bar 下方，并保留 8 px 间距。
 
 ### 选择当前 Session 的 model

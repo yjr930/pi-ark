@@ -10,6 +10,8 @@ import type { AgentMessage, AgentSnapshot, ContentBlock, QueuedMessage, QueueSta
 import { Markdown } from "./Markdown";
 import { NameDialog } from "./NameDialog";
 import { Select } from "./Select";
+import { ComposerSuggest } from "./ComposerSuggest";
+import { applySuggestion, detectTrigger, filterSuggestItems, splitMcpQuery, type SuggestItem, type Trigger } from "../composer-suggest";
 import { SubagentBadge, SubagentList, SessionReference } from "./SubagentRun";
 import { subagentListItems } from "../subagent-view";
 import { pinnedPiArkLink } from "../../../server/src/internal-links";
@@ -22,6 +24,7 @@ const SUPPORTED_IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image
 type ChatWidth = "compact" | "wide" | "full";
 type PendingAttachment = CachedSessionAttachment;
 type DisclosureChange = (key: string, open: boolean) => void;
+interface ComposerSuggestState { trigger: Trigger; items: SuggestItem[]; selected: number; loading: boolean; truncated: boolean }
 interface PendingQueuedMessage { id: string; text: string; matchText: string; expectedMatchCount: number; status: "scheduling" | "failed"; error?: string }
 type OptimisticQueueOperation =
   | { id: string; type: "update"; itemId: string; update: { direction?: "up" | "down"; mode?: "steering" | "followUp" } }
@@ -342,6 +345,10 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const [pendingQueuedMessages, setPendingQueuedMessages] = useState<PendingQueuedMessage[]>([]);
   const [optimisticQueueOperations, setOptimisticQueueOperations] = useState<OptimisticQueueOperation[]>([]);
   const [retryNotice, setRetryNotice] = useState<{ attempt: number; maxAttempts: number; errorMessage: string } | null>(null);
+  const [suggest, setSuggest] = useState<ComposerSuggestState | null>(null);
+  const suggestCacheRef = useRef<{ workspaceId: string; skills?: SuggestItem[]; servers?: import("../types").McpServerView[] }>({ workspaceId: "" });
+  const suggestTimerRef = useRef<number | undefined>(undefined);
+  const suggestSequenceRef = useRef(0);
   const socketRef = useRef<WebSocket | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(restorePosition?.followOutput ?? true);
@@ -604,8 +611,77 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     catch (reason) { setOptimisticQueueOperations((current) => current.filter((item) => item.id !== operation.id)); setStatus(reason instanceof Error ? reason.message : "Cannot merge queued follow-ups"); }
     finally { setQueueBusy(false); }
   }
+  function suggestCache() {
+    if (suggestCacheRef.current.workspaceId !== workspace.id) suggestCacheRef.current = { workspaceId: workspace.id };
+    return suggestCacheRef.current;
+  }
+  function mcpItemsFor(servers: import("../types").McpServerView[], query: string): SuggestItem[] {
+    const split = splitMcpQuery(query);
+    if (split) {
+      const server = servers.find((entry) => entry.name === split.server);
+      if (!server) return [];
+      return filterSuggestItems(server.tools.map((tool) => ({ id: `mcp:${server.name}/${tool}`, kind: "mcp" as const, label: `${server.name}/${tool}`, detail: "tool", insert: `$${server.name}/${tool}` })), split.tool);
+    }
+    return filterSuggestItems(servers.map((server) => ({ id: `mcp:${server.name}`, kind: "mcp" as const, label: server.name, detail: server.tools.length > 0 ? `${server.tools.length} tools` : server.transport, status: server.state, insert: `$${server.name}` })), query);
+  }
+  function applySuggestItem(item: SuggestItem) {
+    if (!suggest) return;
+    const next = applySuggestion(draft, suggest.trigger, item.insert);
+    setDraft(next.text);
+    setSuggest(null);
+    window.requestAnimationFrame(() => {
+      const textarea = composerTextareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(next.caret, next.caret);
+    });
+  }
+  function updateSuggest(text: string, caret: number) {
+    if (suggestTimerRef.current !== undefined) window.clearTimeout(suggestTimerRef.current);
+    const trigger = detectTrigger(text, caret);
+    const sequence = suggestSequenceRef.current + 1;
+    suggestSequenceRef.current = sequence;
+    if (!trigger) { setSuggest(null); return; }
+    if (trigger.kind === "file") {
+      setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
+      suggestTimerRef.current = window.setTimeout(() => {
+        void api.searchWorkspaceFiles(workspace.id, trigger.query).then((result) => {
+          if (suggestSequenceRef.current !== sequence) return;
+          setSuggest({ trigger, items: result.entries.map((entry) => ({ id: `file:${entry.path}`, kind: "file" as const, label: entry.path.split("/").pop() || entry.path, detail: entry.path, insert: `@${entry.path}` })), selected: 0, loading: false, truncated: result.truncated });
+        }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest({ trigger, items: [], selected: 0, loading: false, truncated: false }); });
+      }, 120);
+      return;
+    }
+    const cache = suggestCache();
+    if (trigger.kind === "skill") {
+      if (cache.skills) { setSuggest({ trigger, items: filterSuggestItems(cache.skills, trigger.query), selected: 0, loading: false, truncated: false }); return; }
+      setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
+      void api.skills(workspace.id).then((response) => {
+        const items = [...response.builtin, ...response.global, ...response.workspace].filter((skill) => skill.enabled).map((skill) => ({ id: `skill:${skill.name}`, kind: "skill" as const, label: skill.name, detail: skill.description, status: skill.source, insert: `/${skill.name}` }));
+        suggestCacheRef.current.skills = items;
+        if (suggestSequenceRef.current !== sequence) return;
+        setSuggest({ trigger, items: filterSuggestItems(items, trigger.query), selected: 0, loading: false, truncated: false });
+      }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest(null); });
+      return;
+    }
+    if (cache.servers) { setSuggest({ trigger, items: mcpItemsFor(cache.servers, trigger.query), selected: 0, loading: false, truncated: false }); return; }
+    setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
+    void api.mcpServers(workspace.id).then((response) => {
+      const servers = response.servers.filter((server) => server.enabled);
+      suggestCacheRef.current.servers = servers;
+      if (suggestSequenceRef.current !== sequence) return;
+      setSuggest({ trigger, items: mcpItemsFor(servers, trigger.query), selected: 0, loading: false, truncated: false });
+    }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest(null); });
+  }
+  function moveSuggestion(direction: number) {
+    if (!suggest) return;
+    const count = suggest.items.length;
+    if (count === 0) return;
+    setSuggest({ ...suggest, selected: (suggest.selected + direction + count) % count });
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setSuggest(null);
     const text = draft.trim();
     if (leafEntryId || isSubagent) return;
     if ((!text && attachments.length === 0) || socketRef.current?.readyState !== WebSocket.OPEN || preparingAttachments) return;
@@ -644,10 +720,11 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     </div>
     {!isLoading && snapshot?.subagents?.managed && !leafEntryId && <div className="subagent-managed-notice"><span>The parent is managing this task.</span><button type="button" className="stop-button" title="Stop" onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>}
     {!isLoading && !leafEntryId && !isSubagent && <form className="composer" onSubmit={(event) => void submit(event)}>
+      {suggest && <ComposerSuggest kind={suggest.trigger.kind} query={suggest.trigger.query} items={suggest.items} selected={suggest.selected} loading={suggest.loading} truncated={suggest.truncated} onHover={(index) => setSuggest((current) => current ? { ...current, selected: index } : current)} onSelect={applySuggestItem} />}
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}
       {(displayedQueue.length + pendingQueuedMessages.length > 0) && <div className="message-queue"><div className="message-queue-title"><div><strong>Queue</strong><span>Steering runs before follow-up</span></div><button type="button" className="queue-merge-button" disabled={queueBusy || queuedFollowUpCount < 2} onClick={() => void mergeQueuedFollowUps()}>Merge follow-ups</button></div>{displayedQueue.map((item) => { const sameMode = displayedQueue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Edit queued message" aria-label="Edit queued message" disabled={queueBusy} onClick={() => editQueuedMessage(item)}><Pencil size={12} /></button><button type="button" title="Move queued message up" disabled={queueBusy || position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={queueBusy || position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" disabled={queueBusy} onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}{pendingQueuedMessages.map((item) => <div className={`queued-message pending ${item.status}`} key={item.id}><span className="queue-mode followUp">Follow-up</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div className="queue-pending-state" title={item.error}><span>{item.status === "scheduling" ? <LoaderCircle className="queue-pending-spinner" size={12} /> : <TriangleAlert size={12} />}{item.status === "scheduling" ? "Scheduling" : "Failed"}</span>{item.status === "failed" && <button type="button" title="Dismiss failed queued message" aria-label="Dismiss failed queued message" onClick={() => setPendingQueuedMessages((current) => current.filter((pending) => pending.id !== item.id))}><X size={12} /></button>}</div></div>)}</div>}
       {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <div className={`attachment-preview ${attachment.preview ? "image" : "file"}`} key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt={attachment.file.name} /> : <FileIcon size={18} />}<span><strong>{attachment.file.name}</strong><small>{number(attachment.file.size / 1024)} KB</small></span><button type="button" title={`Remove ${attachment.file.name}`} onClick={() => removeAttachment(attachment.id)}><Trash2 size={13} /></button></div>)}</div>}
-      <textarea ref={composerTextareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onPaste={pasteAttachments} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Send message here" rows={1} />
+      <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); updateSuggest(value, event.currentTarget.selectionStart); }} onPaste={pasteAttachments} onClick={(event) => updateSuggest(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (suggest) { if (event.key === "ArrowDown") { event.preventDefault(); moveSuggestion(1); return; } if (event.key === "ArrowUp") { event.preventDefault(); moveSuggestion(-1); return; } if (event.key === "Escape") { event.preventDefault(); setSuggest(null); return; } if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) { const item = suggest.items[suggest.selected]; if (item) { event.preventDefault(); applySuggestItem(item); return; } } } if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Send message here" rows={1} />
       <div className="composer-toolbar"><button type="button" className="attach-button" title="Add attachments or images" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(event.target.files)} /><div className="composer-runtime composer-model"><Select ariaLabel="Session model" value={modelValue} placeholder={snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "Select…"} options={models.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name || model.id, description: model.id, status: model.provider }))} onChange={(value) => { const model = models.find((item) => `${item.provider}/${item.id}` === value); if (model) { setStatus("Changing model"); send({ type: "set-model", provider: model.provider, model: model.id }); } }} /></div><div className="composer-runtime composer-thinking"><Select ariaLabel="Session thinking level" value={snapshot?.thinkingLevel || ""} options={thinkingLevels.map((level) => ({ value: level, label: level }))} onChange={(level) => { setStatus("Changing thinking level"); send({ type: "set-thinking-level", level }); }} /></div><span className="composer-hint">Enter to send · Shift Enter for a new line</span><button className="send-button" title={active ? "Send follow-up" : "Send"} disabled={preparingAttachments || (!draft.trim() && attachments.length === 0)}><ArrowUp size={18} /></button><button type="button" className="stop-button" title="Stop" disabled={!active} onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>
     </form>}
     {!isLoading && renameOpen && <NameDialog title="Rename session" description="Set a title that is easy to find in the session list." label="Session title" initialValue={title} submitLabel="Rename session" icon={<Pencil size={18} />} onClose={() => setRenameOpen(false)} onSubmit={async (name) => { send({ type: "rename-session", name }); setSnapshot((current) => current ? { ...current, name } : current); window.setTimeout(onSessionChanged, 150); setRenameOpen(false); }} />}

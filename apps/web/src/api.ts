@@ -80,6 +80,7 @@ export const api = {
   createSessionGroup: (workspaceId: string, name: string) => request<import("./types").SessionGroup>(`/api/workspaces/${encodeURIComponent(workspaceId)}/session-groups`, { method: "POST", body: JSON.stringify({ name }) }),
   renameSessionGroup: (workspaceId: string, groupId: string, name: string) => request<import("./types").SessionGroup>(`/api/workspaces/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteSessionGroup: (workspaceId: string, groupId: string) => request<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}`, { method: "DELETE" }),
+  searchWorkspaceFiles: (workspaceId: string, query: string, limit = 20) => request<import("./types").FileSearchResponse>(`/api/workspaces/${encodeURIComponent(workspaceId)}/file-search?q=${encodeURIComponent(query)}&limit=${limit}`),
   files: (workspaceId: string, path: string) => request<{ entries: import("./types").FileEntry[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(path)}`),
   file: (workspaceId: string, path: string) => request<import("./types").FileContent>(`/api/workspaces/${encodeURIComponent(workspaceId)}/file?path=${encodeURIComponent(path)}`),
   fileImageUrl: (workspaceId: string, path: string) => withBasePath(`/api/workspaces/${encodeURIComponent(workspaceId)}/image?path=${encodeURIComponent(path)}`),

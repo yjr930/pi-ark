@@ -266,6 +266,24 @@ export interface TerminalInfo {
   rows: number;
 }
 
+export type FileListSource = "rg" | "git" | "walk";
+
+export interface FileSearchEntry {
+  path: string;
+  score: number;
+}
+
+export interface FileSearchResponse {
+  query: string;
+  entries: FileSearchEntry[];
+  matches: number;
+  total: number;
+  truncated: boolean;
+  source: FileListSource;
+  builtAt: number;
+  cached: boolean;
+}
+
 export type SkillScope = "builtin" | "global" | "workspace";
 
 export type SkillSource = "built-in" | "managed";

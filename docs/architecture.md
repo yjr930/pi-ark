@@ -88,6 +88,7 @@ docs/               产品、架构、使用和集成文档
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
 | Session metadata | `apps/server/src/session-metadata.ts` | Pin、Archive、group 和串行原子写入 |
 | Workspace Notebook | `apps/server/src/workspace-notebook.ts` | Workspace 临时笔记的读取与串行原子写入 |
+| File search | `apps/server/src/file-search.ts` | Workspace 文件清单缓存、关键词打分与输入框文件补全查询 |
 | Global settings | `apps/server/src/settings.ts` | Provider、model、thinking、queue、compaction、retry 和 credential login |
 | OAuth flow | `apps/server/src/auth-flows.ts` | Subscription login 的事件、prompt、answer 和 cancel 状态 |
 | Pi-Ark release | `apps/server/src/pi-core.ts` | Pi-Ark 与 bundled pi core 版本信息、GitHub Releases 查询、完整 release 更新、回退和延迟重启 |
@@ -290,6 +291,16 @@ Server 自动附加父 Session 最近的 user message 作为来源，并保存�
 - 状态码不为 2xx 时抛出带状态码与正文片段的错误；非文本响应抛出 `Unsupported content type`；只接受 `http` 与 `https`。
 - 文本编码读取 `content-type` 的 charset，无法解码时回退 UTF-8。
 - 工具声明只读 annotations，允许并行执行。说明里要求需要 JavaScript 渲染、登录、点击或截图的页面改用浏览器工具。
+
+### 文件搜索缓存
+
+Composer 的文件补全调用 `FileSearchIndex.search()`。每个 Workspace 在内存中保存一份文件路径清单，首次查询时构建，之后五分钟内复用，`refresh=1` 强制重建。
+
+- 构建顺序：`rg --files`、`git ls-files --cached --others --exclude-standard`、受限目录遍历。
+- 受限遍历跳过 `.git`、`node_modules`、`.venv`、`_venv` 和 `__pycache__`，最多保留 60000 条，超时 15 秒。
+- 结果按路径打分排序，得分规则依次为文件名完全匹配、文件名前缀、文件名包含、路径前缀、路径包含、子序列匹配。
+- 空关键词返回层级最浅的文件，用于刚输入 `@` 时展示候选。
+- 返回内容包含 `matches`、`total`、`truncated`、`source`、`builtAt` 与 `cached`，`source` 取 `rg`、`git` 或 `walk`。
 
 ### Snapshot
 
@@ -601,6 +612,7 @@ Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fon
 | PATCH/DELETE | `/api/workspaces/:workspaceId` | 重命名或关闭 Workspace |
 | GET | `/api/directories` | 目录建议 |
 | GET | `/api/workspaces/:workspaceId/files` | 目录列表 |
+| GET | `/api/workspaces/:workspaceId/file-search` | 按关键词搜索 Workspace 文件；`q`、`limit` 与 `refresh` 为可选参数 |
 | GET | `/api/workspaces/:workspaceId/file` | 文本或图片 preview metadata；执行 Global preview limit |
 | POST | `/api/workspaces/:workspaceId/file-links/resolve` | 批量确认文件路径并返回 Files 的目标路径 |
 | GET | `/api/workspaces/:workspaceId/image` | Files/Markdown image stream；执行 Global preview limit |

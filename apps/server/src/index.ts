@@ -17,6 +17,7 @@ import { TerminalService } from "./terminal.js";
 import { discoverTerminalProfiles } from "./terminal-shells.js";
 import { WorkspaceService } from "./workspaces.js";
 import { resolveFileLinks } from "./file-links.js";
+import { FileSearchIndex } from "./file-search.js";
 import { readWorkspaceNotebook, saveWorkspaceNotebook } from "./workspace-notebook.js";
 
 const previousAgentDir = process.env.PI_ARK_MIGRATE_AGENT_DIR || process.env.PI_CODING_AGENT_DIR;
@@ -36,6 +37,7 @@ const authFlows = new AuthFlowService((providerId, interaction) => settings.logi
 const agents = new AgentService(settings, workspaces);
 const skills = new SkillService(workspaces, () => agents.reloadIdleSessions());
 const mcp = new McpService(() => agents.reloadIdleSessions());
+const fileSearch = new FileSearchIndex();
 await mcp.ensureConfig();
 
 function workspaceFromQuery(workspaceId?: string) {
@@ -158,6 +160,11 @@ app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/a
   return { entries: await workspaces.listDirectory(workspace, request.query.path || "", preferences.files.showHiddenFiles) };
 });
 app.post<{ Params: { workspaceId: string }; Body: unknown }>("/api/workspaces/:workspaceId/file-links/resolve", async (request) => resolveFileLinks(workspaces, request.params.workspaceId, request.body));
+app.get<{ Params: { workspaceId: string }; Querystring: { q?: string; limit?: string; refresh?: string } }>("/api/workspaces/:workspaceId/file-search", async (request) => {
+  const workspace = workspaces.get(request.params.workspaceId);
+  const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
+  return fileSearch.search(workspace.path, request.query.q ?? "", { limit, refresh: request.query.refresh === "1" });
+});
 app.get<{ Params: { workspaceId: string }; Querystring: { path: string } }>("/api/workspaces/:workspaceId/file", async (request) => {
   if (!request.query.path) throw Object.assign(new Error("A file path is required"), { statusCode: 400 });
   const workspace = workspaces.get(request.params.workspaceId);
