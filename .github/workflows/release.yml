@@ -146,6 +146,8 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
@@ -176,10 +178,13 @@ jobs:
           assert.deepEqual(entries.map((entry) => entry.name).sort(), expected, 'Candidate archive filename list must match the release version and all native platforms');
           console.log(`Verified release archives:\n${expected.join('\n')}`);
           NODE
+      - name: Write release notes
+        run: node scripts/release-notes.mjs > RELEASE_NOTES.md
       - uses: softprops/action-gh-release@v2
         with:
+          name: Pi-Ark ${{ steps.candidate.outputs.version }}
+          body_path: RELEASE_NOTES.md
           files: |
             artifacts/*.tar.gz
             artifacts/*.zip
           fail_on_unmatched_files: true
-          generate_release_notes: true

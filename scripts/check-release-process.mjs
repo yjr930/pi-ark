@@ -28,7 +28,7 @@ let candidateCalls = 0;
 let publishedRelease;
 let omitRuns = false;
 function completeRelease() {
-  return { tag_name: `v${selectedVersion}`, draft: false, prerelease: false, html_url: `https://github.com/fixture/repository/releases/tag/v${selectedVersion}`, published_at: "2026-01-01T00:00:00Z", assets: candidateHelper.RELEASE_ARTIFACT_NAMES.map((name) => ({ name: `${name.replace("pi-ark-", `pi-ark-${selectedVersion}-`)}.${name.includes("win32") ? "zip" : "tar.gz"}`, size: 1024 })) };
+  return { tag_name: `v${selectedVersion}`, draft: false, prerelease: false, body: "Release notes for the fixture", html_url: `https://github.com/fixture/repository/releases/tag/v${selectedVersion}`, published_at: "2026-01-01T00:00:00Z", assets: candidateHelper.RELEASE_ARTIFACT_NAMES.map((name) => ({ name: `${name.replace("pi-ark-", `pi-ark-${selectedVersion}-`)}.${name.includes("win32") ? "zip" : "tar.gz"}`, size: 1024 })) };
 }
 const annotations = [{ title: "Native CI command failed", annotation_level: "failure", message: "npm ci\nError: native fixture compiler failed\nExit: 1" }];
 const artifacts = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"].map((name, i) => ({ id: i + 1, name: `pi-ark-${name}` }));
@@ -237,6 +237,8 @@ try {
   const invalidReleases = [
     { ...validRelease, draft: true },
     { ...validRelease, prerelease: true },
+    { ...validRelease, body: "" },
+    { ...validRelease, body: undefined },
     { ...validRelease, tag_name: "v9.9.9" },
     { ...validRelease, assets: validRelease.assets.slice(1) },
     { ...validRelease, assets: [...validRelease.assets, { name: "unexpected.tar.gz", size: 1024 }] },

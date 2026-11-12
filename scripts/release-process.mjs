@@ -73,6 +73,7 @@ export function verifyPublishedRelease(release, version, { repository = defaultR
   const expected = RELEASE_ARTIFACT_NAMES.map((name) => `${name.replace("pi-ark-", `pi-ark-${version}-`)}.${name.includes("win32") ? "zip" : "tar.gz"}`).sort();
   const problems = [];
   if (release.draft !== false) problems.push("Release 的 draft 字段需要为 false");
+  if (!release.body || !release.body.trim()) problems.push("Release 正文需要包含发布说明");
   if (release.prerelease !== false) problems.push("Release 的 prerelease 字段需要为 false");
   if (release.tag_name !== `v${version}`) problems.push(`Release tag_name 为 ${release.tag_name}，预期为 v${version}`);
   const assets = release.assets;

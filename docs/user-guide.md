@@ -879,7 +879,7 @@ npm run release:status -- --version "$VERSION" --watch
 npm run release:publish -- --version "$VERSION" --watch
 ```
 
-命令核对源码与版本，并确认原生安装包齐全，随后创建并推送 annotated `v<version>` tag。Tag workflow 下载对应成功候选的安装包，核对文件名与版本，再发布 GitHub Release。状态命令确认正式 Release 的类型、tag 和非空安装包清单后，显示正式发布已完成。
+命令核对源码与版本，并确认原生安装包齐全，随后创建并推送 annotated `v<version>` tag。Tag workflow 下载对应成功候选的安装包，核对文件名与版本，再发布 GitHub Release。发布前 workflow 运行 `scripts/release-notes.mjs`，用上一个正式 tag 到当前版本的变更生成发布说明，包含版本、发布日期、主要变更列表与完整对比链接。状态命令确认正式 Release 的类型、tag、发布说明和非空安装包清单后，显示正式发布已完成。
 
 重复执行 `release:publish` 可以确认已经完整交付的同一正式版本。需要继续查看进度时，执行 `release:status --watch`；正式发布 job 失败时，可以在输出的 Actions 链接中重新运行该 job，再继续查询。
 

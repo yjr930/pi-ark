@@ -126,6 +126,8 @@ npm run release:publish -- --version "$VERSION" --watch
 
 `prepare` 从 Linux dev 服务的实际进程与安装包来源记录固定源码，在 `.tmp/release-process/<version>/` 中创建隔离工作区并推送候选分支。`status` 显示原生构建进度与具体错误；`publish` 创建正式 tag，并让 GitHub Release 复用已确认的候选安装包。发布前修正源码时，使用 `prepare --source <已确认的 Git ref> --refresh` 更新同一目标版本的候选。
 
+tag workflow 在创建 GitHub Release 前运行 `scripts/release-notes.mjs`，用上一个正式 tag 到当前版本的变更生成发布说明。Release 正文包含版本、发布日期、主要变更列表与完整对比链接；正文为空视为发布未完成。
+
 其他来源使用 `--source <已确认的 Git ref>`。来源记录、恢复步骤和发布后的实例更新见[使用手册](docs/user-guide.md#从-dev-实例到正式发布上线)。
 
 ## 命令行管理
