@@ -67,7 +67,7 @@ try {
     assert.deepEqual((await config.loadGlobalPreferences()).agent, { systemPrompt: { append: "Shared instructions" } });
     for (const target of [workspace, otherWorkspace]) {
       const preview = await service.getGlobalSystemPrompt(target);
-      for (const tool of ["read", "bash", "edit", "write", "read_pi_ark_link", "subagent"]) assert.match(preview.content, new RegExp(`\\b${tool}\\b`));
+      for (const tool of ["read", "bash", "edit", "write", "read_pi_ark_link", "subagent", "question", "question_background"]) assert.match(preview.content, new RegExp(`\\b${tool}\\b`));
       assert.match(preview.content, /Shared instructions/);
     }
   }

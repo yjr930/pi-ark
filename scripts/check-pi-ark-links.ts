@@ -170,7 +170,7 @@ try {
     const opened = await agents.create(workspace);
     const internals = agents as unknown as { handles: Map<string, { session: import("@earendil-works/pi-coding-agent").AgentSession }>; onEvent(handle: unknown, event: unknown): void };
     const handle = internals.handles.get(`${workspace.id}:${opened.id}`)!;
-    const expectedTools = ["read", "bash", "edit", "write", READ_PI_ARK_LINK, WEBFETCH, "subagent"].sort();
+    const expectedTools = ["read", "bash", "edit", "write", READ_PI_ARK_LINK, WEBFETCH, "subagent", "question", "question_background"].sort();
     assert.deepEqual(handle.session.getActiveToolNames().sort(), expectedTools);
     assert.match(handle.session.systemPrompt, /Legacy configuration append/);
     const other = await agents.create(otherWorkspace);

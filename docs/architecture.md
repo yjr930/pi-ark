@@ -72,7 +72,7 @@ docs/               产品、架构、使用和集成文档
 | Global config | `apps/server/src/config.ts` | 配置解析、data directory、共享 preferences 和串行原子写入 |
 | Authentication | `apps/server/src/auth.ts` | scrypt password、持久化 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
-| Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments、自带工具注册和广播 |
+| Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments、自带工具注册、问题挂起与广播 |
 | Agent resources | `apps/server/src/resource-loader.ts` | 三个 skill 目录、`skillsOverride`、MCP 与 codemode extension 和 Session resource loader |
 | Skills | `apps/server/src/skills.ts` | skill 目录扫描、同名冲突、停用过滤、选择保存和空闲 Session 重载 |
 | MCP | `apps/server/src/mcp.ts` | `mcp.json` 初始化、server 列表、启用状态、浏览器运行时状态与安装 |
@@ -82,6 +82,8 @@ docs/               产品、架构、使用和集成文档
 | Session reader | `apps/server/src/session-reader.ts` | Workspace 摘要、Session 分页、Message 定位、前后文和长内容续读 |
 | Pi-Ark link tool | `apps/server/src/agent-tools/read-pi-ark-link.ts` | `read_pi_ark_link` 的参数、输出 schema、说明和执行入口 |
 | Subagent tool | `apps/server/src/agent-tools/subagent.ts` | 任务委派的参数与进度回调 |
+| Question tool | `apps/server/src/agent-tools/question.ts` | `question` 与 `question_background` 的参数结构、说明和返回值 |
+| Question state | `apps/server/src/questions.ts` | 问题参数规范化、答案解析、状态推导与回答文本 |
 | Web fetch tool | `apps/server/src/agent-tools/webfetch.ts` | `webfetch` 的参数、HTML 转 Markdown、响应体上限与错误处理 |
 | Subagent runtime | `apps/server/src/subagents.ts`、`subagent-types.ts` | 子 Session 的创建、调度、停止与结果汇总 |
 | Subagent store | `apps/server/src/subagent-store.ts` | 委派记录的保存、关系查询与中断恢复 |
@@ -120,6 +122,7 @@ docs/               产品、架构、使用和集成文档
 | Skills settings | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、Workspace 选择器、启用复选框、诊断和 Refresh |
 | MCP settings | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断、浏览器运行时和安装进度 |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
+| Question card | `apps/web/src/components/QuestionCard.tsx` | 问题卡片、选项选择、自由输入、提交与 Unanswered |
 | Permalinks | `apps/web/src/permalinks.ts` | Browser URL 与 `pi-ark://` link 的生成和解析 |
 | Appearance | `apps/web/src/appearance.ts` | Theme、reasoning 显示、Markdown 换行与字号的浏览器存储、归一化、启动应用与变更事件 |
 | Typography | `apps/web/src/typography.ts` | 七个字号等级的定义、整体倍率范围与 `--fs-*` 变量应用 |
@@ -236,7 +239,7 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 创建 AgentSession 时，AgentService 加载以下输入：
 
 - Workspace cwd。
-- 统一启用的文件工具（`read`、`bash`、`edit` 和 `write`），以及父子 Session 自带的 `read_pi_ark_link` 与 `webfetch`；父 Session 还启用 `subagent`。
+- 统一启用的文件工具（`read`、`bash`、`edit` 和 `write`），以及父子 Session 自带的 `read_pi_ark_link` 与 `webfetch`；父 Session 还启用 `subagent`、`question` 与 `question_background`。
 - Pi-Ark agent directory 中的 Global resources。
 - Global system prompt append。
 - 已有 SessionManager。
@@ -259,6 +262,18 @@ Server 自动附加父 Session 最近的 user message 作为来源，并保存�
 `subagent-state` 向父 Session 与同一父 Session 的所有已连接子 Session 发送关系与状态；snapshot 携带 `subagents`，其中包括 `runs`、可选的 `parentRuns`、可选的 `origin` 与 `managed`。`origin` 指向该子 Session 最近一次委派，`parentRuns` 为该子 Session 的父 Session 的委派记录。Web 按 `sessionId` 合并最新任务，将其用于数量与列表；上方展示 queued/running，底部的 Completed 分组展示其他结束状态。父会话的 runtime 状态复用 App 的 `sessionStatuses`。
 
 子 Session 始终由父 Agent 提交任务。Server 按持久化 `origin` 对用户的交互式 prompt 返回 409，Web 始终隐藏该 Session 的 Composer；运行中的模型修改与会话回退继续返回 409。消息的原始 role 保留在 Session 中，Web 在子会话的角色显示层将 user 标为 `Parent Agent`，将 assistant 标为 `SubAgent`，并沿用原有的角色样式。SessionList 过滤带 `subagentOrigin` 的子 Session，完整的 Session 数据仍供内部链接与父会话标题导航使用。
+
+### Question
+
+父 Session 通过 `question` 与 `question_background` 向用户提问，子 Session 不注册这两个工具。参数与返回形态见 [交互式提问工具](design-question-tool.md)。
+
+`question` 的 `execute` 返回一个等待用户作答的 Promise，`AgentService` 将该 Promise 登记在 Session runtime 的 pending 集合中；用户作答或放弃后 Promise 结算，pi 将结果写成该调用的 tool result，循环继续。工具在 `signal` 中止时返回 `unanswered`，`reason` 为 `aborted`。`question_background` 只登记 pending 并返回编号，不阻塞循环。
+
+后台问题的答案与放弃通知通过 `session.sendCustomMessage()` 写入 `pi-ark.question-answer` custom message，文本包含问题原文与选项标签，`details` 保留编号、状态与答案。传递时使用 `deliverAs: followUp`：用户作答时 `triggerTurn` 为 true，空闲时开启新一轮推理；用户发送新 message 引起的放弃使用 `triggerTurn` false，消息在当前回合结束后进入上下文。
+
+问题状态从 display projection 推导：toolCall 建立问题组，toolResult 与 custom message 结算问题组，因此重启与分支切换不需要额外存储。创建 Session 时，Server 为遗留的、没有结果的提问 toolCall 补写 `unanswered` tool result。发起新问题组前，仍在等待的后台问题组结算为 `unanswered`（`reason` 为 `superseded`）；用户发送新 message、Stop、会话删除与回滚均先结算未结算问题。
+
+HTTP routes `POST /api/workspaces/:workspaceId/sessions/:sessionId/questions/:toolCallId/answer` 与 `.../dismiss` 提供答案与放弃入口；Agent WebSocket 对应 `answer-question` 与 `dismiss-question` 命令。已结算的问题返回 409。Snapshot 携带 `questions`（当前 branch 的全部问题组及状态）与 `waitingForAnswer`，Session status 同步携带 `waitingForAnswer`。
 
 ### Pi-Ark link 读取工具
 
@@ -320,6 +335,7 @@ Snapshot 包含以下状态：
 - 当前 model 和 thinking level。
 - 可用 thinking levels。
 - Queue。
+- `questions` 与 `waitingForAnswer`。
 - Rollback 和 restore 状态。
 - Session statistics。
 

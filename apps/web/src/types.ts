@@ -1,5 +1,6 @@
 import type { SubagentOrigin, SubagentSessionState } from "../../server/src/subagent-types";
 export type { SubagentSessionState, SubagentRun, SubagentOrigin } from "../../server/src/subagent-types";
+export type { QuestionAnswer, QuestionGroupState, QuestionItem, QuestionOption } from "../../server/src/questions";
 
 export interface Workspace {
   id: string;
@@ -29,6 +30,7 @@ export interface SessionGroup {
 export interface SessionRuntimeStatus {
   id: string;
   state: "ready" | "running" | "error";
+  waitingForAnswer?: boolean;
   statusRevision: number;
   updateRevision: number;
   errorMessage?: string;
@@ -112,6 +114,8 @@ export interface AgentSnapshot {
   availableThinkingLevels: string[];
   queue: QueuedMessage[];
   queueRevision: number;
+  questions?: import("../../server/src/questions").QuestionGroupState[];
+  waitingForAnswer?: boolean;
   rollbackEntryId?: string;
   rollback?: { id: string; targetId: string; restoreEntryId: string; draft: string };
   stats: {

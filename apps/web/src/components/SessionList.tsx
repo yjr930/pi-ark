@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, FolderPlus, LoaderCircle, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, FolderPlus, LoaderCircle, MessageCircleQuestion, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { internalSessionLink } from "../permalinks";
@@ -31,6 +31,7 @@ function GroupAssignmentDialog({ workspaceId, session, groups, onClose, onChange
 }
 
 function SessionState({ status }: { status?: SessionStatusView }) {
+  if (status?.waitingForAnswer) return <span className="session-state waiting" role="status" aria-label="Session is waiting for an answer" title="Waiting for answer"><MessageCircleQuestion size={13} /></span>;
   if (status?.state === "running") return <span className="session-state running" role="status" aria-label="Session is running" title="Running"><LoaderCircle size={13} /></span>;
   if (status?.state === "error") return <span className="session-state error" role="status" aria-label="Session has an error" title={status.errorMessage || "Session error"}><CircleAlert size={13} /></span>;
   if (status?.state === "ready" && status.unread) return <span className="session-state unread" role="status" aria-label="Session has new output" title="New output"><i /></span>;

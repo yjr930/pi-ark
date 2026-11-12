@@ -11,6 +11,7 @@
 | [使用手册](user-guide.md) | 使用者和管理员 | 安装、登录、Workspace、Session、Agent、Skills、MCP、Files、Terminal 和 Settings 操作 |
 | [Pi 集成调研](research.md) | 开发 | pi SDK 选型、公开 API、事件和 session 存储背景 |
 | [Agent 资源联合设计](design-agent-resources.md) | 产品设计、开发 | Skills 与 MCP 的分层来源、启用管理、实现入口、内置 skill 与浏览器能力接入 |
+| [交互式提问工具](design-question-tool.md) | 产品设计、开发 | 提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面 |
 
 ## 信息来源
 
@@ -31,6 +32,7 @@
 - 使用手册按照用户完成任务的顺序描述操作步骤。
 - Pi 集成调研记录技术选型依据和上游 pi API 背景。
 - Agent 资源联合设计记录 Skills 与 MCP 的资源模型、服务端与页面实现入口，以及内置 `browser` 与 `mcp-servers` skill、`playwright` server 与 MCP 密钥目录的接入。
+- 交互式提问工具文档记录提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面行为。
 
 ## 维护检查表
 
@@ -42,3 +44,4 @@
 - 修改 pi SDK 的集成方式时，更新程序实现架构文档和 Pi 集成调研。
 - 新增文档或调整文档职责时，更新本索引和 `AGENTS.md` 中的文档索引。
 - 调整 Skills、MCP 或内置 skill 的来源、启用状态、页面行为、配置格式或浏览器运行时行为时，更新 Agent 资源联合设计文档、功能与交互设计、程序实现架构和使用手册。
+- 修改提问工具的参数、挂起行为、答案通道或问题卡片时，更新交互式提问工具文档、功能与交互设计、程序实现架构和使用手册。

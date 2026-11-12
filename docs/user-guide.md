@@ -396,6 +396,15 @@ Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面
 
 Compact 的收起高度为普通工具行的 3 倍，并显示压缩耗时、压缩前后的 token 用量，以及 System prompt、Summary 和 Retained 的 token 用量。`≈` 表示 pi SDK 的估算值。展开后可以查看触发原因、生成摘要的 token 用量、source Message ID、内部链接和 compact summary。后续压缩会记录实际耗时；历史字段按已有记录展示。compact 前的原始 messages 继续保留在会话中，并通过 Show earlier messages 逐页显示。
 
+### 回答 Agent 的提问
+
+Agent 需要你确认或选择时，会在会话中显示一张问题卡片。
+
+- 单选问题点击一个选项；多选问题可以点击多个选项；每个问题都可以在输入行填写自己的答案。
+- 完成后点击 Submit answers 提交，Agent 收到答案后继续。
+- 不想回答时点击 Unanswered，或者直接发送下一条 message；Agent 会收到未作答，并按自己的判断继续。
+- 副标题为 `Answer when you have time` 的问题不阻塞 Agent，你可以稍后在卡片上作答；已经作答或放弃的卡片保留结果，可以回看。
+
 ### Queue
 
 AI 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up Queue。点击 Send follow-up 后，Queue 立即显示该 message 和 Scheduling；Server 通过轻量 Queue state 确认 item 后，Scheduling row 自动替换为正式 row。提交或连接失败时，该 row 显示 Failed，并提供清除按钮。每个正式 queued message 标记为 Steering 或 Follow-up。Queue mutation 使用 operation ID 和 revision 协调 optimistic UI 与 pi 的权威 Queue；快速连续操作共用当前 rebuild，并在目标 Queue 变化时追加一次 rebuild pass。Queue 使用紧凑的 message rows 和独立的滚动区域；Queue 增高时 conversation 自动使用剩余高度。
@@ -464,6 +473,7 @@ Agent 委派后，父 Session 的状态左侧显示 subagent 的分支 logo 与 
 - 子 Session 顶部的 Parent Agent 栏显示父会话的标题、状态与 subagent 数量，点击标题返回父会话；点击 Open parent request 返回本轮委派时的父消息。
 - 在运行中的子 Session 页面点击 Stop，停止对应任务；在父 Session 中点击 Stop，停止该 Session 当前等待的子任务。
 - 需要继续原来的任务时，在父 Session 中要求 Agent 向已有的 subagent 发送后续任务；该 agent 会回到上方的活动列表，并保留原来的会话上下文。
+- 子会话无法直接向你提问。子 Agent 需要你做出决定时，会在结果中列出待决问题，父 Agent 在自己的会话中向你提问，再把答案转回子会话。
 
 子 Session 始终隐藏输入框，任务输入由 Parent Agent 委派。子会话中的角色名称显示为 `Parent Agent` 与 `SubAgent`，其中包括消息 header、顶部的 sticky header 与消息信息栏；配色与头像沿用原有样式。普通会话继续显示 `User` 与 `AI`。侧栏的 Session 列表展示普通 Session，subagent 通过状态栏的列表进入。
 

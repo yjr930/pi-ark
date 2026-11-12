@@ -251,6 +251,14 @@ app.post<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspace
   await agents.abort(workspaces.get(request.params.workspaceId), request.params.sessionId);
   return reply.code(204).send();
 });
+app.post<{ Params: { workspaceId: string; sessionId: string; toolCallId: string }; Body: { answers?: unknown } }>("/api/workspaces/:workspaceId/sessions/:sessionId/questions/:toolCallId/answer", async (request, reply) => {
+  await agents.answerQuestion(workspaces.get(request.params.workspaceId), request.params.sessionId, request.params.toolCallId, request.body?.answers);
+  return reply.code(204).send();
+});
+app.post<{ Params: { workspaceId: string; sessionId: string; toolCallId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/questions/:toolCallId/dismiss", async (request, reply) => {
+  await agents.dismissQuestion(workspaces.get(request.params.workspaceId), request.params.sessionId, request.params.toolCallId);
+  return reply.code(204).send();
+});
 
 app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string; leafEntryId?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
   const workspace = workspaces.get(request.params.workspaceId);
@@ -259,11 +267,13 @@ app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { mes
   const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessage, leafEntryId: request.query.leafEntryId, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
   const onMessage = async (raw: Buffer) => {
     try {
-      const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; attachments?: Array<{ name: string; mimeType: string; data: string }> };
+      const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; attachments?: Array<{ name: string; mimeType: string; data: string }>; toolCallId?: string; answers?: unknown };
       if (request.query.leafEntryId && message.type !== "load-earlier") throw Object.assign(new Error("Open the current conversation to send commands"), { statusCode: 409 });
       if (message.type === "prompt" && (message.text?.trim() || message.attachments?.length)) await agents.prompt(workspace, request.params.sessionId, message.text || "", message.attachments || []);
       else if (message.type === "load-earlier") agents.loadEarlier(workspace, request.params.sessionId, socket);
       else if (message.type === "abort") await agents.abort(workspace, request.params.sessionId);
+      else if (message.type === "answer-question" && message.toolCallId) await agents.answerQuestion(workspace, request.params.sessionId, message.toolCallId, message.answers);
+      else if (message.type === "dismiss-question" && message.toolCallId) await agents.dismissQuestion(workspace, request.params.sessionId, message.toolCallId);
       else if (message.type === "rename-session" && message.name?.trim()) await agents.updateSession(workspace, request.params.sessionId, { name: message.name });
       else if (message.type === "set-model" && message.provider && message.model) await agents.setModel(workspace, request.params.sessionId, message.provider, message.model);
       else if (message.type === "set-thinking-level" && message.level) await agents.setThinkingLevel(workspace, request.params.sessionId, message.level);

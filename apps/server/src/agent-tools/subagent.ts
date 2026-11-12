@@ -8,7 +8,7 @@ export function createSubagentTool(dispatch: (toolCallId: string, tasks: Subagen
   return defineTool({
     name: SUBAGENT,
     label: "Subagents",
-    description: "Delegate 1–8 self-contained tasks to persistent child Pi-Ark Sessions. Tasks share workspace files. Omit the sessionId property to create a child inheriting this session's model and thinking level; never pass a placeholder such as none or __new__. Provide a returned sessionId to continue an idle child of this parent with its existing context and configuration. Up to 4 tasks per parent and 8 per server execute concurrently. This call waits for all tasks and streams progress. Supply an objective, expected result, file ownership, and optional Pi-Ark reference links with their purposes. Results include sessionId, status, up to 4096 bytes or 200 lines per task, session links, and final Message links; use read_pi_ark_link for full results and evidence. Child sessions have independent conversation context.",
+    description: "Delegate 1–8 self-contained tasks to persistent child Pi-Ark Sessions. Tasks share workspace files. Omit the sessionId property to create a child inheriting this session's model and thinking level; never pass a placeholder such as none or __new__. Provide a returned sessionId to continue an idle child of this parent with its existing context and configuration. Up to 4 tasks per parent and 8 per server execute concurrently. This call waits for all tasks and streams progress. Supply an objective, expected result, file ownership, and optional Pi-Ark reference links with their purposes. Results include sessionId, status, up to 4096 bytes or 200 lines per task, session links, and final Message links; use read_pi_ark_link for full results or evidence. Child sessions have independent conversation context. A child cannot ask the user: when a result contains a Needs user decision section, ask the user yourself with the question tool and send the answer back as a new task to the same sessionId.",
     promptSnippet: "Delegate self-contained tasks to persistent subagent Sessions",
     promptGuidelines: [
       "Use subagent for independent tasks with complete instructions and explicit expected results. Parallel editing tasks must have disjoint file ownership; coordinate shared-file changes sequentially.",
@@ -16,6 +16,7 @@ export function createSubagentTool(dispatch: (toolCallId: string, tasks: Subagen
       "To send another task to an existing subagent, pass its returned sessionId with complete task instructions and expectedResult. Each delegation keeps its own result links.",
       "To start a new subagent, leave the sessionId property out of the task object; placeholders such as none or __new__ are rejected.",
       "After subagent completes, use read_pi_ark_link with the returned resultLink and leafEntryId to read full results or verify evidence as needed.",
+      "Relay a child's Needs user decision section to the user with the question tool, then send the answer back as a new task to the same sessionId.",
     ],
     parameters: Type.Object({ tasks: Type.Array(Type.Object({
       sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "Continue an existing idle child Session of this parent; leave this property out to create a new child. Placeholders such as none or __new__ are rejected" })),

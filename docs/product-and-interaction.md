@@ -97,7 +97,7 @@ Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完�
 
 ### 空 Session 与运行状态
 
-没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态；标题组不占用剩余空间；标题使用实际文字宽度并受当前 max-width 限制，编辑按钮紧跟标题。右侧只显示 context 百分比数字和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。Disconnected、Connection error 和其他错误状态使用完整红灯，并增加红色系底色和边框；移动端只省略过长的状态文字，不裁切红灯。移动端 Chat 主列始终限制在 viewport 内，header、conversation、sticky User row、Running 和 composer 不产生页面横向溢出。
+没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态；标题组不占用剩余空间；标题使用实际文字宽度并受当前 max-width 限制，编辑按钮紧跟标题。右侧只显示 context 百分比数字和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、工作、运行工具、就绪和连接错误之间变化。Disconnected、Connection error 和其他错误状态使用完整红灯，并增加红色系底色和边框；移动端只省略过长的状态文字，不裁切红灯。移动端 Chat 主列始终限制在 viewport 内，header、conversation、sticky User row、Running 和 composer 不产生页面横向溢出。存在等待作答的问题时，状态显示 `Waiting for answer`。
 
 每个 turn 的 User 内容显示为一条独立的全宽色带，并保留用户头像、`User` 标签、短 Message ID、内部链接与 Rollback。User 色带使用与 conversation 和 AI feed 有区分的 theme background，只有上、下 separator，没有左右 border、圆角或阴影；色带延伸到当前 conversation 内容列的左右边界。上下 separator 的外侧保留更大的垂直间距。色带内部使用非对称 padding，其中左侧和上侧的留白大于右侧和下侧。Ark Dark、Graphite、Midnight、Paper 和 Snow 分别使用与自身背景和 AI accent 协调的 User palette；User accent 与 AI accent 保持可区分。User 与 AI 的头像和名称都使用更大的尺寸。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
 
@@ -120,6 +120,20 @@ Tool item 在没有已保存 disclosure 状态时默认关闭；active Running �
 Compact 的收起高度为普通 tool row 的 3 倍。收起时显示 Duration、Before、After、System prompt、Summary、Retained 和 Saved；After 与各组成的 token 用量使用 pi SDK 估算，并以 `≈` 标记。展开后显示 source Message ID、内部链接、压缩触发原因、生成摘要的 input/output token 用量，以及 pi 保存的 Markdown summary。耗时来自 Server 对后续压缩事件的记录。历史字段使用已有记录展示，空字段显示 `—`；System prompt 尚未记录时，After 显示已知部分并附加 `+ system`。compact 前的原始会话继续通过 earlier message 分页展示。
 
 页面不再展示短 Message ID；User header、sticky User 与 source link 通过 aria-label 标识对应消息。Tool call message 与 tool result message 继续保留各自的 source entry ID 和 permalink anchor。Permalink 指向其中任一 source message 时，外层 run collapse 和对应 tool item 自动展开。
+
+### Agent 提问
+
+Agent 可以通过提问工具向用户提交一个带选项的问题组。问题组以卡片形式显示在发起提问的 assistant message 中，替换普通 tool row。
+
+- 卡片 header 显示提问图标、`Question` 标题、阻塞或后台提问的副标题（`Answer to continue` 与 `Answer when you have time`），以及 `Waiting`、`Answered`、`Unanswered` 状态。
+- 待答卡片逐个显示问题：可选的 header、问句、选项按钮和自由输入行。单选点击后替换选择，多选可以叠加；选项可以带描述。
+- 卡片底部提供 `Unanswered` 与 `Submit answers`。整组至少有一个选项或自由输入时才能提交，提交期间按钮显示 Sending。
+- 已答卡片显示最终选择与自由输入，放弃卡片显示放弃原因，两者都不再响应点击。
+- 后台提问返回后会话继续运行，卡片保持可点击，用户可以在有空时作答。
+- 阻塞提问等待作答时，header status 显示 `Waiting for answer`；Session 列表中对应的 Session 显示提问图标。
+- 用户直接发送新 message 时，未作答的问题被记为 Unanswered，新 message 按当前运行状态发送或进入 Follow-up Queue。
+
+问题卡片使用 `--fs-*` 字号变量，与 Appearance 中的整体字号倍率一起缩放。
 
 ### Message 标识与链接
 

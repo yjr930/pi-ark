@@ -15,6 +15,8 @@ import type { WorkspaceService } from "./workspaces.js";
 import { COMPACTION_TIMING_TYPE, type CompactionTiming } from "./compaction-stats.js";
 import { createSubagentTool, SUBAGENT } from "./agent-tools/subagent.js";
 import { createWebfetchTool, WEBFETCH } from "./agent-tools/webfetch.js";
+import { createQuestionTools } from "./agent-tools/question.js";
+import { answeredOutcome, deriveQuestionGroups, formatOutcomeMessage, normalizeQuestions, QUESTION_ANSWER_TYPE, QUESTION_TOOLS, questionToken, unansweredOutcome, type QuestionGroupState, type QuestionItem, type QuestionMode, type QuestionOutcome, type QuestionReason } from "./questions.js";
 import { SubagentService, SUBAGENT_ROLE_PROMPT, type SubagentConfiguration } from "./subagents.js";
 import { type SubagentTaskInput } from "./subagent-types.js";
 import { validLeafEntryId } from "./internal-links.js";
@@ -30,10 +32,20 @@ interface QueueItem { id: string; mode: QueueItemMode; text: string; images: Arr
 interface RollbackMarkerData { targetId: string; restoreEntryId: string; draft: string }
 interface AgentClientState { start: number; targetMessageId?: string; leafEntryId?: string }
 type SessionRuntimeState = "ready" | "running" | "error";
+interface PendingQuestion {
+  toolCallId: string;
+  mode: QuestionMode;
+  token?: string;
+  questions: QuestionItem[];
+  resolve?: (outcome: QuestionOutcome) => void;
+  cleanup?: () => void;
+}
+
 interface AgentHandle {
   workspace: WorkspaceDefinition;
   systemPromptAppend: string;
   session: AgentSession;
+  pendingQuestions: Map<string, PendingQuestion>;
   clients: Map<WebSocket, AgentClientState>;
   unsubscribe: () => void;
   queue: QueueItem[];
@@ -133,6 +145,7 @@ export class AgentService {
     return [...this.handles.entries()].filter(([key]) => key.startsWith(prefix)).map(([, handle]) => ({
       id: handle.session.sessionId,
       state: handle.runtimeState,
+      waitingForAnswer: handle.pendingQuestions.size > 0,
       statusRevision: handle.statusRevision,
       updateRevision: handle.updateRevision,
       ...(handle.errorMessage ? { errorMessage: handle.errorMessage } : {}),
@@ -197,6 +210,11 @@ export class AgentService {
   async rollbackLatest(workspace: WorkspaceDefinition, sessionId: string, requestedEntryId?: string): Promise<RollbackMarkerData & { id: string }> {
     const handle = await this.getOrOpen(workspace, sessionId);
     this.assertInteractive(workspace, sessionId);
+    if (handle.pendingQuestions.size > 0) {
+      await this.settleQuestions(handle, "rollback");
+      if (!handle.session.isIdle) await handle.session.abort();
+      await handle.session.waitForIdle();
+    }
     if (!handle.session.isIdle || handle.session.pendingMessageCount > 0) throw Object.assign(new Error("Wait for the session and queue to finish before rolling back"), { statusCode: 409 });
     const manager = handle.session.sessionManager;
     if (this.rollbackState(handle)) throw Object.assign(new Error("Restore the rolled back message or send a new message before another rollback"), { statusCode: 409 });
@@ -301,6 +319,7 @@ export class AgentService {
     if (handle) {
       this.broadcast(handle, { type: "session-deleted" });
       handle.session.clearQueue();
+      await this.settleQuestions(handle, "deleted");
       if (!handle.session.isIdle) await handle.session.abort();
       handle.unsubscribe();
       await this.shutdownSession(handle.session);
@@ -348,6 +367,7 @@ export class AgentService {
     if (this.subagents.store.state(workspace, sessionId).origin) throw Object.assign(new Error("This subagent is managed by its parent. Send further tasks from the parent Session."), { statusCode: 409 });
     this.assertInteractive(workspace, sessionId);
     if (handle.session.sessionManager.getEntries().length >= MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
+    await this.settleQuestions(handle, "user_prompt");
     const saved = attachments.length ? await saveAttachments(workspace, sessionId, attachments) : [];
     const attachmentNote = saved.length ? `\n\nAttached files:\n${saved.map((attachment) => `- ${attachment.name}: ${attachment.path}`).join("\n")}` : "";
     const promptText = `${text.trim() || (saved.length ? "Review the attached files." : "")}${attachmentNote}`;
@@ -376,6 +396,97 @@ export class AgentService {
     }
   }
 
+  async answerQuestion(workspace: WorkspaceDefinition, sessionId: string, toolCallId: string, answers: unknown): Promise<void> {
+    const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
+    const pending = handle.pendingQuestions.get(toolCallId);
+    if (!pending) throw Object.assign(new Error("This question is no longer open"), { statusCode: 409 });
+    await this.closeQuestion(handle, pending, answeredOutcome(pending.questions, answers), true);
+  }
+
+  async dismissQuestion(workspace: WorkspaceDefinition, sessionId: string, toolCallId: string): Promise<void> {
+    const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
+    const pending = handle.pendingQuestions.get(toolCallId);
+    if (!pending) throw Object.assign(new Error("This question is no longer open"), { statusCode: 409 });
+    await this.closeQuestion(handle, pending, unansweredOutcome("dismissed"), true);
+  }
+
+  private async closeQuestion(handle: AgentHandle, pending: PendingQuestion, outcome: QuestionOutcome, triggerTurn: boolean): Promise<void> {
+    if (pending.mode === "blocking") { this.finishQuestion(handle, pending, outcome); return; }
+    handle.pendingQuestions.delete(pending.toolCallId);
+    pending.cleanup?.();
+    await this.sendQuestionOutcomeMessage(handle, pending, outcome, triggerTurn);
+  }
+
+  private async askQuestion(handle: AgentHandle, toolCallId: string, questions: QuestionItem[], signal?: AbortSignal): Promise<QuestionOutcome> {
+    const normalized = normalizeQuestions({ questions });
+    if (normalized.length === 0) throw new Error("A question group needs at least one question with options");
+    await this.settleQuestions(handle, "superseded", (pending) => pending.mode === "background");
+    return await new Promise<QuestionOutcome>((resolve) => {
+      const pending: PendingQuestion = { toolCallId, mode: "blocking", questions: normalized, resolve };
+      handle.pendingQuestions.set(toolCallId, pending);
+      if (!signal) return;
+      const abort = () => this.finishQuestion(handle, pending, unansweredOutcome("aborted"));
+      if (signal.aborted) { abort(); return; }
+      signal.addEventListener("abort", abort, { once: true });
+      pending.cleanup = () => signal.removeEventListener("abort", abort);
+    });
+  }
+
+  private async askBackgroundQuestion(handle: AgentHandle, toolCallId: string, questions: QuestionItem[]): Promise<{ token: string }> {
+    const normalized = normalizeQuestions({ questions });
+    if (normalized.length === 0) throw new Error("A question group needs at least one question with options");
+    await this.settleQuestions(handle, "superseded", (pending) => pending.mode === "background");
+    const token = questionToken(this.questionGroups(handle).length);
+    handle.pendingQuestions.set(toolCallId, { toolCallId, mode: "background", token, questions: normalized });
+    return { token };
+  }
+
+  private finishQuestion(handle: AgentHandle, pending: PendingQuestion, outcome: QuestionOutcome): void {
+    if (handle.pendingQuestions.get(pending.toolCallId) !== pending) return;
+    handle.pendingQuestions.delete(pending.toolCallId);
+    pending.cleanup?.();
+    pending.resolve?.(outcome);
+  }
+
+  private async settleQuestions(handle: AgentHandle, reason: QuestionReason, filter: (pending: PendingQuestion) => boolean = () => true): Promise<void> {
+    for (const pending of [...handle.pendingQuestions.values()]) {
+      if (!filter(pending)) continue;
+      await this.closeQuestion(handle, pending, unansweredOutcome(reason), false);
+    }
+  }
+
+  private async sendQuestionOutcomeMessage(handle: AgentHandle, pending: PendingQuestion, outcome: QuestionOutcome, triggerTurn: boolean): Promise<void> {
+    const details = { token: pending.token, status: outcome.status, ...(outcome.reason ? { reason: outcome.reason } : {}), answers: outcome.answers };
+    await handle.session.sendCustomMessage({ customType: QUESTION_ANSWER_TYPE, content: [{ type: "text", text: formatOutcomeMessage(pending.token, pending.questions, outcome) }], display: true, details }, { triggerTurn, deliverAs: "followUp" });
+  }
+
+  private questionGroups(handle: AgentHandle): QuestionGroupState[] {
+    return deriveQuestionGroups(this.snapshotMessages(handle));
+  }
+
+  private healDanglingQuestions(manager: SessionManager): void {
+    const calls = new Map<string, string>();
+    const results = new Set<string>();
+    for (const entry of manager.getBranch()) {
+      if (entry.type !== "message") continue;
+      const message = entry.message as { role?: string; content?: unknown; toolCallId?: string };
+      if (message.role === "assistant" && Array.isArray(message.content)) {
+        for (const block of message.content as Array<{ type?: string; id?: string; name?: string }>) {
+          if (block?.type !== "toolCall" || typeof block.id !== "string" || typeof block.name !== "string") continue;
+          if (QUESTION_TOOLS.includes(block.name as (typeof QUESTION_TOOLS)[number])) calls.set(block.id, block.name);
+        }
+      }
+      if (message.role === "toolResult" && typeof message.toolCallId === "string") results.add(message.toolCallId);
+    }
+    for (const [toolCallId, toolName] of calls) {
+      if (results.has(toolCallId)) continue;
+      const content = [{ type: "text" as const, text: JSON.stringify({ status: "unanswered", reason: "aborted", answers: [] }) }];
+      manager.appendMessage({ role: "toolResult", toolCallId, toolName, content, isError: false, timestamp: Date.now() });
+    }
+  }
+
   async abort(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
     await this.subagents.store.load(workspace);
     const stopping = this.subagents.stop(workspace, sessionId);
@@ -383,6 +494,7 @@ export class AgentService {
     try {
       const handle = await this.getOrOpen(workspace, sessionId);
       handle.session.clearQueue();
+      await this.settleQuestions(handle, "aborted");
       await Promise.all([stopping, handle.session.isIdle ? Promise.resolve() : handle.session.abort()]);
     } finally { await stopping; }
   }
@@ -424,7 +536,7 @@ export class AgentService {
       const handle = this.handles.get(this.key(workspace, sessionId));
       if (!handle?.session.model) throw new Error("A parent Session model is required for delegation");
       if (this.subagents.store.state(workspace, sessionId).origin) throw new Error("Delegate tasks from the parent Session");
-      const configuration: SubagentConfiguration = { model: handle.session.model, thinkingLevel: handle.session.thinkingLevel, tools: handle.session.getActiveToolNames().filter((name) => name !== SUBAGENT), systemPromptAppend: handle.systemPromptAppend };
+      const configuration: SubagentConfiguration = { model: handle.session.model, thinkingLevel: handle.session.thinkingLevel, tools: handle.session.getActiveToolNames().filter((name) => name !== SUBAGENT && !QUESTION_TOOLS.includes(name as (typeof QUESTION_TOOLS)[number])), systemPromptAppend: handle.systemPromptAppend };
       return this.subagents.run(workspace, handle.session, configuration, toolCallId, tasks, signal, onUpdate);
     });
   }
@@ -435,7 +547,7 @@ export class AgentService {
     const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
     const settingsManager = createGlobalSettingsManager(workspace.path);
     const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
-    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, SUBAGENT], customTools: [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), this.subagentTool(workspace, "preview")], resourceLoader });
+    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, SUBAGENT, ...QUESTION_TOOLS], customTools: [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), this.subagentTool(workspace, "preview"), ...createQuestionTools(() => Promise.reject(new Error("Questions are unavailable in the system prompt preview")), () => Promise.reject(new Error("Questions are unavailable in the system prompt preview")))], resourceLoader });
     try { return { content: session.systemPrompt, systemPromptPath, appendSystemPromptPath }; }
     finally { session.dispose(); }
   }
@@ -458,9 +570,21 @@ export class AgentService {
     const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;
-    const activeTools = [...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT] : [])];
+    this.healDanglingQuestions(manager);
+    const askQuestion = (toolCallId: string, questions: QuestionItem[], signal?: AbortSignal) => {
+      const handle = this.handles.get(this.key(workspace, manager.getSessionId()));
+      if (!handle) throw new Error("The Session is not available for questions");
+      return this.askQuestion(handle, toolCallId, questions, signal);
+    };
+    const askBackgroundQuestion = (toolCallId: string, questions: QuestionItem[]) => {
+      const handle = this.handles.get(this.key(workspace, manager.getSessionId()));
+      if (!handle) throw new Error("The Session is not available for questions");
+      return this.askBackgroundQuestion(handle, toolCallId, questions);
+    };
+    const questionTools = origin ? [] : createQuestionTools(askQuestion, askBackgroundQuestion);
+    const activeTools = [...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT, ...QUESTION_TOOLS] : [])];
     const tools = [...activeTools, "codemode"];
-    const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : [])];
+    const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : []), ...questionTools];
     const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader, model: configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model), thinkingLevel: configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels });
     session.setActiveToolsByName(activeTools);
     await session.bindExtensions({});
@@ -468,6 +592,7 @@ export class AgentService {
       workspace,
       systemPromptAppend,
       session,
+      pendingQuestions: new Map(),
       clients: new Map(),
       unsubscribe: () => undefined,
       queue: [...session.getSteeringMessages().map((text) => ({ id: randomUUID(), mode: "steering" as const, text, images: [] })), ...session.getFollowUpMessages().map((text) => ({ id: randomUUID(), mode: "followUp" as const, text, images: [] }))],
@@ -628,6 +753,8 @@ export class AgentService {
         thinkingLevel: handle.session.thinkingLevel,
         availableThinkingLevels: handle.session.getAvailableThinkingLevels(),
         queue: handle.queue.map(({ id, mode, text }) => ({ id, mode, text })),
+        questions: deriveQuestionGroups(messages),
+        waitingForAnswer: client.leafEntryId ? false : handle.pendingQuestions.size > 0,
         queueRevision: handle.queueRevision,
         rollbackEntryId: client.leafEntryId || this.subagents.store.state(handle.workspace, handle.session.sessionId).managed ? undefined : this.rollbackEntryId(handle),
         rollback: client.leafEntryId ? undefined : this.rollbackState(handle),

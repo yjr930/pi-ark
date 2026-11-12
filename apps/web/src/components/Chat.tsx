@@ -6,17 +6,27 @@ import { buildConversationSegments, buildToolCallGroups } from "../conversation"
 import { formatMessageTime } from "../message-time";
 import { internalMessageLink, internalSessionLink, sessionPermalink } from "../permalinks";
 import { cacheSessionSnapshot, cacheSessionUiState, getCachedSessionSnapshot, getCachedSessionUiState, sessionCacheKey, type CachedSessionAttachment } from "../session-cache";
-import type { AgentMessage, AgentSnapshot, ContentBlock, QueuedMessage, QueueState, SessionInfo, SessionModelOption, SessionRuntimeStatus, Workspace } from "../types";
+import type { AgentMessage, AgentSnapshot, ContentBlock, QueuedMessage, QueueState, QuestionAnswer, QuestionGroupState, SessionInfo, SessionModelOption, SessionRuntimeStatus, Workspace } from "../types";
 import { Markdown } from "./Markdown";
 import { NameDialog } from "./NameDialog";
 import { Select } from "./Select";
 import { ComposerSuggest } from "./ComposerSuggest";
 import { applySuggestion, detectTrigger, filterSuggestItems, splitMcpQuery, type SuggestItem, type Trigger } from "../composer-suggest";
 import { SubagentBadge, SubagentList, SessionReference } from "./SubagentRun";
+import { QuestionCard } from "./QuestionCard";
 import { subagentListItems } from "../subagent-view";
 import { pinnedPiArkLink } from "../../../server/src/internal-links";
 
 const RoleLabels = createContext({ user: "User", assistant: "AI" });
+
+interface QuestionUi {
+  groups: Map<string, QuestionGroupState>;
+  busyId?: string;
+  onAnswer: (toolCallId: string, answers: QuestionAnswer[]) => void;
+  onDismiss: (toolCallId: string) => void;
+}
+
+const QuestionUiContext = createContext<QuestionUi | undefined>(undefined);
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -205,6 +215,12 @@ function ToolFeedItem({ call, callTimestamp, result, summaryMessage, messageId, 
     previousRunningRef.current = running;
   }, [disclosureOpen, onDisclosureChange, running, stateKey, target]);
   const open = disclosureOpen ?? (target && !running);
+  const questionUi = useContext(QuestionUiContext);
+  const question = !isSummary && call?.id ? questionUi?.groups.get(call.id) : undefined;
+  if (question) return <div className={`feed-tool-item question-tool-item ${target ? "permalink-target" : ""}`}>
+    {resultMessageId && <span id={`message-${resultMessageId}`} data-message-id={resultMessageId} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
+    <QuestionCard group={question} busy={questionUi?.busyId === question.toolCallId} onSubmit={(answers) => questionUi?.onAnswer(question.toolCallId, answers)} onDismiss={() => questionUi?.onDismiss(question.toolCallId)} />
+  </div>;
   return <div className="feed-tool-item">
     {resultMessageId && <span id={`message-${resultMessageId}`} data-message-id={resultMessageId} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
     <details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className={`feed-tool-details ${statusClass} ${isCompaction ? "is-compaction" : ""} ${isSubagentTool ? "is-subagent-tool" : ""} ${target ? "permalink-target" : ""}`}><summary><span className="feed-tool-logo">{isSummary ? <Archive size={15} /> : isSubagentTool ? <GitFork size={15} /> : <Wrench size={15} />}</span>{isCompaction && summaryMessage ? <CompactOverview message={summaryMessage} /> : <><strong>{name}</strong><code title={preview}>{preview}</code></>}<span className="feed-tool-status">{status}</span></summary><div className="feed-tool-content"><MessageSourceLinks sources={sources} onCopyLink={onCopyLink} />{call && <section><strong>Arguments</strong><div className="feed-tool-arguments">{Object.entries(call.arguments || {}).length > 0 ? Object.entries(call.arguments || {}).map(([key, value]) => <div key={key}><h5>{key}</h5><pre>{formatToolArgumentValue(value)}</pre></div>) : <p>No arguments</p>}</div></section>}{result && <section><strong>Result</strong><div>{blocks(result.content).map((block, index) => {
@@ -270,7 +286,7 @@ function ToolCallSequence({ calls, target, stateKey, disclosureOpen, onDisclosur
       if (disclosureOpen !== true) onDisclosureChange(stateKey, true);
     }
   }, [disclosureOpen, onDisclosureChange, stateKey, target]);
-  const hiddenCalls = new Set(expanded ? [] : calls.slice(0, -3));
+  const hiddenCalls = new Set(expanded ? [] : calls.slice(0, -3).filter((call) => call.name !== "question" && call.name !== "question_background"));
   return <div className="feed-tool-sequence"><button type="button" className="tool-sequence-toggle" aria-expanded={expanded} onClick={() => onDisclosureChange(stateKey, !expanded)}>{expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}{expanded ? "show less tool call" : "show more tool call"}</button>{children(hiddenCalls)}</div>;
 }
 
@@ -345,6 +361,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const [pendingQueuedMessages, setPendingQueuedMessages] = useState<PendingQueuedMessage[]>([]);
   const [optimisticQueueOperations, setOptimisticQueueOperations] = useState<OptimisticQueueOperation[]>([]);
   const [retryNotice, setRetryNotice] = useState<{ attempt: number; maxAttempts: number; errorMessage: string } | null>(null);
+  const [questionBusyId, setQuestionBusyId] = useState<string>();
   const [suggest, setSuggest] = useState<ComposerSuggestState | null>(null);
   const suggestCacheRef = useRef<{ workspaceId: string; skills?: SuggestItem[]; configured?: import("../types").McpConfiguredServer[]; servers?: import("../types").McpServerView[]; prefetching?: boolean }>({ workspaceId: "" });
   const suggestTimerRef = useRef<number | undefined>(undefined);
@@ -399,6 +416,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
         if (nextSnapshot.rollback && rollbackDraftRef.current !== nextSnapshot.rollback.id) { rollbackDraftRef.current = nextSnapshot.rollback.id; setDraft(nextSnapshot.rollback.draft); window.requestAnimationFrame(() => composerTextareaRef.current?.focus()); }
         if (!nextSnapshot.rollback) rollbackDraftRef.current = "";
         setLoadingEarlierMessages(false);
+        setQuestionBusyId(undefined);
         setPendingQueuedMessages((current) => current.filter((item) => nextSnapshot.queue.filter((queued) => queued.mode === "followUp" && queuedTextMatches(queued.text, item.matchText)).length < item.expectedMatchCount));
         setSnapshot(nextSnapshot); setStatus(nextSnapshot.isStreaming ? "AI is working" : "Ready");
       }
@@ -428,7 +446,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
           });
         }
       }
-      if (payload.type === "error") { setStatus(payload.message); setLoadingEarlierMessages(false); setPendingQueuedMessages((current) => { let pendingIndex = -1; for (let index = current.length - 1; index >= 0; index -= 1) if (current[index].status === "scheduling") { pendingIndex = index; break; } return pendingIndex < 0 ? current : current.map((item, index) => index === pendingIndex ? { ...item, status: "failed", error: payload.message } : item); }); }
+      if (payload.type === "error") { setStatus(payload.message); setLoadingEarlierMessages(false); setQuestionBusyId(undefined); setPendingQueuedMessages((current) => { let pendingIndex = -1; for (let index = current.length - 1; index >= 0; index -= 1) if (current[index].status === "scheduling") { pendingIndex = index; break; } return pendingIndex < 0 ? current : current.map((item, index) => index === pendingIndex ? { ...item, status: "failed", error: payload.message } : item); }); }
     };
     return () => { active = false; socket.close(); };
   }, [workspace.id, session.id, targetMessageId, leafEntryId, restorePosition?.scrollTop, restorePosition?.followOutput, onSessionChanged, cachedSnapshot]);
@@ -470,7 +488,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const parentStatus = origin ? sessionStatuses[origin.parentSessionId] : undefined;
   const runtimeStatus = sessionStatuses[session.id];
   const runtimeError = status === "Ready" && runtimeStatus?.state === "error" ? runtimeStatus.errorMessage || "Session error" : undefined;
-  const displayStatus = runtimeError ? "Error" : status === "AI is working" && isSubagent ? "SubAgent is working" : status;
+  const displayStatus = runtimeError ? "Error" : Boolean(snapshot?.waitingForAnswer) ? "Waiting for answer" : status === "AI is working" && isSubagent ? "SubAgent is working" : status;
   const allMessages = useMemo(() => snapshot?.messages.filter((message) => message.role !== "system") || [], [snapshot]);
   const messageNumberOffset = snapshot?.messageNumberOffset || 0;
   const stickyUserMessage = stickyUserMessageId ? allMessages.find((message) => message.messageId === stickyUserMessageId) : undefined;
@@ -482,6 +500,12 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const displayedQueue = useMemo(() => applyQueueOperations(snapshot?.queue || [], optimisticQueueOperations), [snapshot?.queue, optimisticQueueOperations]);
   const queuedFollowUpCount = displayedQueue.filter((item) => item.mode === "followUp").length;
   const sessionContextPercent = snapshot?.stats?.contextUsage?.percent;
+  const questionUi = useMemo<QuestionUi>(() => ({
+    groups: new Map((snapshot?.questions || []).map((group) => [group.toolCallId, group])),
+    busyId: questionBusyId,
+    onAnswer: (toolCallId, answers) => { if (!send({ type: "answer-question", toolCallId, answers })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
+    onDismiss: (toolCallId) => { if (!send({ type: "dismiss-question", toolCallId })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
+  }), [snapshot?.questions, questionBusyId]);
   const statusIsError = Boolean(runtimeError) || !["Connecting session", "Loading conversation", "Refreshing conversation", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
 
   function applyAuthoritativeQueueState(state: QueueState) {
@@ -739,7 +763,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     finally { setPreparingAttachments(false); }
   }
 
-  return <RoleLabels.Provider value={roles}><section className={`chat-page ${leafEntryId ? "historical-branch" : ""} chat-width-${chatWidth}`} aria-busy={isLoading}>
+  return <RoleLabels.Provider value={roles}><QuestionUiContext.Provider value={questionUi}><section className={`chat-page ${leafEntryId ? "historical-branch" : ""} chat-width-${chatWidth}`} aria-busy={isLoading}>
     <div className="chat-top">{origin && <div className="parent-agent-bar" aria-label="Parent Agent status"><Sparkles size={14} /><span>Parent Agent</span>{origin.parentDeleted ? <strong>Session deleted</strong> : <SessionReference className="parent-agent-title" link={internalSessionLink(workspace.id, origin.parentSessionId)}>{parentSession?.name || parentSession?.firstMessage || "Parent Agent"}</SessionReference>}<SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} /><span className={`status-dot ${parentStatus?.state === "error" ? "error" : ""}`} title={parentStatus?.errorMessage}><i className={parentStatus?.state === "running" ? "working" : parentStatus?.state === "error" ? "error" : ""} /><span>{parentStatus?.state || "ready"}</span></span>{!origin.parentDeleted && <SessionReference className="parent-request-link" link={origin.parentLink} leafEntryId={origin.parentLeafEntryId}>Open parent request</SessionReference>}</div>}<header className="page-header chat-header">
       <div className="chat-title"><h2>{title}</h2><button className="subtle-icon-button" title="Rename session" disabled={isLoading || Boolean(leafEntryId)} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button>{!isSubagent && <SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} />}<span className={`status-dot ${statusIsError ? "error" : ""}`} title={runtimeError || (statusIsError ? displayStatus : undefined)}><i className={statusIsError ? "error" : active || isLoading ? "working" : ""} /><span>{displayStatus}</span></span></div>
       <div className="chat-header-actions"><span className="chat-context-usage" aria-label={sessionContextPercent == null ? "Context usage unavailable" : `Context usage ${sessionContextPercent.toFixed(1)}%`}>{sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.totalDisplayMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id, undefined, leafEntryId)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
@@ -763,5 +787,5 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     {!isLoading && rollbackEntryId && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !actionBusy) setRollbackEntryId(null); }}><div className="dialog-card compact-dialog rollback-dialog" role="dialog" aria-modal="true" aria-labelledby="rollback-session-title"><div className="dialog-header no-close"><div className="dialog-icon rollback-dialog-icon"><RotateCcw size={18} /></div><div><h2 id="rollback-session-title">Roll back latest message?</h2><p>This removes the latest conversation turn and returns its message to the composer. Project files stay unchanged.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => setRollbackEntryId(null)}>Cancel</button><button type="button" className="secondary-button rollback-confirm-button" disabled={actionBusy} onClick={() => void confirmRollback()}><RotateCcw size={14} />Roll back conversation</button></div></div></div>}
     {!isLoading && queuedEditCandidate && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !queueBusy) setQueuedEditCandidate(null); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="replace-composer-title"><div className="dialog-header no-close"><div className="dialog-icon"><Pencil size={18} /></div><div><h2 id="replace-composer-title">Replace composer draft?</h2><p>The composer already contains content. Replace it with the queued message?</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={queueBusy} onClick={() => setQueuedEditCandidate(null)}>Cancel</button><button type="button" className="secondary-button" disabled={queueBusy} onClick={() => void takeQueuedMessageForEdit(queuedEditCandidate)}><Pencil size={14} />Replace draft</button></div></div></div>}
     {imageOpen && <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Image preview" onMouseDown={(event) => { if (event.target === event.currentTarget) setImageOpen(null); }}><button type="button" title="Close image preview" onClick={() => setImageOpen(null)}><X size={19} /></button><img src={imageOpen.source} alt={imageOpen.alt} /></div>}
-  </section></RoleLabels.Provider>;
+  </section></QuestionUiContext.Provider></RoleLabels.Provider>;
 }
