@@ -193,7 +193,7 @@ try {
   }
   const sizes = await page.evaluate(() => ({ normal: [...document.querySelectorAll(".feed-tool-details:not(.is-subagent-tool) > summary")].map((element) => element.getBoundingClientRect().height).find((height) => height > 0), subagents: [...document.querySelectorAll(".is-subagent-tool > summary")].map((element) => element.getBoundingClientRect().height) }));
   assert.ok(sizes.normal > 0, JSON.stringify(sizes));
-  for (const height of sizes.subagents) assert.ok(Math.abs(height - sizes.normal) <= 1, JSON.stringify(sizes));
+  for (const height of sizes.subagents) assert.ok(Math.abs(height - sizes.normal * 2) <= 1, JSON.stringify(sizes));
   const splitRow = subagentTools.first();
   assert.equal(await splitRow.locator(".feed-tool-divider").count(), 1);
   const jump = splitRow.locator(".feed-tool-jump");

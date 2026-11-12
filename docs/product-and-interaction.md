@@ -115,7 +115,7 @@ Tool item 在没有已保存 disclosure 状态时默认关闭；active Running �
 
 连续的工具调用按可见内容分组，默认保留最后 3 个 tool call；较早的调用通过 `show more tool calls (N)` 与 `show fewer tool calls` 展开或折叠，N 是被折叠调用的数量。一个 message 中的多个调用分别计数。Hide reasoning 开启后，分组会跳过隐藏的 thinking block，包括只包含 thinking 的独立 message，因此这些内容前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，含普通正文或图片的 message 保持原有显示。分组保留原始 message 与 permalink，展开状态随 Session UI cache 保留，较早调用的 permalink target 会在首次访问时展开对应分组。
 
-`subagent` tool 使用普通 tool row 的高度，并分成左右两部分：左侧是分支 logo 与 `subagent` 文字，点击打开该次委派的第一个子 Session；中间是细竖分割线；右侧显示委派任务标题与状态，点击展开工具参数与结果。`subagent` tool 独立于连续 tool call 的分组显示。包含 `subagent` 调用的 message 中断前后普通调用的连续分组，同一 message 中的混合调用按原顺序保留。
+`subagent` tool 使用普通 tool row 2 倍的高度，并分成左右两部分：左侧是分支 logo 与 `subagent` 文字，点击打开该次委派的第一个子 Session；中间是细竖分割线；右侧显示委派任务标题与状态，点击展开工具参数与结果。`subagent` tool 独立于连续 tool call 的分组显示。包含 `subagent` 调用的 message 中断前后普通调用的连续分组，同一 message 中的混合调用按原顺序保留。
 
 Compact 的收起高度为普通 tool row 的 3 倍。收起时显示 Duration、Before、After、System prompt、Summary、Retained 和 Saved；After 与各组成的 token 用量使用 pi SDK 估算，并以 `≈` 标记。展开后显示 source Message ID、内部链接、压缩触发原因、生成摘要的 input/output token 用量，以及 pi 保存的 Markdown summary。耗时来自 Server 对后续压缩事件的记录。历史字段使用已有记录展示，空字段显示 `—`；System prompt 尚未记录时，After 显示已知部分并附加 `+ system`。compact 前的原始会话继续通过 earlier message 分页展示。
 
