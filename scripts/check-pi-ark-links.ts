@@ -9,6 +9,7 @@ import { parseInternalSessionLink as parseWebSessionLink } from "../apps/web/src
 import { buildSessionDisplayMessages } from "../apps/server/src/session-display.ts";
 import { MAX_LINK_RESULT_BYTES, serializeLinkResult, SessionReader } from "../apps/server/src/session-reader.ts";
 import { createReadPiArkLinkTool, READ_PI_ARK_LINK } from "../apps/server/src/agent-tools/read-pi-ark-link.ts";
+import { WEBFETCH } from "../apps/server/src/agent-tools/webfetch.ts";
 import { WorkspaceService } from "../apps/server/src/workspaces.ts";
 
 const directory = await mkdtemp(join(tmpdir(), "pi-ark-link-reader-"));
@@ -169,7 +170,7 @@ try {
     const opened = await agents.create(workspace);
     const internals = agents as unknown as { handles: Map<string, { session: import("@earendil-works/pi-coding-agent").AgentSession }>; onEvent(handle: unknown, event: unknown): void };
     const handle = internals.handles.get(`${workspace.id}:${opened.id}`)!;
-    const expectedTools = ["read", "bash", "edit", "write", READ_PI_ARK_LINK, "subagent"].sort();
+    const expectedTools = ["read", "bash", "edit", "write", READ_PI_ARK_LINK, WEBFETCH, "subagent"].sort();
     assert.deepEqual(handle.session.getActiveToolNames().sort(), expectedTools);
     assert.match(handle.session.systemPrompt, /Legacy configuration append/);
     const other = await agents.create(otherWorkspace);
@@ -209,7 +210,7 @@ try {
       await legacyAgents.subagents.store.save(workspace, legacyRun);
       const closeLegacy = await legacyAgents.connect(workspace, legacyManager.getSessionId(), socket as never);
       const legacyHandle = (legacyAgents as unknown as typeof internals).handles.get(`${workspace.id}:${legacyManager.getSessionId()}`)!;
-      assert.deepEqual(legacyHandle.session.getActiveToolNames().sort(), ["read", "bash", "edit", "write", READ_PI_ARK_LINK].sort());
+      assert.deepEqual(legacyHandle.session.getActiveToolNames().sort(), ["read", "bash", "edit", "write", READ_PI_ARK_LINK, WEBFETCH].sort());
       assert.match(legacyHandle.session.systemPrompt, /Historical task append/);
       closeLegacy();
       const recorded = JSON.parse(await readFile(join(workspace.path, ".pi-ark", "subagent-runs", `${legacyRun.id}.json`), "utf8"));

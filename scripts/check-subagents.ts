@@ -123,7 +123,7 @@ try {
   const child = running.tasks.find((task) => task.state === "running")!;
   assert.deepEqual(session(child.sessionId).model, model);
   assert.equal(session(child.sessionId).thinkingLevel, configuration.thinkingLevel);
-  const childTools = ["read", "bash", "edit", "write", "read_pi_ark_link"].sort();
+  const childTools = ["read", "bash", "edit", "write", "read_pi_ark_link", "webfetch"].sort();
   assert.deepEqual(parentSession.getActiveToolNames().sort(), [...childTools, "subagent"].sort());
   assert.deepEqual(session(child.sessionId).getActiveToolNames().sort(), childTools);
   assert.deepEqual(running.tools, configuration.tools);
