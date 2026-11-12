@@ -269,6 +269,8 @@ node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" password --no-restart
 
 ### 切换 Workspace
 
+Workspace 行右侧的带圈数字表示该 Workspace 中正在运行的 Session 数量，例如 ① 表示 1 个，② 表示 2 个；没有运行中的 Session 时不显示。该数字可以在 Settings → Appearance 的 Working session count 中关闭。
+
 点击侧栏中的 Workspace。Agent、Files 和 Terminal 会切换到该目录；Settings 使用统一的全局配置。回到本次页面打开过的 Workspace 时，Agent 页面恢复该 Workspace 上次查看的 Session，该 Session 的 conversation 缓存与 Composer 中尚未发送的内容一并恢复。
 
 ### 调整 Workspace 顺序
@@ -292,8 +294,6 @@ node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" password --no-restart
 ## Session 操作
 
 ### 新建 Session
-
-当前 Workspace 有 Session 正在运行时，Sessions 标题旁出现圆点与数字组成的计数标记，数字是运行中的 Session 数量；全部结束后标记消失。
 
 Sessions 标题右侧的四个按钮从左到右依次是显示归档 Session、打开内部链接、新增 Session group 和新建 Session。点击最右侧的加号后，新 Session 会立即打开。发送首条 message 后，侧栏列表立即出现这一行，并使用该条 user message 作为默认标题。新 Session 尚未发送 message 时，切换到其他 Session 或 Workspace 后再次点击加号会回到这个未发送的 Session，Composer 中尚未发送的内容随之恢复。
 
@@ -552,6 +552,8 @@ Theme 区域列出以下 theme，点击后立即预览并保存：
 Theme 选择只影响当前浏览器。
 
 Text size 区域用滑杆调整全部界面文字的整体倍率，范围为 90% 到 130%，默认 100%。滑杆右侧显示当前百分比，Reset 恢复 100%。下方的等级清单列出 Micro、Caption、Dense、Interface、Reading、Section title 和 Page title 七个等级，以及每个等级负责的文字范围和当前像素值。拖动滑杆时，侧栏、会话、Settings 和对话框的文字一起变化。
+
+Sidebar 区域包含 Working session count 开关，控制 Workspace 行右侧的带圈数字是否显示，默认开启。
 
 Conversation 区域包含两个开关。Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示；开启后，conversation 不显示 Reasoning 折叠项和内容，Session history 与模型使用的上下文继续保留原始 reasoning。Keep line breaks（按原文换行）默认开启：原文写成几行，普通文本就按几行显示；关闭后，同一段落内的普通换行会合并显示，使用空行可以分隔段落，该设置作用于会话正文、Reasoning、摘要和 Files 的 Markdown 预览。两个开关都立即生效，刷新后保留选择。
 

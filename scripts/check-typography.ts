@@ -39,8 +39,10 @@ assert.equal(levelPixels(micro, 0.9), 7.2);
 
 assert.deepEqual(normalizeAppearance(null), DEFAULT_APPEARANCE);
 assert.deepEqual(normalizeAppearance({}), DEFAULT_APPEARANCE);
-assert.deepEqual(normalizeAppearance({ theme: "paper", hideReasoning: true, markdownLineBreaks: false, fontScale: 1.2 }), { theme: "paper", hideReasoning: true, markdownLineBreaks: false, fontScale: 1.2 });
-assert.deepEqual(normalizeAppearance({ theme: "unknown", hideReasoning: "true", markdownLineBreaks: 0, fontScale: 9 }), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true, fontScale: 1.3 });
-assert.deepEqual(normalizeAppearance({ theme: "graphite", hideReasoning: true, markdownLineBreaks: true, fontScale: 0.75 }), { theme: "graphite", hideReasoning: true, markdownLineBreaks: true, fontScale: 0.9 });
+assert.deepEqual(normalizeAppearance({ theme: "paper", hideReasoning: true, markdownLineBreaks: false, fontScale: 1.2 }), { theme: "paper", hideReasoning: true, markdownLineBreaks: false, fontScale: 1.2, showWorkingCount: true });
+assert.deepEqual(normalizeAppearance({ theme: "unknown", hideReasoning: "true", markdownLineBreaks: 0, fontScale: 9 }), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true, fontScale: 1.3, showWorkingCount: true });
+assert.deepEqual(normalizeAppearance({ theme: "graphite", hideReasoning: true, markdownLineBreaks: true, fontScale: 0.75 }), { theme: "graphite", hideReasoning: true, markdownLineBreaks: true, fontScale: 0.9, showWorkingCount: true });
+assert.equal(normalizeAppearance({ showWorkingCount: false }).showWorkingCount, false);
+assert.equal(normalizeAppearance({ showWorkingCount: "false" }).showWorkingCount, true);
 
 console.log("Typography levels, font scale bounds, and appearance normalization check passed.");

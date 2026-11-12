@@ -40,6 +40,8 @@ Pi-Ark 是面向个人或受控团队环境的 pi coding agent Web UI。服务�
 
 添加成功后，Pi-Ark 将 Workspace 写入 Global registry，创建 `<workspace>/.pi-ark/` 状态目录，并切换到新 Workspace。
 
+Workspace 行右侧在存在运行中的 Session 时显示带圈数字，例如 ① 表示该 Workspace 有 1 个 Session 正在运行，② 表示 2 个；带圈数字使用弱化文字颜色，没有底色和边框，数量为 0 时不显示。Appearance 中的 Working session count 关闭后，该数字在侧栏隐藏。
+
 ### 调整顺序、重命名与关闭
 
 操作菜单中的 Move up 与 Move down 把该 Workspace 与相邻条目交换位置。新的顺序写入 Global registry，并在侧栏立即显示；刷新页面或换一个浏览器后顺序保持。列表第一个条目的 Move up 和最后一个条目的 Move down 显示为不可用。
@@ -72,8 +74,6 @@ Session row 的右侧状态区域使用以下优先级：Agent 正在运行时�
 - Delete：确认后删除 pi JSONL、Session metadata 和对应附件目录。
 
 ### Session group
-
-Sessions 标题旁在存在运行中的 Session 时显示一个带圆点与数字的计数标记，例如 2 表示当前 Workspace 有 2 个 Session 正在运行。该标记随每秒读取的 Session 状态更新，没有运行中的 Session 时隐藏。
 
 Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark session link、New session group 和 New session 四个图标按钮。用户可以创建、重命名和删除 group。一个 Session 可以出现在多个 group 中；未分配 group 的 Session 显示在 Ungrouped。删除 group 会移除 group 本身及 Session 的对应关联，不会删除 Session。
 
@@ -245,7 +245,7 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限，并以 Workspace 目�
 
 Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
 
-- Appearance：Theme 区域使用紧凑的色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）；Text size 区域用滑杆调整全部界面文字的整体倍率，范围 90% 到 130%，并列出七个字号等级的名称、用途与当前像素值；Conversation 区域包含 Hide reasoning 和 Keep line breaks。三项设置都保存在当前浏览器，改动立即生效。
+- Appearance：Theme 区域使用紧凑的色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）；Text size 区域用滑杆调整全部界面文字的整体倍率，范围 90% 到 130%，并列出七个字号等级的名称、用途与当前像素值；Sidebar 区域包含 Working session count 开关；Conversation 区域包含 Hide reasoning 和 Keep line breaks。这些设置都保存在当前浏览器，改动立即生效。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。

@@ -54,7 +54,7 @@ try {
   await expectSize(".settings-section-title h3", 16.1);
   await expectSize(".settings-row strong", 12.65);
   await expectSize(".settings-field small", 10.35);
-  assert.deepEqual(await appearance(), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true, fontScale: 1.15 });
+  assert.deepEqual(await appearance(), { theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true, fontScale: 1.15, showWorkingCount: true });
   assert.equal(await page.evaluate(() => document.documentElement.style.getPropertyValue("--fs-scale")), "1.15");
 
   await page.reload();

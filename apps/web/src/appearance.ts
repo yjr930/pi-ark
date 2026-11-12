@@ -6,6 +6,7 @@ export interface AppearanceSettings {
   hideReasoning: boolean;
   markdownLineBreaks: boolean;
   fontScale: number;
+  showWorkingCount: boolean;
 }
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = Object.freeze({
@@ -13,6 +14,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = Object.freeze({
   hideReasoning: false,
   markdownLineBreaks: true,
   fontScale: DEFAULT_FONT_SCALE,
+  showWorkingCount: true,
 });
 
 const storageKey = "pi-ark-appearance";
@@ -29,6 +31,7 @@ export function normalizeAppearance(value: unknown): AppearanceSettings {
     hideReasoning: appearance.hideReasoning === true,
     markdownLineBreaks: appearance.markdownLineBreaks !== false,
     fontScale: normalizeFontScale(appearance.fontScale),
+    showWorkingCount: appearance.showWorkingCount !== false,
   };
 }
 

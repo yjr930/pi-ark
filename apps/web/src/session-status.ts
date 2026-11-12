@@ -21,6 +21,11 @@ export function countWorkingSessions(statuses: SessionStatusMap): number {
   return Object.values(statuses).filter((status) => status.state === "running").length;
 }
 
+export function formatWorkingCount(count: number): string {
+  if (count <= 0) return "";
+  return count <= 20 ? String.fromCodePoint(0x2460 + count - 1) : String(count);
+}
+
 export function acknowledgeSessionStatus(current: SessionStatusMap, sessionId: string): SessionStatusMap {
   const status = current[sessionId];
   if (!status || status.viewedUpdateRevision === status.updateRevision) return current;

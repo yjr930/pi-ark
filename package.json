@@ -1,6 +1,6 @@
 {
   "name": "pi-ark",
-  "version": "0.1.9-dev.9",
+  "version": "0.1.9-dev.10",
   "private": true,
   "description": "Workspace-oriented web interface for the pi coding agent",
   "type": "module",
@@ -14,7 +14,7 @@
     "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w @pi-ark/server\" \"npm run dev -w @pi-ark/web\"",
     "build": "npm run build -w @pi-ark/web && npm run build -w @pi-ark/server",
     "check": "npm run check -w @pi-ark/web && npm run check -w @pi-ark/server",
-    "check:behavior": "tsx scripts/check-conversation.ts && tsx scripts/check-compaction-stats.ts && tsx scripts/check-session-cache.ts && tsx scripts/check-session-status.ts && tsx scripts/check-session-selection.ts && tsx scripts/check-attachments.ts && tsx scripts/check-auth-flow.ts && tsx scripts/check-model-preferences.ts && tsx scripts/check-session-actions.ts && tsx scripts/check-questions.ts && tsx scripts/check-question-loop.ts && tsx scripts/check-pi-ark-links.ts && tsx scripts/check-system-prompt.ts && tsx scripts/check-skills.ts && tsx scripts/check-mcp.ts && tsx scripts/check-webfetch.ts && tsx scripts/check-file-search.ts && tsx scripts/check-composer-suggest.ts && tsx scripts/check-files.ts && npm run check:file-links && tsx scripts/check-instances.ts && node scripts/check-setup.mjs && node scripts/platform-check.mjs && tsx scripts/check-notebook.ts && tsx scripts/check-subagents.ts && tsx scripts/check-terminal.ts && tsx scripts/check-terminal-appearance.ts && tsx scripts/check-typography.ts && tsx scripts/check-workspace-order.ts && npm run check:release-process",
+    "check:behavior": "tsx scripts/check-conversation.ts && tsx scripts/check-compaction-stats.ts && tsx scripts/check-session-cache.ts && tsx scripts/check-session-status.ts && tsx scripts/check-session-selection.ts && tsx scripts/check-attachments.ts && tsx scripts/check-auth-flow.ts && tsx scripts/check-model-preferences.ts && tsx scripts/check-session-actions.ts && tsx scripts/check-questions.ts && tsx scripts/check-question-loop.ts && tsx scripts/check-pi-ark-links.ts && tsx scripts/check-system-prompt.ts && tsx scripts/check-skills.ts && tsx scripts/check-mcp.ts && tsx scripts/check-webfetch.ts && tsx scripts/check-file-search.ts && tsx scripts/check-composer-suggest.ts && tsx scripts/check-files.ts && npm run check:file-links && tsx scripts/check-instances.ts && node scripts/check-setup.mjs && node scripts/platform-check.mjs && tsx scripts/check-notebook.ts && tsx scripts/check-subagents.ts && tsx scripts/check-terminal.ts && tsx scripts/check-terminal-appearance.ts && tsx scripts/check-typography.ts && tsx scripts/check-workspace-order.ts && tsx scripts/check-working-count.ts && npm run check:release-process",
     "check:setup": "node scripts/check-setup.mjs",
     "check:platform": "node scripts/platform-check.mjs",
     "check:release": "node scripts/check-release.mjs",
@@ -38,6 +38,7 @@
     "check:terminal-appearance": "tsx scripts/check-terminal-appearance.ts",
     "check:typography": "tsx scripts/check-typography.ts",
     "check:workspace-order": "tsx scripts/check-workspace-order.ts",
+    "check:working-count": "tsx scripts/check-working-count.ts",
     "check:typography-ui": "node scripts/check-typography-ui.mjs",
     "check:skills-ui": "node scripts/check-skills-ui.mjs",
     "check:mcp-ui": "node scripts/check-mcp-ui.mjs"

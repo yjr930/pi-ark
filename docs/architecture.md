@@ -353,7 +353,7 @@ AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 cli
 
 ### Sidebar Session status
 
-`GET /api/workspaces/:workspaceId/session-statuses` 只读取当前 Server process 中已经打开的 AgentHandle，不扫描 Session JSONL。Web 每秒读取该轻量状态列表，并把 `running` 状态的条数显示为 Sessions 标题旁的圆点计数。每条状态包含 `ready`、`running` 或 `error`、单调递增的 `statusRevision`、完成态使用的 `updateRevision`，以及可选的 error message。
+`GET /api/workspaces/:workspaceId/session-statuses` 只读取当前 Server process 中已经打开的 AgentHandle，不扫描 Session JSONL。Web 每秒读取每个 Workspace 的该轻量状态列表，按 Workspace 合并后把 `running` 状态的条数显示为该 Workspace 行右侧的带圈数字；Appearance 的 Working session count 关闭时侧栏不渲染该数字。每条状态包含 `ready`、`running` 或 `error`、单调递增的 `statusRevision`、完成态使用的 `updateRevision`，以及可选的 error message。
 
 `agent_start` 将状态切换为 `running`。`agent_end` 只记录最终且不再 retry 的 assistant error；`agent_settled` 才将状态切换为 `ready` 或 `error`，因此单条 `message_end` 不会提前结束 spinner。Aborted run 返回 `ready`，但不递增 `updateRevision`。Prompt 在 Agent run 建立前直接失败时，Server 立即进入 `error` 并递增 completed update revision。
 
@@ -623,7 +623,7 @@ Global config、Session metadata 和 Workspace Notebook 使用 temporary file �
 
 浏览器 localStorage 保存侧栏状态和宽度、Workspace 展开状态、conversation width、Files 文件列表宽度和外观设置。`pi-ark-files-browser-width` 保存桌面 Files separator 调整后的文件列表宽度；移动端的上下堆叠布局不使用该宽度。
 
-`pi-ark-appearance` 保存 `{ "theme": "ark-dark", "hideReasoning": false, "markdownLineBreaks": true, "fontScale": 1 }`。读取时对每个字段做归一化：未知 theme 回退到 Ark Dark，缺失或非法 `fontScale` 回退到 1，`markdownLineBreaks` 默认为 `true`。历史 `pi-ark-theme` 键中保存的 theme 在首次读取时迁移到新键。启动时 `main.tsx` 在渲染前调用 `applyStoredAppearance()`，把 theme 写入 `data-theme`/`data-theme-group`，把字号倍率写入 `--fs-scale`，避免首屏使用默认外观。设置改动通过当前页面的自定义事件与同源标签页的 storage event 同步。
+`pi-ark-appearance` 保存 `{ "theme": "ark-dark", "hideReasoning": false, "markdownLineBreaks": true, "fontScale": 1, "showWorkingCount": true }`。读取时对每个字段做归一化：未知 theme 回退到 Ark Dark，缺失或非法 `fontScale` 回退到 1，`markdownLineBreaks` 与 `showWorkingCount` 默认为 `true`。历史 `pi-ark-theme` 键中保存的 theme 在首次读取时迁移到新键。启动时 `main.tsx` 在渲染前调用 `applyStoredAppearance()`，把 theme 写入 `data-theme`/`data-theme-group`，把字号倍率写入 `--fs-scale`，避免首屏使用默认外观。设置改动通过当前页面的自定义事件与同源标签页的 storage event 同步。
 
 Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fontSize": 13 }`，使用 `pi-ark-terminal-active:<window.location.pathname>:<workspaceId>` 保存每个 Workspace 最近选择的 Terminal Tab 标识。字体偏好变更通过当前页面的自定义事件和同源浏览器标签页的 storage event 同步。xterm 的显示状态保存在当前页面的已挂载组件中，Tab 的完整输出历史由 Server 的内存保存。
 

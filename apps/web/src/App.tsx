@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Archive, Box, ChevronDown, ChevronLeft, ChevronRight, Files as FilesIcon, FolderPlus, Settings as Gear, Link2, LoaderCircle, Menu, MessageSquare, Plus, TerminalSquare } from "lucide-react";
 import { api } from "./api";
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog";
@@ -44,7 +44,7 @@ export default function App() {
   const [statusesByWorkspace, setStatusesByWorkspace] = useState<Record<string, SessionStatusMap>>({});
   const [openSessionIds, setOpenSessionIds] = useState<Record<string, string[]>>({});
   const sessionStatuses = statusesByWorkspace[workspaceId] || {};
-  const workingSessionCount = countWorkingSessions(sessionStatuses);
+  const workingCounts = useMemo(() => Object.fromEntries(workspaces.map((item) => [item.id, countWorkingSessions(statusesByWorkspace[item.id] || {})])), [workspaces, statusesByWorkspace]);
   const [sessionId, setSessionId] = useState("");
   const [targetMessageId, setTargetMessageId] = useState(initialPermalink.current.messageId);
   const [leafEntryId, setLeafEntryId] = useState(initialPermalink.current.leafEntryId);
@@ -157,19 +157,25 @@ export default function App() {
   }, [sessions, sessionsWorkspaceId, workspaceId]);
 
   useEffect(() => {
-    if (auth !== "in" || !workspaceId) return;
+    if (auth !== "in" || workspaces.length === 0) return;
     let current = true;
-    const refresh = () => { void api.sessionStatuses(workspaceId).then((result) => {
-      if (!current) return;
-      setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: mergeSessionStatuses(workspaces[workspaceId] || {}, result.statuses, page === "agent" && document.visibilityState === "visible" ? sessionId : undefined) }));
-      const openIds = result.statuses.map((status) => status.id);
-      openSessionIdsRef.current = { ...openSessionIdsRef.current, [workspaceId]: openIds };
-      setOpenSessionIds((ids) => ({ ...ids, [workspaceId]: openIds }));
-    }).catch(() => undefined); };
+    const refresh = () => {
+      for (const item of workspaces) {
+        void api.sessionStatuses(item.id).then((result) => {
+          if (!current) return;
+          const viewed = item.id === currentWorkspaceId.current && page === "agent" && document.visibilityState === "visible" ? sessionId : undefined;
+          setStatusesByWorkspace((statuses) => ({ ...statuses, [item.id]: mergeSessionStatuses(statuses[item.id] || {}, result.statuses, viewed) }));
+          if (item.id !== currentWorkspaceId.current) return;
+          const openIds = result.statuses.map((status) => status.id);
+          openSessionIdsRef.current = { ...openSessionIdsRef.current, [item.id]: openIds };
+          setOpenSessionIds((ids) => ({ ...ids, [item.id]: openIds }));
+        }).catch(() => undefined);
+      }
+    };
     refresh();
     const timer = window.setInterval(refresh, 1000);
     return () => { current = false; window.clearInterval(timer); };
-  }, [auth, page, sessionId, workspaceId]);
+  }, [auth, page, sessionId, workspaceId, workspaces]);
 
   useEffect(() => {
     if (page === "agent" && sessionId && document.visibilityState === "visible") setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, sessionId) }));
@@ -361,7 +367,7 @@ export default function App() {
       <div className="sidebar-brand"><div><Box size={18} /><strong>Pi-Ark</strong></div></div>
       <section className={`sidebar-section workspace-section ${workspacesExpanded ? "expanded" : "collapsed"}`}>
         <div className="sidebar-section-header"><button className="sidebar-section-toggle" type="button" aria-expanded={workspacesExpanded} onClick={toggleWorkspaces}><ChevronDown size={13} /><span>Workspaces</span></button><button className="icon-button" title="Add workspace" onClick={() => setAddWorkspaceOpen(true)}><Plus size={15} /></button></div>
-        {workspacesExpanded && <WorkspaceList workspaces={workspaces} activeId={workspaceId} onSelect={selectWorkspace} onRenamed={workspaceRenamed} onMoved={workspaceMoved} onClosed={workspaceClosed} />}
+        {workspacesExpanded && <WorkspaceList workspaces={workspaces} activeId={workspaceId} workingCounts={workingCounts} showWorkingCount={appearance.showWorkingCount} onSelect={selectWorkspace} onRenamed={workspaceRenamed} onMoved={workspaceMoved} onClosed={workspaceClosed} />}
       </section>
       <nav className="sidebar-navigation sidebar-list">
         <button className={page === "agent" ? "active" : ""} onClick={() => selectPage("agent")}><MessageSquare size={16} /><span>Agent</span></button>
@@ -370,7 +376,7 @@ export default function App() {
         <button className={page === "settings" ? "active" : ""} onClick={() => selectPage("settings")}><Gear size={16} /><span>Settings</span></button>
       </nav>
       <section className="sidebar-section sessions-section">
-        <div className="sidebar-section-header"><div className="sidebar-section-title"><span>Sessions</span>{workingSessionCount > 0 && <span className="sessions-working-count" title={`${workingSessionCount} working ${workingSessionCount === 1 ? "session" : "sessions"}`} aria-label={`${workingSessionCount} working ${workingSessionCount === 1 ? "session" : "sessions"}`}><i />{workingSessionCount}</span>}</div><div className="sidebar-header-actions"><button className={`icon-button ${showArchivedSessions ? "active" : ""}`} title={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-label={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchivedSessions} onClick={() => setShowArchivedSessions((current) => !current)}><Archive size={14} /></button><button className="icon-button" title="Open Pi-Ark session link" aria-label="Open Pi-Ark session link" onClick={() => setSessionLinkOpen(true)}><Link2 size={14} /></button><button className="icon-button" title="New session group" aria-label="New session group" onClick={() => setCreateGroupOpen(true)}><FolderPlus size={14} /></button><button className="icon-button" title="New session" aria-label="New session" onClick={() => void createSession()}><Plus size={15} /></button></div></div>
+        <div className="sidebar-section-header"><span>Sessions</span><div className="sidebar-header-actions"><button className={`icon-button ${showArchivedSessions ? "active" : ""}`} title={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-label={showArchivedSessions ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchivedSessions} onClick={() => setShowArchivedSessions((current) => !current)}><Archive size={14} /></button><button className="icon-button" title="Open Pi-Ark session link" aria-label="Open Pi-Ark session link" onClick={() => setSessionLinkOpen(true)}><Link2 size={14} /></button><button className="icon-button" title="New session group" aria-label="New session group" onClick={() => setCreateGroupOpen(true)}><FolderPlus size={14} /></button><button className="icon-button" title="New session" aria-label="New session" onClick={() => void createSession()}><Plus size={15} /></button></div></div>
         {workspace && <SessionList workspaceId={workspace.id} sessions={workspaceSessions} statuses={sessionStatuses} activeSessionId={sessionId} showArchived={showArchivedSessions} notebookActive={page === "notebook"} createGroupOpen={createGroupOpen} onSelect={selectSession} onOpenNotebook={openNotebook} onCreateGroupClose={() => setCreateGroupOpen(false)} onChanged={refreshSessions} />}
       </section>
     </aside>

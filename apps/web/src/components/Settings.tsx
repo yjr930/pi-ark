@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, Plug, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { clearSessionCache, getSessionCacheSummary } from "../session-cache";
@@ -381,6 +381,10 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
               <button type="button" className="secondary-button" disabled={appearance.fontScale === 1} onClick={() => updateAppearance({ fontScale: 1 })}><RotateCcw size={13} />Reset</button>
             </div>
             <div className="text-size-levels">{FONT_LEVELS.map((level) => <div className="text-size-level" key={level.id}><span className="text-size-sample" style={{ fontSize: `var(--fs-${level.id})` }}>Aa</span><strong>{level.label}</strong><span>{level.role}</span><small>{levelPixels(level, appearance.fontScale)} px</small></div>)}</div>
+          </section>
+          <section className="settings-section">
+            <div className="settings-section-title"><PanelLeft size={17} /><div><h3>Sidebar</h3><p>What the workspace list shows in this browser.</p></div></div>
+            <div className="settings-rows"><div className="settings-row"><div><strong>Working session count</strong><span>Show a circled number on each workspace row with the Sessions running in that workspace.</span></div><Toggle label="Working session count" checked={appearance.showWorkingCount} onChange={(checked) => updateAppearance({ showWorkingCount: checked })} /></div></div>
           </section>
           <section className="settings-section">
             <div className="settings-section-title"><MessageSquareText size={17} /><div><h3>Conversation</h3><p>How conversations and Markdown files render in this browser.</p></div></div>
