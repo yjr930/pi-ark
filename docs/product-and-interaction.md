@@ -40,7 +40,9 @@ Pi-Ark 是面向个人或受控团队环境的 pi coding agent Web UI。服务�
 
 添加成功后，Pi-Ark 将 Workspace 写入 Global registry，创建 `<workspace>/.pi-ark/` 状态目录，并切换到新 Workspace。
 
-### 重命名与关闭
+### 调整顺序、重命名与关闭
+
+操作菜单中的 Move up 与 Move down 把该 Workspace 与相邻条目交换位置。新的顺序写入 Global registry，并在侧栏立即显示；刷新页面或换一个浏览器后顺序保持。列表第一个条目的 Move up 和最后一个条目的 Move down 显示为不可用。
 
 Rename 只修改侧栏显示名称。Workspace ID 和目录路径保持不变。
 
@@ -70,6 +72,8 @@ Session row 的右侧状态区域使用以下优先级：Agent 正在运行时�
 - Delete：确认后删除 pi JSONL、Session metadata 和对应附件目录。
 
 ### Session group
+
+Sessions 标题旁在存在运行中的 Session 时显示一个带圆点与数字的计数标记，例如 2 表示当前 Workspace 有 2 个 Session 正在运行。该标记随每秒读取的 Session 状态更新，没有运行中的 Session 时隐藏。
 
 Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark session link、New session group 和 New session 四个图标按钮。用户可以创建、重命名和删除 group。一个 Session 可以出现在多个 group 中；未分配 group 的 Session 显示在 Ungrouped。删除 group 会移除 group 本身及 Session 的对应关联，不会删除 Session。
 

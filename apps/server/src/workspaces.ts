@@ -71,6 +71,23 @@ export class WorkspaceService {
     this.byId.set(workspace.id, workspace);
   }
 
+  move(id: string, direction: "up" | "down"): WorkspaceDefinition[] {
+    const current = this.list();
+    const index = current.findIndex((workspace) => workspace.id === id);
+    if (index < 0) throw Object.assign(new Error("Unknown workspace"), { statusCode: 404 });
+    const target = direction === "up" ? index - 1 : index + 1;
+    if (target < 0 || target >= current.length) return current;
+    const reordered = [...current];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    this.replaceOrder(reordered);
+    return this.list();
+  }
+
+  replaceOrder(workspaces: WorkspaceDefinition[]): void {
+    this.byId.clear();
+    for (const workspace of workspaces) this.byId.set(workspace.id, workspace);
+  }
+
   async suggestDirectories(inputPath: string): Promise<{ basePath: string; directories: Array<{ name: string; path: string }> }> {
     if (!inputPath || !isAbsolute(inputPath)) throw Object.assign(new Error("Directory path must be absolute"), { statusCode: 400 });
     const requested = resolve(inputPath);

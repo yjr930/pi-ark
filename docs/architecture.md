@@ -103,7 +103,7 @@ docs/               产品、架构、使用和集成文档
 | Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、message renderer、composer、queue、fork 和 rollback |
 | Subagent list | `apps/web/src/components/SubagentRun.tsx`、`apps/web/src/subagent-view.ts` | 按子 Session 合并最新任务、状态栏数量、活动列表、Completed 分组与父子导航 |
 | Session browser cache | `apps/web/src/session-cache.ts` | IndexedDB 中最近 50 个 Session 的 snapshot、UI state 与文件路径确认结果 LRU cache，并提供清理入口 |
-| Session status projection | `apps/web/src/session-status.ts` | 合并 runtime revision、计算 unread output 和记录当前浏览器的查看状态 |
+| Session status projection | `apps/web/src/session-status.ts` | 合并 runtime revision、计算 unread output、统计运行中的 Session 数量，并记录当前浏览器的查看状态 |
 | Session selection | `apps/web/src/session-selection.ts` | 会话列表刷新后决定保留还是替换当前 Session；尚未写入文件的 Session 依靠 runtime status 识别 |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
 | Workspace list | `apps/web/src/components/WorkspaceList.tsx` | 选择、重命名和关闭 Workspace |
@@ -180,6 +180,8 @@ Global config 中的 Workspace registry 是浏览器可以访问的目录清单�
 - `realpath` 可以解析。
 - 路径是目录。
 - 同一个真实目录尚未注册。
+
+Registry 数组的顺序就是侧栏显示顺序。`POST /api/workspaces/:workspaceId/move` 接收 `up` 或 `down`，交换相邻条目后写回 Global config；位于首尾的条目执行对应方向时数组保持不变。写入失败时内存中的顺序恢复为请求前的顺序。
 
 文件读取先将 Workspace path 和请求 path 解析为 `realpath`，再通过 `path.relative` 与本机路径分隔符检查结果仍位于 Workspace 内。包含 `.pi-ark` path segment 的请求会被拒绝；目录列表也始终过滤该目录，Windows 与 macOS 对该名称采用大小写归一化。
 
@@ -335,7 +337,7 @@ AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 cli
 
 ### Sidebar Session status
 
-`GET /api/workspaces/:workspaceId/session-statuses` 只读取当前 Server process 中已经打开的 AgentHandle，不扫描 Session JSONL。Web 每秒读取该轻量状态列表。每条状态包含 `ready`、`running` 或 `error`、单调递增的 `statusRevision`、完成态使用的 `updateRevision`，以及可选的 error message。
+`GET /api/workspaces/:workspaceId/session-statuses` 只读取当前 Server process 中已经打开的 AgentHandle，不扫描 Session JSONL。Web 每秒读取该轻量状态列表，并把 `running` 状态的条数显示为 Sessions 标题旁的圆点计数。每条状态包含 `ready`、`running` 或 `error`、单调递增的 `statusRevision`、完成态使用的 `updateRevision`，以及可选的 error message。
 
 `agent_start` 将状态切换为 `running`。`agent_end` 只记录最终且不再 retry 的 assistant error；`agent_settled` 才将状态切换为 `ready` 或 `error`，因此单条 `message_end` 不会提前结束 spinner。Aborted run 返回 `ready`，但不递增 `updateRevision`。Prompt 在 Agent run 建立前直接失败时，Server 立即进入 `error` 并递增 completed update revision。
 
@@ -706,6 +708,7 @@ Skills 与 MCP 的列表端点要求 `workspaceId`。MCP server 名称只允许�
 | Method | Path | 用途 |
 |---|---|---|
 | GET/POST | `/api/workspaces/:workspaceId/sessions` | List 或 create Session |
+| POST | `/api/workspaces/:workspaceId/move` | 上移或下移一位并保存 Workspace 顺序，返回完整列表 |
 | GET | `/api/workspaces/:workspaceId/session-statuses` | 已打开的 Session runtime 状态与 status/update revisions |
 | PATCH/DELETE | `/api/workspaces/:workspaceId/sessions/:sessionId` | Metadata/name update 或 delete |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/fork` | Fork |

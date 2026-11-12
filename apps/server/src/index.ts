@@ -99,6 +99,15 @@ app.patch<{ Params: { workspaceId: string }; Body: { name: string } }>("/api/wor
   catch (error) { workspaces.rename(previous.id, previous.name); throw error; }
   return workspace;
 });
+app.post<{ Params: { workspaceId: string }; Body: { direction?: unknown } }>("/api/workspaces/:workspaceId/move", async (request) => {
+  const direction = request.body?.direction;
+  if (direction !== "up" && direction !== "down") throw Object.assign(new Error("Direction must be up or down"), { statusCode: 400 });
+  const previous = workspaces.list();
+  workspaces.move(request.params.workspaceId, direction);
+  try { await saveWorkspaceDefinitions(workspaces.list()); }
+  catch (error) { workspaces.replaceOrder(previous); throw error; }
+  return { workspaces: workspaces.list() };
+});
 app.delete<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId", async (request, reply) => {
   const workspace = workspaces.remove(request.params.workspaceId);
   try { await saveWorkspaceDefinitions(workspaces.list()); }

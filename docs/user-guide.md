@@ -271,6 +271,14 @@ node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" password --no-restart
 
 点击侧栏中的 Workspace。Agent、Files 和 Terminal 会切换到该目录；Settings 使用统一的全局配置。回到本次页面打开过的 Workspace 时，Agent 页面恢复该 Workspace 上次查看的 Session，该 Session 的 conversation 缓存与 Composer 中尚未发送的内容一并恢复。
 
+### 调整 Workspace 顺序
+
+1. 打开 Workspace 行的操作菜单。
+2. 选择 Move up 或 Move down，把该 Workspace 与上方或下方的相邻条目的位置交换。
+3. 列表按新顺序立即显示，刷新页面后保持。
+
+第一个条目的 Move up 与最后一个条目的 Move down 显示为灰色，不能选择。
+
 ### 重命名 Workspace
 
 打开 Workspace 行的操作菜单并选择 Rename。此操作只修改显示名称。
@@ -284,6 +292,8 @@ node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" password --no-restart
 ## Session 操作
 
 ### 新建 Session
+
+当前 Workspace 有 Session 正在运行时，Sessions 标题旁出现圆点与数字组成的计数标记，数字是运行中的 Session 数量；全部结束后标记消失。
 
 Sessions 标题右侧的四个按钮从左到右依次是显示归档 Session、打开内部链接、新增 Session group 和新建 Session。点击最右侧的加号后，新 Session 会立即打开。发送首条 message 后，侧栏列表立即出现这一行，并使用该条 user message 作为默认标题。新 Session 尚未发送 message 时，切换到其他 Session 或 Workspace 后再次点击加号会回到这个未发送的 Session，Composer 中尚未发送的内容随之恢复。
 

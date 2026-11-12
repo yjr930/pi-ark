@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { acknowledgeSessionStatus, mergeSessionStatuses } from "../apps/web/src/session-status.ts";
+import { acknowledgeSessionStatus, countWorkingSessions, mergeSessionStatuses } from "../apps/web/src/session-status.ts";
 import type { SessionRuntimeStatus } from "../apps/web/src/types.ts";
 
 const sessionId = "session-a";
 function runtimeStatus(state: SessionRuntimeStatus["state"], statusRevision: number, updateRevision: number): SessionRuntimeStatus {
   return { id: sessionId, state, statusRevision, updateRevision, ...(state === "error" ? { errorMessage: "Model request failed" } : {}) };
 }
+
+assert.equal(countWorkingSessions({}), 0);
 
 const initial = mergeSessionStatuses({}, [runtimeStatus("ready", 0, 0)]);
 assert.equal(initial[sessionId].unread, false);
@@ -76,4 +78,9 @@ const repeatedError = mergeSessionStatuses(errorWithUnviewedOutput, [runtimeStat
 assert.deepEqual(mergeSessionStatuses(repeatedError, [runtimeStatus("error", 4, 2)], sessionId), repeatedError);
 const mixedOrder = mergeSessionStatuses(initial, [runtimeStatus("ready", 2, 1), runtimeStatus("running", 3, 1), runtimeStatus("ready", 2, 1)]);
 assert.deepEqual(mixedOrder, runningWithUnviewedOutput);
-console.log("session status checks passed");
+const workingStates = mergeSessionStatuses(mergeSessionStatuses({}, [runtimeStatus("running", 1, 0)]), [{ id: "session-b", state: "running", statusRevision: 2, updateRevision: 0 }, { id: "session-c", state: "ready", statusRevision: 3, updateRevision: 0 }]);
+assert.equal(countWorkingSessions(workingStates), 2);
+assert.equal(countWorkingSessions(mergeSessionStatuses(workingStates, [{ id: "session-a", state: "ready", statusRevision: 4, updateRevision: 1 }])), 1);
+assert.equal(countWorkingSessions(mergeSessionStatuses({}, [{ id: "session-d", state: "error", statusRevision: 1, updateRevision: 0 }])), 0);
+
+console.log("Session status checks passed.");

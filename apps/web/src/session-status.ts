@@ -17,6 +17,10 @@ export function mergeSessionStatuses(current: SessionStatusMap, incoming: Sessio
   return next;
 }
 
+export function countWorkingSessions(statuses: SessionStatusMap): number {
+  return Object.values(statuses).filter((status) => status.state === "running").length;
+}
+
 export function acknowledgeSessionStatus(current: SessionStatusMap, sessionId: string): SessionStatusMap {
   const status = current[sessionId];
   if (!status || status.viewedUpdateRevision === status.updateRevision) return current;

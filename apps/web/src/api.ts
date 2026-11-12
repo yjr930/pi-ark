@@ -24,6 +24,7 @@ export const api = {
   addWorkspace: (workspace: { name?: string; path: string }) => request<import("./types").Workspace>("/api/workspaces", { method: "POST", body: JSON.stringify(workspace) }),
   renameWorkspace: (workspaceId: string, name: string) => request<import("./types").Workspace>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   closeWorkspace: (workspaceId: string) => request<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, { method: "DELETE" }),
+  moveWorkspace: (workspaceId: string, direction: "up" | "down") => request<{ workspaces: import("./types").Workspace[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/move`, { method: "POST", body: JSON.stringify({ direction }) }),
   resolveFileLinks: (workspaceId: string, paths: string[], basePath = "") => request<{ links: Array<{ input: string; path: string; type: "file" | "directory" }> }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/file-links/resolve`, { method: "POST", body: JSON.stringify({ paths, basePath }) }),
   directories: (path: string) => request<{ basePath: string; directories: Array<{ name: string; path: string }> }>(`/api/directories?path=${encodeURIComponent(path)}`),
   globalSettings: () => request<import("./types").GlobalSettings>("/api/settings/global"),
