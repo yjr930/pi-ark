@@ -364,7 +364,7 @@ export default function App() {
   }} style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
     {sidebar && <button className="sidebar-scrim" aria-label="Close sidebar" onClick={() => setSidebar(false)} />}
     <aside className={`sidebar ${sidebar ? "sidebar-open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`}>
-      <div className="sidebar-brand"><div><Box size={18} /><strong>Pi-Ark</strong></div></div>
+      <div className="sidebar-brand"><div><Box size={22} /><strong>Pi-Ark</strong></div></div>
       <section className={`sidebar-section workspace-section ${workspacesExpanded ? "expanded" : "collapsed"}`}>
         <div className="sidebar-section-header"><button className="sidebar-section-toggle" type="button" aria-expanded={workspacesExpanded} onClick={toggleWorkspaces}><ChevronDown size={13} /><span>Workspaces</span></button><button className="icon-button" title="Add workspace" onClick={() => setAddWorkspaceOpen(true)}><Plus size={15} /></button></div>
         {workspacesExpanded && <WorkspaceList workspaces={workspaces} activeId={workspaceId} workingCounts={workingCounts} showWorkingCount={appearance.showWorkingCount} onSelect={selectWorkspace} onRenamed={workspaceRenamed} onMoved={workspaceMoved} onClosed={workspaceClosed} />}
@@ -381,7 +381,7 @@ export default function App() {
       </section>
     </aside>
     <div className="sidebar-resizer desktop-only" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={beginSidebarResize}><button title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onPointerDown={(event) => event.stopPropagation()} onClick={toggleSidebar}>{sidebarCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}</button></div>
-    <div className="mobile-bar"><button onClick={() => setSidebar(true)}><Menu size={20} /></button><div><Box size={17} /><strong>{workspace?.name || "Pi-Ark"}</strong></div><button onClick={() => void createSession()}><Plus size={20} /></button></div>
+    <div className="mobile-bar"><button onClick={() => setSidebar(true)}><Menu size={20} /></button><div><Box size={20} /><strong>{workspace?.name || "Pi-Ark"}</strong></div><button onClick={() => void createSession()}><Plus size={20} /></button></div>
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
       {!workspace && page !== "settings" && (workspacesLoading ? <div className="page-loading"><LoaderCircle size={20} />Loading workspaces</div> : <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>)}
