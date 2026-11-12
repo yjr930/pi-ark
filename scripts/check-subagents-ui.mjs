@@ -183,7 +183,7 @@ try {
   await page.locator(".run-collapse > summary").click();
   const subagentTools = page.locator(".is-subagent-tool");
   await expect(subagentTools).toHaveCount(2);
-  const toggles = page.getByRole("button", { name: "show more tool call", exact: true });
+  const toggles = page.getByRole("button", { name: /^show more tool calls/ });
   await expect(toggles).toHaveCount(3);
   for (const tool of await subagentTools.all()) {
     await expect(tool.locator("summary")).toBeVisible();
@@ -199,9 +199,9 @@ try {
   }
   for (const prefix of ["mixed-before", "mixed-after"]) await expect(page.locator(".feed-tool-details > summary code").filter({ hasText: new RegExp(`^${prefix}-1\\.md$`) })).toBeVisible();
   for (let index = 0; index < 3; index += 1) await toggles.first().click();
-  await expect(page.getByRole("button", { name: "show less tool call", exact: true })).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "show fewer tool calls", exact: true })).toHaveCount(3);
   await expect(subagentTools.locator("summary")).toHaveCount(2);
-  for (let index = 0; index < 3; index += 1) await page.getByRole("button", { name: "show less tool call", exact: true }).first().click();
+  for (let index = 0; index < 3; index += 1) await page.getByRole("button", { name: "show fewer tool calls", exact: true }).first().click();
   for (const tool of await subagentTools.all()) await expect(tool.locator("summary")).toBeVisible();
 
   phase = "child navigation and permanent composer removal";

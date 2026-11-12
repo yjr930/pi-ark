@@ -286,8 +286,9 @@ function ToolCallSequence({ calls, target, stateKey, disclosureOpen, onDisclosur
       if (disclosureOpen !== true) onDisclosureChange(stateKey, true);
     }
   }, [disclosureOpen, onDisclosureChange, stateKey, target]);
-  const hiddenCalls = new Set(expanded ? [] : calls.slice(0, -3).filter((call) => call.name !== "question" && call.name !== "question_background"));
-  return <div className="feed-tool-sequence"><button type="button" className="tool-sequence-toggle" aria-expanded={expanded} onClick={() => onDisclosureChange(stateKey, !expanded)}>{expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}{expanded ? "show less tool call" : "show more tool call"}</button>{children(hiddenCalls)}</div>;
+  const collapsedCalls = calls.slice(0, -3).filter((call) => call.name !== "question" && call.name !== "question_background");
+  const hiddenCalls = new Set(expanded ? [] : collapsedCalls);
+  return <div className="feed-tool-sequence">{collapsedCalls.length > 0 && <button type="button" className="tool-sequence-toggle" aria-expanded={expanded} onClick={() => onDisclosureChange(stateKey, !expanded)}>{expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}{expanded ? "show fewer tool calls" : `show more tool calls (${collapsedCalls.length})`}</button>}{children(hiddenCalls)}</div>;
 }
 
 function TurnMessages({ messages, active, targetMessageId, hideReasoning, rollbackEntryId, disclosures, onDisclosureChange, onImageOpen, onCopyLink, onFork, onRollback }: { messages: AgentMessage[]; active: boolean; targetMessageId?: string; hideReasoning: boolean; rollbackEntryId?: string; disclosures: Record<string, boolean>; onDisclosureChange: DisclosureChange; onImageOpen: (source: string, alt: string) => void; onCopyLink: (messageId: string) => void; onFork: (entryId: string) => void; onRollback: (entryId: string) => void }) {

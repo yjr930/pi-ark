@@ -113,7 +113,7 @@ Conversation renderer 将内容投影为 text 与 tool 两类 feed items。Text 
 
 Tool item 在没有已保存 disclosure 状态时默认关闭；active Running 默认展开时，正在 Running 的 tool item 和已完成的最新 tool item 都保持关闭，用户仍可手动展开。切换 Session 后，页面恢复用户对 Tool、Reasoning、Compact 和 Message Info 的展开状态。已完成 tool item 的 message permalink target 在页面打开时展开对应 Run、Tool 和 tool group，即使此前保存了折叠状态；用户可以随后手动折叠。展开后第一行显示 Call/Result 的消息 link 按钮，整段文字与图标区域都可以复制对应的 `pi-ark://` link；tooltip 在页面浮层中显示，下面按 Arguments 和 Result 显示参数与文字或图片结果。Arguments 不显示整段 JSON；每个 key 使用更深一层的 heading 样式，value 在下一行，嵌套 object/array 使用缩进文本，空 arguments 显示 `No arguments`。展开内容的底部左侧显示最后的时间，格式为 `YYYY-MM-DD HH:mm:ss`，使用浏览器所在的时区；已有结果时采用配对的 tool result 时间，等待结果期间采用 tool call 所在消息的时间。错误结果显示 Failed 状态和错误颜色。
 
-连续的工具调用按可见内容分组，默认保留最后 3 个 tool call；较早的调用通过 `show more tool call` 与 `show less tool call` 展开或折叠。一个 message 中的多个调用分别计数。Hide reasoning 开启后，分组会跳过隐藏的 thinking block，包括只包含 thinking 的独立 message，因此这些内容前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，含普通正文或图片的 message 保持原有显示。分组保留原始 message 与 permalink，展开状态随 Session UI cache 保留，较早调用的 permalink target 会在首次访问时展开对应分组。
+连续的工具调用按可见内容分组，默认保留最后 3 个 tool call；较早的调用通过 `show more tool calls (N)` 与 `show fewer tool calls` 展开或折叠，N 是被折叠调用的数量。一个 message 中的多个调用分别计数。Hide reasoning 开启后，分组会跳过隐藏的 thinking block，包括只包含 thinking 的独立 message，因此这些内容前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，含普通正文或图片的 message 保持原有显示。分组保留原始 message 与 permalink，展开状态随 Session UI cache 保留，较早调用的 permalink target 会在首次访问时展开对应分组。
 
 `subagent` tool 的收起高度为普通 tool row 的 3 倍，并使用分支 logo；该 tool 独立于连续 tool call 的分组显示。包含 `subagent` 调用的 message 中断前后普通调用的连续分组，同一 message 中的混合调用按原顺序保留。
 
