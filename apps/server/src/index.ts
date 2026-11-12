@@ -7,7 +7,7 @@ import Fastify from "fastify";
 import { AgentService } from "./agents.js";
 import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { arkHome, ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadUiSettings, loadGlobalPreferences, piArkAgentDir, saveGlobalArkSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveTerminalSettings, type TerminalSettings, type ArkUiSettings, type GlobalPreferences } from "./config.js";
+import { arkHome, ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadGlobalPreferences, piArkAgentDir, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveTerminalSettings, type TerminalSettings, type GlobalPreferences } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { McpService } from "./mcp.js";
 import { SkillService } from "./skills.js";
@@ -79,8 +79,6 @@ app.post("/api/auth/logout", async (request, reply) => {
 });
 app.get("/api/auth/session", async () => ({ authenticated: true, username: config.auth.username }));
 
-app.get("/api/ui", async () => loadUiSettings());
-app.put<{ Body: ArkUiSettings }>("/api/ui", async (request) => saveGlobalArkSettings(request.body));
 app.get("/api/workspaces", async () => ({ workspaces: workspaces.list() }));
 app.get<{ Querystring: { path: string } }>("/api/directories", async (request) => workspaces.suggestDirectories(request.query.path || ""));
 app.post<{ Body: { name?: string; path: string } }>("/api/workspaces", async (request, reply) => {

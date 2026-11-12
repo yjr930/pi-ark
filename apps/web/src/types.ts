@@ -193,14 +193,6 @@ export interface ModelPreferences {
   thinkingLevel: GlobalSettings["thinkingLevel"];
 }
 
-export type ThemeId = "ark-dark" | "graphite" | "midnight" | "paper" | "snow";
-
-export interface UiSettings {
-  theme: ThemeId;
-  hideReasoning: boolean;
-  markdownLineBreaks: boolean;
-}
-
 export interface ReleaseInfo {
   version: string;
   coreVersion: string;
@@ -221,7 +213,7 @@ export interface ReleaseInfo {
   commands: { update: string; rollback: string; status: string; logs: string; restart: string };
 }
 
-export interface GlobalSettings extends UiSettings, GlobalPreferences {
+export interface GlobalSettings extends GlobalPreferences {
   provider: string;
   model: string;
   thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";

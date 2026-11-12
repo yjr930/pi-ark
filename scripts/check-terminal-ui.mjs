@@ -34,7 +34,6 @@ let peerContext;
 let page;
 let fixtureDirectory;
 let originalTerminalSettings;
-let originalUiSettings;
 let failure;
 const ownedWorkspaces = [];
 const stopFiles = new Set();
@@ -277,7 +276,6 @@ try {
   apiContext = await request.newContext({ ignoreHTTPSErrors: true, timeout });
   await api("api/auth/login", "POST", { username: process.env.PI_ARK_CHECK_USERNAME || "check", password: process.env.PI_ARK_CHECK_PASSWORD || "check-password" });
   originalTerminalSettings = (await api("api/settings/terminal")).settings;
-  originalUiSettings = await api("api/ui");
   for (const name of ["alpha", "beta"]) ownedWorkspaces.push(await api("api/workspaces", "POST", { name: `Terminal UI ${tag} ${name}`, path: join(fixtureDirectory, name) }));
   const [alpha, beta] = ownedWorkspaces;
   const originalValue = "original value=before";
@@ -528,7 +526,7 @@ try {
   progress("lazy Terminal settings, Save/Cancel, preserved drafts, and custom shell environment");
   const terminalGetsBeforeSettings = observer.requestCount("GET", "api/settings/terminal");
   await nav("Settings").click();
-  await expect(settingsNav("Interface")).toBeVisible();
+  await expect(settingsNav("Appearance")).toBeVisible();
   assert.equal(observer.requestCount("GET", "api/settings/terminal"), terminalGetsBeforeSettings);
   const profilesResponse = page.waitForResponse((item) => item.request().method() === "GET" && item.url() === endpoint("api/settings/terminal"));
   await settingsNav("Terminal").click();
@@ -657,10 +655,8 @@ try {
 
   progress("five themes and desktop controls");
   for (const [label, id] of [["Ark Dark", "ark-dark"], ["Graphite", "graphite"], ["Midnight", "midnight"], ["Snow", "snow"], ["Paper", "paper"]]) {
-    await openSettings("Interface");
-    const save = page.waitForResponse((item) => item.request().method() === "PUT" && item.url() === endpoint("api/ui"));
+    await openSettings("Appearance");
     await page.locator(".theme-options").getByRole("button", { name: label, exact: true }).click();
-    assert.equal((await save).ok(), true);
     await expect(page.locator("html")).toHaveAttribute("data-theme", id);
     await nav("Terminal").click();
     await selectTab(customTab);
@@ -768,7 +764,6 @@ try {
       try { await api(`api/workspaces/${encodeURIComponent(workspace.id)}`, "DELETE"); } catch (error) { cleanupErrors.push(error); }
     }
     if (originalTerminalSettings) try { await api("api/settings/terminal", "PUT", originalTerminalSettings); } catch (error) { cleanupErrors.push(error); }
-    if (originalUiSettings) try { await api("api/ui", "PUT", originalUiSettings); } catch (error) { cleanupErrors.push(error); }
     await apiContext.dispose().catch((error) => cleanupErrors.push(error));
   }
   if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true }).catch((error) => cleanupErrors.push(error));

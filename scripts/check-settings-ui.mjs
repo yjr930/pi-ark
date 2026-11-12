@@ -70,18 +70,18 @@ try {
   await page.locator(".workspace-list-item").first().waitFor();
   await appPage("Settings");
   await navigation().waitFor();
-  assert.deepEqual(await navigation().locator("button").allTextContents(), ["Interface", "Models & providers", "Agent behavior", "Skills", "MCP", "Files", "Terminal", "Maintenance", "Account"]);
+  assert.deepEqual(await navigation().locator("button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Skills", "MCP", "Files", "Terminal", "Maintenance", "Account"]);
   assert.equal(requests.get("/api/settings/system-prompt") || 0, 0);
   assert.equal(requests.get("/api/settings/release") || 0, 0);
   assert.equal(await page.getByText("Workspace configuration", { exact: true }).count(), 0);
   assert.equal(await page.locator(".theme-options > button").count(), 5);
+  assert.equal(await page.getByRole("heading", { name: "Browser cache", exact: true }).isVisible(), false);
   const themeGeometry = await page.locator(".theme-options > button").evaluateAll((elements) => elements.map((element) => ({ height: element.getBoundingClientRect().height, width: element.getBoundingClientRect().width })));
   assert.ok(themeGeometry.every((item) => item.height >= 40 && item.height <= 48 && item.width < 200));
-  const themeSave = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/ui");
   await page.locator(".theme-options").getByRole("button", { name: "Paper", exact: true }).click();
-  assert.equal((await themeSave).ok(), true);
   await page.locator('html[data-theme="paper"]').waitFor();
-  await select("Interface");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("pi-ark-appearance")).theme), "paper");
+  await select("Appearance");
   await page.screenshot({ path: join(screenshots, "settings-paper-desktop.png") });
 
   await select("Models & providers");
@@ -167,7 +167,7 @@ try {
   await page.getByText("Preview effective prompt", { exact: true }).click();
   await page.waitForFunction(() => document.querySelector(".system-prompt-view > pre")?.textContent.includes("Keep responses clear and practical"));
   assert.equal(requests.get("/api/settings/system-prompt"), 1);
-  await select("Interface");
+  await select("Appearance");
   await select("Agent behavior");
   assert.equal(requests.get("/api/settings/system-prompt"), 1);
   await select("Maintenance");
@@ -217,11 +217,10 @@ try {
   assert.equal(await hidden.getAttribute("aria-checked"), latestHidden);
   assert.equal(await previewSize.inputValue(), "23");
   assert.deepEqual(latestFiles.agent, { systemPrompt: { append: content } });
-  await select("Interface");
+  await select("Appearance");
   for (const theme of ["Ark Dark", "Graphite", "Midnight", "Snow", "Paper"]) {
-    const response = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/ui");
     await page.locator(".theme-options").getByRole("button", { name: theme, exact: true }).click();
-    await response;
+    await page.locator(`html[data-theme="${theme.toLowerCase().replace(/\s+/g, "-")}"]`).waitFor();
     const geometry = await page.locator(".settings-layout").evaluate((element) => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, viewport: window.innerWidth }; });
     assert.ok(geometry.left >= 0 && geometry.right <= geometry.viewport + 1);
     await select("Models & providers");
@@ -230,7 +229,7 @@ try {
     assert.notEqual(checkedColor, uncheckedColor);
     assert.equal(await page.locator(".model-visibility > *").count(), 0);
     if (theme === "Ark Dark" || theme === "Paper") await page.screenshot({ path: join(screenshots, `settings-models-${theme === "Paper" ? "paper" : "dark"}.png`) });
-    await select("Interface");
+    await select("Appearance");
     if (theme === "Ark Dark") await page.screenshot({ path: join(screenshots, "settings-dark-desktop.png") });
   }
   await page.setViewportSize({ width: 390, height: 844 });

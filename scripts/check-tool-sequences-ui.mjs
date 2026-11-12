@@ -46,13 +46,11 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 1100
 const page = await context.newPage();
 
 try {
+  await page.addInitScript(() => { window.localStorage.setItem("pi-ark-appearance", JSON.stringify({ theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true, fontScale: 1 })); });
   await page.goto(url);
   await page.getByLabel("Username").fill(process.env.PI_ARK_CHECK_USERNAME || "check");
   await page.getByLabel("Password").fill(process.env.PI_ARK_CHECK_PASSWORD || "check-password");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  const uiUrl = new URL("api/ui", url.endsWith("/") ? url : `${url}/`).toString();
-  const uiSettings = await (await context.request.get(uiUrl)).json();
-  if (uiSettings.hideReasoning) { assert.equal((await context.request.put(uiUrl, { data: { ...uiSettings, hideReasoning: false } })).ok(), true); await page.reload(); }
   const row = page.locator(".session-list-item").filter({ hasText: "Tool display preview" });
   await row.waitFor();
   await row.locator(".session-open").click();
@@ -98,10 +96,13 @@ try {
   assert.equal(await page.locator(".message-short-id").count(), 0);
   const toggleReasoning = async () => {
     await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
-    const saved = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
-    await page.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch").click();
-    assert.equal((await saved).ok(), true);
+    await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Appearance", exact: true }).click();
+    const hideReasoningSwitch = page.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch");
+    const hideReasoningBefore = await hideReasoningSwitch.getAttribute("aria-checked");
+    const hideReasoningAfter = hideReasoningBefore === "false";
+    await hideReasoningSwitch.click();
+    await page.waitForFunction((expected) => { const value = window.localStorage.getItem("pi-ark-appearance"); return value ? JSON.parse(value).hideReasoning === expected : false; }, hideReasoningAfter);
+    assert.equal(await hideReasoningSwitch.getAttribute("aria-checked"), String(hideReasoningAfter));
     await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent", exact: true }).click();
     await run.waitFor();
     if (await run.getAttribute("open") === null) await run.locator(":scope > summary").click();

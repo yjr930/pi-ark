@@ -121,11 +121,13 @@ docs/               产品、架构、使用和集成文档
 | MCP settings | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断、浏览器运行时和安装进度 |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
 | Permalinks | `apps/web/src/permalinks.ts` | Browser URL 与 `pi-ark://` link 的生成和解析 |
-| Theme | `apps/web/src/theme.ts` | Theme metadata、应用和本地初始化 |
+| Appearance | `apps/web/src/appearance.ts` | Theme、reasoning 显示、Markdown 换行与字号的浏览器存储、归一化、启动应用与变更事件 |
+| Typography | `apps/web/src/typography.ts` | 七个字号等级的定义、整体倍率范围与 `--fs-*` 变量应用 |
+| Theme | `apps/web/src/theme.ts` | Theme metadata 与 DOM 属性应用 |
 
 Files、Terminal 和 Settings 使用 React lazy loading。Chat 保持在主 bundle 中，Session 切换时可以立即建立 WebSocket。
 
-App 从 `/api/ui` 读取 `markdownLineBreaks`，并通过 React Context 将该设置传给共享的 Markdown renderer。Renderer 调用 `marked.parse(..., { breaks: markdownLineBreaks })`，使 conversations 与 Markdown files 使用相同的单次换行显示规则。该设置默认开启，控制 Markdown 的显示；原始文本、复制的 Markdown、Session JSONL 和 model context 保持原内容。
+App 从浏览器 appearance 设置读取 `markdownLineBreaks`，并通过 React Context 将该设置传给共享的 Markdown renderer。Renderer 调用 `marked.parse(..., { breaks: markdownLineBreaks })`，使 conversations 与 Markdown files 使用相同的单次换行显示规则。该设置默认开启，控制 Markdown 的显示；原始文本、复制的 Markdown、Session JSONL 和 model context 保持原内容。
 
 ## Authentication
 
@@ -164,7 +166,7 @@ IntersectionObserver 选取视区及附近 200 px 内的内容，内容稳定约
 | 持久化路径确认的有效期 | 24 小时 |
 | 持久化路径确认的容量 | 最多 2048 条 |
 
-已确认的路径结果随 Session cache 写入同一个 IndexedDB 数据库的 `fileLinks` store，并在页面初始化时、首个确认请求前装载到内存缓存。已保存的结果直接生成链接，不再向 Server 确认；装载后的使用会更新 LRU 时间，24 小时有效期从最后一次真实确认开始计算，过期的结果重新进入确认队列。缺失路径与请求失败的结果不保存。Settings → Interface 的 Clear browser cache 同时清空这份结果。
+已确认的路径结果随 Session cache 写入同一个 IndexedDB 数据库的 `fileLinks` store，并在页面初始化时、首个确认请求前装载到内存缓存。已保存的结果直接生成链接，不再向 Server 确认；装载后的使用会更新 LRU 时间，24 小时有效期从最后一次真实确认开始计算，过期的结果重新进入确认队列。缺失路径与请求失败的结果不保存。Settings → Maintenance 的 Clear browser cache 同时清空这份结果。
 
 标准 Markdown 的本地 href 解码一次后送入同一确认队列；正文中的路径保持其字面值。标准本地链接在后台确认前点击时，浏览器先拦截导航，再异步确认并打开 Files。文件链接使用带 `page=files`、`workspace`、`path` 与 `kind` 的应用 URL，App 处理普通点击，修饰键沿用浏览器的新标签页操作。Files 按目标加载目录与文件，刷新时从 URL 恢复该目标。从 Agent 打开文件时，App 通过 `pushState` 新增 Files 的历史记录，并将原会话的阅读位置保存在来源记录的 `history.state.piArkAgentReturn` 中；Files 内的浏览继续使用 `replaceState`。`popstate` 根据 URL 恢复页面、Workspace、Session、message 与历史分支，Chat 在取得 snapshot 后恢复阅读位置，并沿用已有的草稿与 disclosure 缓存。浏览器的前进操作恢复当前的 Files 目标。
 
@@ -321,7 +323,7 @@ Snapshot 包含以下状态：
 
 首次打开且浏览器没有缓存时，Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。App 在加载 Workspace 前初始化 Session cache，因此 Chat 首次渲染可以同步取得缓存内容。切回最近查看的 Session 时，Web 先显示最多 50 个 Session 的 IndexedDB LRU snapshot，再连接 Server，并以权威 snapshot 更新 cache。
 
-同一模块以 `usedAt` 维护最多 50 个 Session 的 snapshot 与 UI state，并将二者保存到 IndexedDB；同一个数据库还保存文件路径确认结果。UI state 包括 composer draft、待发送 attachments 和 conversation disclosures。Disclosure key 使用 source entry ID、tool call ID 或 run 中首条 source entry ID，因此 Server snapshot 更新和 earlier-message pagination 不改变该 identity。Attachments 以 Blob 保存，加载 cache 时重建 preview object URL；Session 删除、清理或 UI cache 淘汰时释放对应 URL。数据库名称包含 Pi-Ark base path 与登录 username，实例和账号之间不共享 cache。写入先在内存生效，再以 250 ms debounce 保存；`pagehide` 与 document hidden 时执行 flush。IndexedDB 不可用时，cache 退回当前页面内存。Session snapshot 只包含当前页约 100 条 display message，按当前实测的页面体积（约 0.5 至 1.6 MiB）估算，50 个 Session 的 snapshot 约占 25 至 80 MiB IndexedDB 空间。Settings → Interface 的 Clear browser cache 清空内存与当前实例和账号的 stores；Session JSONL 与 Settings 保持不变。
+同一模块以 `usedAt` 维护最多 50 个 Session 的 snapshot 与 UI state，并将二者保存到 IndexedDB；同一个数据库还保存文件路径确认结果。UI state 包括 composer draft、待发送 attachments 和 conversation disclosures。Disclosure key 使用 source entry ID、tool call ID 或 run 中首条 source entry ID，因此 Server snapshot 更新和 earlier-message pagination 不改变该 identity。Attachments 以 Blob 保存，加载 cache 时重建 preview object URL；Session 删除、清理或 UI cache 淘汰时释放对应 URL。数据库名称包含 Pi-Ark base path 与登录 username，实例和账号之间不共享 cache。写入先在内存生效，再以 250 ms debounce 保存；`pagehide` 与 document hidden 时执行 flush。IndexedDB 不可用时，cache 退回当前页面内存。Session snapshot 只包含当前页约 100 条 display message，按当前实测的页面体积（约 0.5 至 1.6 MiB）估算，50 个 Session 的 snapshot 约占 25 至 80 MiB IndexedDB 空间。Settings → Maintenance 的 Clear browser cache 清空内存与当前实例和账号的 stores；Session JSONL 与 Settings 保持不变。
 
 App 在当前页面内按 Workspace 记录最后查看的 Session。切换 Workspace 时，Session 选择顺序是 URL 指定的 Session、该 Workspace 上次查看的 Session、第一个未归档的普通 Session，选中结果写回 URL。Session 列表与产生它的 Workspace ID 一起保存，请求完成前主内容区显示 Loading sessions，侧栏不渲染上一个 Workspace 的 Session，也不显示空会话提示。切换 Workspace 时，旧 Workspace 尚未返回的列表响应会被丢弃。
 
@@ -403,7 +405,7 @@ Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分�
 - 已完成 tool turn 将最后一条非工具 assistant output 之前的过程放入 run collapse；`RunCollapse` 观察 active→completed 转换并自动折叠并更新缓存状态。permalink target 打开时展开对应 details，已保存的折叠状态不会遮挡目标；用户随后可以手动折叠。
 - Idle 且缺少最后一条非工具 assistant output 的 tool turn 将全部过程放入 run collapse，并追加 warning segment。
 
-Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从 `/api/ui` 读取 Global `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。每个 theme 分别提供 Run palette 与 Tool palette：Run group 使用该 theme 的 tint surface，Tool row 和 Reasoning 使用更中性的 surface，并具有独立的 open surface 与 border color。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；dark themes 和 Snow 使用对应 accent 倾向的外层 Run surface 与更亮的中性 Tool surface。Compact 与 branch summary 也使用 tool feed item。Compact 的收起高度为普通 tool row 的 3 倍，并展示压缩前后的用量、估算的上下文组成和压缩耗时。展开 tool item 后先显示 Call/Result 的消息 link 按钮，整段按钮包含 source Message ID 与复制图标；tooltip 使用 portal 到 document body 的 fixed 浮层。页面不展示短 Message ID；User header、sticky User 与 source link 的 aria-label 和复制链接继续使用该 ID。其后显示 arguments、result 或 summary。`buildToolCallGroups()` 接收 `hideReasoning`，在已配对结果的基础上按可见内容对连续的工具调用分组。开启 Hide reasoning 后，隐藏的 thinking block 和独立的 thinking-only assistant message 会保留在原始消息序列中，其前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 与独立结果继续中断分组；包含正文或图片的 message 中的 tool calls 保持原有显示。包含 `subagent` 调用的 message 独立显示，并中断前后的连续调用分组；`subagent` 的 summary 高度为普通工具行的 3 倍。`ToolCallSequence` 按单个 call 计数，默认隐藏较早调用并保留最后 3 个，使用 `show more tool call` / `show less tool call` 切换。分组使用首个 source message 与 call 的稳定标识保存 disclosure；早期 message 或 result 的 permalink target 在首次访问时展开分组。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
+Turn renderer 在 segment 渲染前扫描当前页面的 projection messages，并通过 `toolCall.id` 与 tool result 的 `toolCallId` 建立 call/result 对应关系。Renderer 随后按每条 source message 的 content block 顺序生成 text 与 tool feed items。Text item 处理 text、image 和 reasoning；reasoning 使用较小字号与和普通 text 一致的行高。App 从浏览器 appearance 设置读取 `hideReasoning`，并传给 Chat renderer；启用后 renderer 跳过 thinking block 的 DOM 输出，Server snapshot、Session JSONL 和 model context 保持原内容。tool call 与 result 合并成单行折叠项，tool logo 位于 details summary 内，使展开内容与 details 左边界对齐。Completed 使用中性色；Running、Failed、Result 和 Saved 分别使用 theme 的 warning、danger、info 和 saved colors，并且只改变同一层 details 的 border、logo 与 status text。Tool permalink target 使用 details 内侧的 accent 标识，不增加外层 padding、背景或包围框。每个 theme 分别提供 Run palette 与 Tool palette：Run group 使用该 theme 的 tint surface，Tool row 和 Reasoning 使用更中性的 surface，并具有独立的 open surface 与 border color。Paper 的 Run group 使用低饱和 sage-gray tint，Tool row 使用浅白色；dark themes 和 Snow 使用对应 accent 倾向的外层 Run surface 与更亮的中性 Tool surface。Compact 与 branch summary 也使用 tool feed item。Compact 的收起高度为普通 tool row 的 3 倍，并展示压缩前后的用量、估算的上下文组成和压缩耗时。展开 tool item 后先显示 Call/Result 的消息 link 按钮，整段按钮包含 source Message ID 与复制图标；tooltip 使用 portal 到 document body 的 fixed 浮层。页面不展示短 Message ID；User header、sticky User 与 source link 的 aria-label 和复制链接继续使用该 ID。其后显示 arguments、result 或 summary。`buildToolCallGroups()` 接收 `hideReasoning`，在已配对结果的基础上按可见内容对连续的工具调用分组。开启 Hide reasoning 后，隐藏的 thinking block 和独立的 thinking-only assistant message 会保留在原始消息序列中，其前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 与独立结果继续中断分组；包含正文或图片的 message 中的 tool calls 保持原有显示。包含 `subagent` 调用的 message 独立显示，并中断前后的连续调用分组；`subagent` 的 summary 高度为普通工具行的 3 倍。`ToolCallSequence` 按单个 call 计数，默认隐藏较早调用并保留最后 3 个，使用 `show more tool call` / `show less tool call` 切换。分组使用首个 source message 与 call 的稳定标识保存 disclosure；早期 message 或 result 的 permalink target 在首次访问时展开分组。Arguments renderer 按顶层 key 分组，使用 heading 样式显示 key，并在下一行显示格式化 value；嵌套 object/array 使用无 JSON braces 和 quotes 的缩进文本。
 
 每条持久化 source message 继续保留短 Message ID、entry ID 和 permalink anchor。配对的 tool result 不重复渲染，但 tool item 内保留 result anchor。浏览器 permalink 打开外层 run 并高亮对应 source message 或 tool item；`pi-ark://` 是 feed 中提供的 message link copy 格式。Warning segment 是前端显示状态，不写入 pi JSONL，也不分配 Message ID，不参与 Fork 或 Rollback。
 
@@ -430,12 +432,12 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
-- UI settings（`ui.theme`、`ui.hideReasoning` 和 `ui.markdownLineBreaks`）、Workspace registry 和共享 `preferences`（Global prompt append、Files preferences、Terminal shell 设置和 Skills 停用清单）：`PI_ARK_HOME/config.json`。
+- Workspace registry 和共享 `preferences`（Global prompt append、Files preferences、Terminal shell 设置和 Skills 停用清单）：`PI_ARK_HOME/config.json`。
 - Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
 
-`ui.markdownLineBreaks` 是 boolean 字段，默认值为 `true`，对应 Settings 中的 Keep line breaks。读取历史配置时，缺少该字段的配置使用默认值。UI 保存入口在串行原子更新中保存新值；旧请求省略该字段时保留当前保存值，历史配置也缺少该字段时保存 `true`。提供该字段时，保存入口验证字段为 boolean，非法值返回 HTTP 400。`SettingsService.getGlobal()` 返回 `markdownLineBreaks`，兼容的 `saveGlobal()` 入口透传可选字段。
+Theme、reasoning 显示、Markdown 换行与界面字号属于浏览器外观设置，保存在当前浏览器的 localStorage 中，不写入 Global config，也不在设备之间同步。读取历史 `config.json` 时，遗留的 `ui` 字段被忽略。
 
 API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。保存 credential 的断开操作调用 `ModelRuntime.logout(provider)`。Settings response 返回 credential 状态、来源和是否可以断开；credential 内容保留在服务端。
 
@@ -529,7 +531,7 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
 
 ### Settings 的页面缓存
 
-Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Interface、Models & providers、Agent behavior、Skills、MCP、Files、Terminal、Maintenance 和 Account。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，Skills 与 MCP 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
+Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Appearance、Models & providers、Agent behavior、Skills、MCP、Files、Terminal、Maintenance 和 Account。Appearance 的三个区域直接读写浏览器 localStorage，改动立即生效。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，Skills 与 MCP 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
 
 Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的内容；选择普通 profile 且其他字段保持已保存内容时立即保存。Terminal 使用独立的保存队列与请求序号，保留请求期间的新编辑内容。该类别的 Refresh settings 等待已有保存队列，再请求 Server 的设置和 profiles，并保留尚未保存的草稿。其他类别的 Refresh settings 读取 Global settings 和模型数据，Maintenance 同时刷新 release 信息；Skills 与 MCP 使用各自的 Refresh 读取资源列表。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
 
@@ -559,7 +561,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 | 路径 | 内容 |
 |---|---|
-| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry、UI settings（`theme`、`hideReasoning` 和 `markdownLineBreaks`）和共享 preferences（提示词、Files、Terminal shell 与 Skills 停用清单） |
+| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry 和共享 preferences（提示词、Files、Terminal shell 与 Skills 停用清单） |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
 | `PI_ARK_HOME/auth-sessions.json` | 登录 token 的 SHA-256 哈希、expiry 与 credential fingerprint |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
@@ -583,9 +585,27 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 Global config、Session metadata 和 Workspace Notebook 使用 temporary file 加 rename 的方式写入。Global config 使用服务进程级 write queue，Session metadata 按 Workspace 使用 write queue，Notebook 按目标文件使用 write queue。Web Notebook 在输入停止约 300 ms 后保存，并在 blur 或页面卸载时提交尚未保存的内容；同一页面的请求通过 Promise chain 按编辑顺序发送。
 
+### 字号等级与界面缩放
+
+界面字号只有七个等级，定义在 `apps/web/src/typography.ts`，在 `apps/web/src/styles.css` 中映射为 CSS 变量：
+
+| 等级 | 变量 | 基准值 | 用途 |
+|---|---|---|---|
+| Micro | `--fs-micro` | 8 px | 徽标、计数、状态文字和工具行内的等宽短串 |
+| Caption | `--fs-caption` | 9 px | 辅助说明、次级标签、行内代码和小按钮 |
+| Dense | `--fs-dense` | 10 px | 密集行、字段说明、工具摘要和元信息行 |
+| Interface | `--fs-ui` | 11 px | 按钮、列表标题、表单值和侧栏项 |
+| Reading | `--fs-reading` | 14 px | 对话 Markdown、Files Markdown 预览、角色名称、对话框标题、错误提示与 reasoning |
+| Section title | `--fs-section` | 20 px | 页面区块标题与空状态标题 |
+| Page title | `--fs-page` | 24 px | 登录标题与空对话欢迎标题 |
+
+每个变量按 `calc(<基准值> * var(--fs-scale))` 计算，`--fs-scale` 由 Appearance 中的 Text size 控制，范围 0.9 到 1.3，步进 0.05，默认 1。Markdown 内的标题使用相对单位随 Reading 等级缩放：h1 为 1.7em，h2 为 1.3em，h3 为 1.12em；行内代码为 0.86em。移动端媒体查询在需要更紧凑的文字时切换等级，不写像素值。Terminal 的字号由 xterm 自己的 `fontSize` 控制，不参与这套等级。
+
 ### Browser-local preferences
 
-浏览器 localStorage 保存侧栏状态和宽度、Workspace 展开状态、conversation width、Files 文件列表宽度和最近应用的 theme。`pi-ark-files-browser-width` 保存桌面 Files separator 调整后的文件列表宽度；移动端的上下堆叠布局不使用该宽度。
+浏览器 localStorage 保存侧栏状态和宽度、Workspace 展开状态、conversation width、Files 文件列表宽度和外观设置。`pi-ark-files-browser-width` 保存桌面 Files separator 调整后的文件列表宽度；移动端的上下堆叠布局不使用该宽度。
+
+`pi-ark-appearance` 保存 `{ "theme": "ark-dark", "hideReasoning": false, "markdownLineBreaks": true, "fontScale": 1 }`。读取时对每个字段做归一化：未知 theme 回退到 Ark Dark，缺失或非法 `fontScale` 回退到 1，`markdownLineBreaks` 默认为 `true`。历史 `pi-ark-theme` 键中保存的 theme 在首次读取时迁移到新键。启动时 `main.tsx` 在渲染前调用 `applyStoredAppearance()`，把 theme 写入 `data-theme`/`data-theme-group`，把字号倍率写入 `--fs-scale`，避免首屏使用默认外观。设置改动通过当前页面的自定义事件与同源标签页的 storage event 同步。
 
 Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fontSize": 13 }`，使用 `pi-ark-terminal-active:<window.location.pathname>:<workspaceId>` 保存每个 Workspace 最近选择的 Terminal Tab 标识。字体偏好变更通过当前页面的自定义事件和同源浏览器标签页的 storage event 同步。xterm 的显示状态保存在当前页面的已挂载组件中，Tab 的完整输出历史由 Server 的内存保存。
 
@@ -604,7 +624,6 @@ Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fon
 |---|---|---|
 | GET | `/api/auth/session` | 当前登录状态 |
 | POST | `/api/auth/logout` | 退出 |
-| GET/PUT | `/api/ui` | 读取或立即保存 `theme`、`hideReasoning` 与 `markdownLineBreaks`；`markdownLineBreaks` 默认为 `true`，PUT 省略该字段时保留当前值 |
 
 ### Workspace 与 Files
 
@@ -650,7 +669,7 @@ interface TerminalInfo {
 
 | Method | Path | 用途 |
 |---|---|---|
-| GET/PUT | `/api/settings/global` | Global defaults（包括 `theme`、`hideReasoning` 和 `markdownLineBreaks`）与兼容的 credential 保存入口；PUT 的可选 `markdownLineBreaks` 透传到 UI 保存逻辑 |
+| GET/PUT | `/api/settings/global` | Global defaults 与兼容的 credential 保存入口 |
 | PUT | `/api/settings/agent-defaults` | 立即保存 message queue、compaction 和 retry defaults |
 | GET | `/api/settings/models` | Provider catalog model list |
 | GET/PUT | `/api/settings/model-preferences` | 已认证 Provider 的模型清单、checkbox、default 和 thinking level |
@@ -892,6 +911,8 @@ npm run release:build
 `check:file-links` 覆盖路径解析、文件访问规则、分片识别、队列去重、内存缓存、持久化确认结果的装载与有效期以及取消。`check:file-links-ui` 使用独立实例检查原文首显、延迟确认期间的输入响应、文件及目录跳转、相对链接、刷新、新标签页与长消息的批量处理。
 
 `check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格。
+
+`check:typography` 检查七个等级的标识与基准值、倍率范围与步进夹取、像素换算，以及外观设置的字段归一化；该脚本包含在 `check:behavior` 中。`check:typography-ui` 使用 `PI_ARK_CHECK_URL` 指定的实例，检查 Text size 的等级清单与像素显示、倍率改变后的计算字号、刷新后的保持、按浏览器隔离以及移动端布局。
 
 `check:terminal` 将对应的服务源码转为 JavaScript，再以独立 Node 进程使用临时配置与实际 PTY；该进程沿用安装版的 helper 启动方式，并在超时后清理进程树。该检查覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
 

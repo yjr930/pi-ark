@@ -13,10 +13,5 @@ export function applyTheme(themeId: string): ThemeId {
   document.documentElement.dataset.theme = theme.id;
   document.documentElement.dataset.themeGroup = theme.group;
   document.documentElement.style.colorScheme = theme.group;
-  localStorage.setItem("pi-ark-theme", theme.id);
   return theme.id;
-}
-
-export function applyStoredTheme(): void {
-  applyTheme(localStorage.getItem("pi-ark-theme") || "ark-dark");
 }

@@ -24,7 +24,6 @@ async function verifySetup(dataHome, expected) {
   const config = JSON.parse(await readFile(join(dataHome, "config.json"), "utf8"));
   assert.deepEqual(config.listen, expected.listen);
   assert.deepEqual(config.workspaces, [expected.workspace]);
-  assert.deepEqual(config.ui, { theme: "ark-dark", hideReasoning: false });
   assert.equal(config.auth.username, expected.username);
   assert.deepEqual(config.tls, { keyPath: join(dataHome, "tls", "server.key"), certPath: join(dataHome, "tls", "server.crt") });
   const [scheme, salt, digest] = config.auth.passwordHash.split("$");

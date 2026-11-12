@@ -26,11 +26,11 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 1000
 const page = await context.newPage();
 const navigate = (name) => page.locator(".sidebar-navigation").getByRole("button", { name, exact: true }).click();
 const lineBreakSwitch = () => page.getByRole("switch", { name: "Keep line breaks", exact: true });
-const uiSettings = () => page.evaluate(async () => fetch(new URL("api/ui", document.baseURI)).then((response) => response.json()));
+const appearance = () => page.evaluate(() => JSON.parse(localStorage.getItem("pi-ark-appearance")));
 
-async function openInterface() {
+async function openAppearance() {
   await navigate("Settings");
-  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Appearance", exact: true }).click();
   await expect(lineBreakSwitch()).toBeVisible();
 }
 
@@ -81,14 +81,10 @@ async function checkFile(enabled) {
 }
 
 async function setLineBreaks(enabled) {
-  await openInterface();
-  const response = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
+  await openAppearance();
   await lineBreakSwitch().click();
-  const saved = await response;
-  assert.equal(saved.ok(), true);
-  assert.equal((await saved.json()).markdownLineBreaks, enabled);
   await expect(lineBreakSwitch()).toHaveAttribute("aria-checked", String(enabled));
-  assert.equal((await uiSettings()).markdownLineBreaks, enabled);
+  assert.equal((await appearance()).markdownLineBreaks, enabled);
 }
 
 try {
@@ -97,23 +93,21 @@ try {
   await page.getByLabel("Password").fill(process.env.PI_ARK_CHECK_PASSWORD || "check-password");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.locator(".session-list-item").filter({ hasText: "Markdown line-break fixture" }).locator(".session-open").click();
-  assert.equal((await uiSettings()).markdownLineBreaks, true);
   await checkConversation(true);
   const originalSession = await readFile(sessionPath, "utf8");
   await checkFile(true);
-  await openInterface();
+  await openAppearance();
   await expect(lineBreakSwitch()).toHaveAttribute("aria-checked", "true");
   await setLineBreaks(false);
   await checkConversation(false);
   await checkFile(false);
   await page.reload();
   await checkFile(false);
-  await openInterface();
+  await openAppearance();
   await expect(lineBreakSwitch()).toHaveAttribute("aria-checked", "false");
-  const themeResponse = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
   await page.locator(".theme-options").getByRole("button", { name: "Paper", exact: true }).click();
-  assert.equal((await themeResponse).ok(), true);
-  assert.equal((await uiSettings()).markdownLineBreaks, false);
+  await page.locator('html[data-theme="paper"]').waitFor();
+  assert.equal((await appearance()).markdownLineBreaks, false);
   await expect(lineBreakSwitch()).toHaveAttribute("aria-checked", "false");
   await page.screenshot({ path: join(screenshots, "markdown-settings-desktop.png"), fullPage: true });
   await setLineBreaks(true);
@@ -121,7 +115,7 @@ try {
   await checkFile(true);
   assert.equal(await readFile(filePath, "utf8"), source);
   assert.equal(await readFile(sessionPath, "utf8"), originalSession);
-  await openInterface();
+  await openAppearance();
   await page.setViewportSize({ width: 390, height: 844 });
   const closeSidebar = page.getByRole("button", { name: "Close sidebar", exact: true });
   if (await closeSidebar.isVisible()) await closeSidebar.click();

@@ -125,7 +125,6 @@ try {
   await Promise.all([
     config.saveGlobalPreferences({ files: { showHiddenFiles: false, maxPreviewSizeMb: 21 } }),
     config.saveGlobalSystemPrompt({ append: "Terminal configuration retained" }),
-    config.saveGlobalArkSettings({ theme: "paper", hideReasoning: true }),
   ]);
   const preferences = await config.loadGlobalPreferences();
   assert.deepEqual(preferences.terminal, custom);

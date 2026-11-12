@@ -114,7 +114,7 @@ async function assertDialogChrome(dialog, { input = false } = {}) {
   assert.equal(metrics.padding, "16px");
   assert.equal(metrics.gap, "14px");
   assert.equal(metrics.radius, 12);
-  assert.equal(metrics.titleSize, 13);
+  assert.equal(metrics.titleSize, 14);
   assert.ok(metrics.buttonHeights.length >= 2 && metrics.buttonHeights.every((height) => Math.abs(height - 34) <= 0.5));
   if (input) assert.equal((await dialog.locator("input").first().boundingBox()).height, 36);
 }
@@ -771,7 +771,7 @@ try {
   assert.equal(disconnectedMobileLayout.overflow, "visible");
   await activePage.close();
   const hiddenReasoningPage = await page.context().newPage();
-  await hiddenReasoningPage.route("**/api/ui", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ theme: "ark-dark", hideReasoning: true, markdownLineBreaks: true }) }));
+  await hiddenReasoningPage.addInitScript(() => { window.localStorage.setItem("pi-ark-appearance", JSON.stringify({ theme: "ark-dark", hideReasoning: true, markdownLineBreaks: true, fontScale: 1 })); });
   await hiddenReasoningPage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
     const server = webSocket.connectToServer();
     webSocket.onMessage((message) => server.send(message));
@@ -800,6 +800,7 @@ try {
   await standaloneResult.waitFor();
   assert.equal(await standaloneResult.locator(".feed-tool-status").evaluate((element) => { const probe = document.createElement("span"); probe.style.color = "var(--info)"; document.body.append(probe); const expected = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(element).color === expected; }), true);
   assert.equal(await hiddenReasoningPage.locator(".feed-text-footer").count(), 0);
+  await hiddenReasoningPage.evaluate(() => window.localStorage.removeItem("pi-ark-appearance"));
   await hiddenReasoningPage.close();
   const interruptedPage = await page.context().newPage();
   await interruptedPage.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
@@ -1319,19 +1320,17 @@ try {
   await page.locator(".workspace-list-item").first().waitFor();
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
   await page.getByRole("navigation", { name: "Settings categories" }).waitFor();
-  assert.deepEqual(await page.locator(".settings-tabs > button").allTextContents(), ["Interface", "Models & providers", "Agent behavior", "Skills", "MCP", "Files", "Terminal", "Maintenance", "Account"]);
-  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
-  const appearanceSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Appearance", exact: true }) });
-  const hideReasoningSwitch = appearanceSection.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch");
+  assert.deepEqual(await page.locator(".settings-tabs > button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Skills", "MCP", "Files", "Terminal", "Maintenance", "Account"]);
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Appearance", exact: true }).click();
+  const conversationSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Conversation", exact: true }) });
+  const hideReasoningSwitch = conversationSection.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch");
   assert.equal(await hideReasoningSwitch.getAttribute("aria-checked"), "false");
-  const hideReasoningSave = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
   await hideReasoningSwitch.click();
-  assert.equal((await hideReasoningSave).ok(), true);
   assert.equal(await hideReasoningSwitch.getAttribute("aria-checked"), "true");
-  assert.equal(await page.evaluate(async () => (await fetch("./api/ui")).json().then((settings) => settings.hideReasoning)), true);
-  const hideReasoningRestore = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname.endsWith("/api/ui"));
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("pi-ark-appearance")).hideReasoning), true);
   await hideReasoningSwitch.click();
-  assert.equal((await hideReasoningRestore).ok(), true);
+  assert.equal(await hideReasoningSwitch.getAttribute("aria-checked"), "false");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("pi-ark-appearance")).hideReasoning), false);
   await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Models & providers", exact: true }).click();
   await page.getByLabel("Provider").click();
   await page.locator(".ark-select.open .ark-select-menu").getByText(/^OpenAI Codex/).click();
@@ -1442,7 +1441,7 @@ try {
   await page.locator(".attachment-preview").filter({ hasText: "preview.png" }).waitFor();
   await page.waitForTimeout(400);
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Interface", exact: true }).click();
+  await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Maintenance", exact: true }).click();
   const cacheSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Browser cache", exact: true }) });
   await cacheSection.waitFor();
   assert.match(await cacheSection.textContent(), /cached conversation/);

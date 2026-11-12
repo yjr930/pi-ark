@@ -87,7 +87,7 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 首次打开 Session 且浏览器没有缓存时，WebSocket 建立后页面继续显示 Loading conversation。首个 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
 
-浏览器使用 IndexedDB 保存最近 50 个 Session 的 snapshot 和 Session UI state，并按 Pi-Ark 实例与登录账号隔离。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。浏览器刷新后继续使用同一 cache。Settings → Interface 的 Browser cache 显示缓存数量，并提供 Clear browser cache；清理删除当前实例与账号的缓存，Session history 与 Settings 保持不变。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
+浏览器使用 IndexedDB 保存最近 50 个 Session 的 snapshot 和 Session UI state，并按 Pi-Ark 实例与登录账号隔离。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。浏览器刷新后继续使用同一 cache。Settings → Maintenance 的 Browser cache 显示缓存数量，并提供 Clear browser cache；清理删除当前实例与账号的缓存，Session history 与 Settings 保持不变。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
 
 Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完整 projection 的全局 offset 和总数。顶部 Show earlier messages 每次请求 Server 将当前 client 的 display window 向前扩展一页，直至显示完整活动 branch。
 
@@ -225,16 +225,16 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限，并以 Workspace 目�
 
 ### 类别导航与全局配置
 
-Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Terminal 的字体设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
+Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
 
-- Interface：Appearance，包含紧凑的主题色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）、Hide reasoning 和 Keep line breaks；Browser cache 显示当前实例与账号的缓存数量，并提供 Clear browser cache。
+- Appearance：Theme 区域使用紧凑的色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）；Text size 区域用滑杆调整全部界面文字的整体倍率，范围 90% 到 130%，并列出七个字号等级的名称、用途与当前像素值；Conversation 区域包含 Hide reasoning 和 Keep line breaks。三项设置都保存在当前浏览器，改动立即生效。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。
 - MCP：MCP server 列表、启用开关、连接状态、诊断与浏览器运行时。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
 - Terminal：Server shell profile、自定义程序的绝对路径、附加参数、环境变量、浏览器字体和键盘操作说明。
-- Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及指向稳定 CLI 的完整 Node 调用命令（status、logs 与 restart 等）。
+- Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及指向稳定 CLI 的完整 Node 调用命令（status、logs 与 restart 等）；Browser cache 显示当前实例与账号的缓存数量，并提供 Clear browser cache。
 - Account：Sign out。
 
 Keep line breaks（按原文换行）默认开启，会话和 Markdown 文件中的普通文本会按原文的单次换行显示。关闭后，同一段落内的普通换行合并显示，空行继续分隔段落。该设置在切换后立即保存并应用到当前页面，刷新后保留选择。
@@ -273,7 +273,7 @@ Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在
 
 ## 桌面与移动布局
 
-桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。Session snapshot、draft、attachments 与 disclosure 状态使用最多 50 个 Session 的 IndexedDB cache，并按实例与账号隔离；Settings → Interface 可以清理。Terminal 的字体设置和每个 Workspace 最近选择的 Tab 也保存在 localStorage，Terminal 的 xterm 界面状态保存在当前页面的内存中。
+桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和 theme、字号、reasoning 显示与 Markdown 换行设置存放在浏览器 localStorage。Session snapshot、draft、attachments 与 disclosure 状态使用最多 50 个 Session 的 IndexedDB cache，并按实例与账号隔离；Settings → Maintenance 可以清理。Terminal 的字体设置和每个 Workspace 最近选择的 Tab 也保存在 localStorage，Terminal 的 xterm 界面状态保存在当前页面的内存中。
 
 移动端使用 drawer sidebar 和顶部 mobile bar。drawer 打开时，scrim 覆盖 drawer 之外的完整应用内容，其中包括页面 header、composer 和其他浮动控件；drawer 位于 scrim 上方。点击页面入口或 Session 后，drawer 自动关闭。Composer、对话框和 Settings actions 使用适合窄屏的布局。
 

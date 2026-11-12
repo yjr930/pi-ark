@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { ModelRuntime, SettingsManager, resolveModelScopeWithDiagnostics, type ScopedModel } from "@earendil-works/pi-coding-agent";
 import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { ARK_THEMES, loadConfig, piArkAgentDir, saveGlobalArkSettings, type ArkTheme } from "./config.js";
+import { loadConfig, piArkAgentDir } from "./config.js";
 import type { AuthFlowInteraction } from "./auth-flows.js";
 
 export interface GlobalAgentDefaultsInput {
@@ -12,9 +12,6 @@ export interface GlobalAgentDefaultsInput {
 }
 
 export interface GlobalSettingsInput extends GlobalAgentDefaultsInput {
-  theme: ArkTheme;
-  hideReasoning: boolean;
-  markdownLineBreaks?: boolean;
   provider: string;
   model: string;
   thinkingLevel: ModelThinkingLevel;
@@ -67,9 +64,6 @@ export class SettingsService {
     const model = fallback || this.models.getModel(provider, modelId);
     const configuredThinking = this.manager.getDefaultThinkingLevel() || "medium";
     return {
-      theme: arkConfig.ui.theme,
-      hideReasoning: arkConfig.ui.hideReasoning,
-      markdownLineBreaks: arkConfig.ui.markdownLineBreaks,
       ...arkConfig.preferences,
       provider,
       model: modelId,
@@ -213,7 +207,6 @@ export class SettingsService {
   }
 
   async saveGlobal(input: GlobalSettingsInput) {
-    if (!ARK_THEMES.includes(input.theme)) throw Object.assign(new Error("Unknown theme"), { statusCode: 400 });
     const provider = this.models.getProvider(input.provider);
     if (!provider) throw Object.assign(new Error("Unknown provider"), { statusCode: 400 });
     const apiKey = input.apiKey?.trim();
@@ -238,7 +231,6 @@ export class SettingsService {
     await this.manager.flush();
     const errors = this.manager.drainErrors();
     if (errors.length) throw new Error(errors.map(({ error }) => error.message).join("; "));
-    await saveGlobalArkSettings({ theme: input.theme, hideReasoning: input.hideReasoning, markdownLineBreaks: input.markdownLineBreaks });
     return this.getGlobal();
   }
 }

@@ -1,9 +1,11 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, Plug, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Unplug } from "lucide-react";
+import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, Plug, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { clearSessionCache, getSessionCacheSummary } from "../session-cache";
-import { applyTheme, themes } from "../theme";
-import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, ThemeId, UiSettings, GlobalPreferences } from "../types";
+import { themes } from "../theme";
+import { FONT_LEVELS, FONT_SCALE_STEP, MAX_FONT_SCALE, MIN_FONT_SCALE, levelPixels } from "../typography";
+import type { AppearanceSettings } from "../appearance";
+import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, GlobalPreferences } from "../types";
 import { Select } from "./Select";
 import { McpSettings } from "./McpSettings";
 import { SkillsSettings } from "./SkillsSettings";
@@ -12,14 +14,14 @@ import { TerminalSettings } from "./TerminalSettings";
 import type { TerminalSettingsHandle } from "./TerminalSettings";
 
 const categories = [
-  { id: "interface", label: "Interface", description: "Appearance, conversation visibility, and browser cache.", icon: Palette },
+  { id: "appearance", label: "Appearance", description: "Theme, text size, and conversation display, saved in this browser.", icon: Palette },
   { id: "models", label: "Models & providers", description: "Credentials, available models, and defaults for new Sessions.", icon: Cpu },
   { id: "agent", label: "Agent behavior", description: "Shared instructions and conversation defaults.", icon: SlidersHorizontal },
   { id: "skills", label: "Skills", description: "Agent skills available globally and in each workspace.", icon: Sparkles },
   { id: "mcp", label: "MCP", description: "Agent tool servers, connection state, and browser runtime.", icon: Plug },
   { id: "files", label: "Files", description: "File browsing and preview preferences.", icon: Eye },
   { id: "terminal", label: "Terminal", description: "Server shell profiles and browser font preferences.", icon: TerminalSquare },
-  { id: "maintenance", label: "Maintenance", description: "Version, installation, and service management.", icon: PackageOpen },
+  { id: "maintenance", label: "Maintenance", description: "Version, installation, service management, and browser cache.", icon: PackageOpen },
   { id: "account", label: "Account", description: "Your current browser session.", icon: LogOut },
 ] as const;
 type SettingsCategory = (typeof categories)[number]["id"];
@@ -36,8 +38,8 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (che
   return <button type="button" role="switch" aria-label={label} aria-checked={checked} className={`settings-toggle ${checked ? "enabled" : ""}`} onClick={() => onChange(!checked)}><span /></button>;
 }
 
-export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: boolean; uiSettings: UiSettings; onUiSettingsChanged: (settings: UiSettings) => void }) {
-  const [category, setCategory] = useState<SettingsCategory>("interface");
+export function Settings({ active, appearance, onAppearanceChange }: { active: boolean; appearance: AppearanceSettings; onAppearanceChange: (next: AppearanceSettings) => void }) {
+  const [category, setCategory] = useState<SettingsCategory>("appearance");
   const [global, setGlobal] = useState<GlobalSettings | null>(null);
   const currentCategory = categories.find((item) => item.id === category)!;
   const [providerId, setProviderId] = useState("");
@@ -65,12 +67,10 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
   const [cacheClearOpen, setCacheClearOpen] = useState(false);
   const [cacheClearing, setCacheClearing] = useState(false);
   const globalSaveQueue = useRef<Promise<void>>(Promise.resolve());
-  const uiSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const modelSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const preferencesSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const releaseRequested = useRef(false);
   const globalSaveRevision = useRef(0);
-  const uiSaveRevision = useRef(0);
   const modelSaveRevision = useRef(0);
   const filesSaveRevision = useRef(0);
   const contentRef = useRef<HTMLElement>(null);
@@ -89,15 +89,15 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     return () => { current = false; };
   }, []);
 
-  useEffect(() => { setGlobal((current) => current ? { ...current, ...uiSettings } : current); }, [uiSettings.theme, uiSettings.hideReasoning, uiSettings.markdownLineBreaks]);
-
   useEffect(() => {
     if (!active) { setApiKey(""); setDisconnectOpen(false); setReleaseUpdateOpen(false); setReleaseRollbackOpen(false); setCacheClearOpen(false); }
-    if (active && category === "interface") setCacheSummary(getSessionCacheSummary());
-    if (active && category === "maintenance" && !releaseRequested.current) {
-      releaseRequested.current = true;
-      setReleaseChecking(true);
-      void api.releaseInfo().then(setRelease).catch((reason) => setNotice({ kind: "error", text: reason.message })).finally(() => setReleaseChecking(false));
+    if (active && category === "maintenance") {
+      setCacheSummary(getSessionCacheSummary());
+      if (!releaseRequested.current) {
+        releaseRequested.current = true;
+        setReleaseChecking(true);
+        void api.releaseInfo().then(setRelease).catch((reason) => setNotice({ kind: "error", text: reason.message })).finally(() => setReleaseChecking(false));
+      }
     }
   }, [active, category]);
 
@@ -106,7 +106,7 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     setSaving(true); setNotice(null);
     try {
       const [result, models] = await Promise.all([api.globalSettings(), api.modelPreferences()]);
-      setGlobal(result); setModelPreferences(models); setPromptDraft(result.agent.systemPrompt.append); onUiSettingsChanged({ theme: result.theme, hideReasoning: result.hideReasoning, markdownLineBreaks: result.markdownLineBreaks });
+      setGlobal(result); setModelPreferences(models); setPromptDraft(result.agent.systemPrompt.append);
       if (category === "maintenance") setRelease(await api.releaseInfo());
     } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot refresh settings" }); }
     finally { setSaving(false); }
@@ -144,23 +144,6 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
       }
     }).finally(() => { if (revision === globalSaveRevision.current) setSaving(false); });
     globalSaveQueue.current = task;
-    return task;
-  }
-
-  function persistUiSettings(next: GlobalSettings, success: string): Promise<void> {
-    const revision = ++uiSaveRevision.current;
-    setGlobal(next); applyTheme(next.theme); onUiSettingsChanged({ theme: next.theme, hideReasoning: next.hideReasoning, markdownLineBreaks: next.markdownLineBreaks }); setSaving(true); setNotice(null);
-    const task = uiSaveQueue.current.catch(() => undefined).then(async () => {
-      const saved = await api.saveUiSettings({ theme: next.theme, hideReasoning: next.hideReasoning, markdownLineBreaks: next.markdownLineBreaks });
-      if (revision === uiSaveRevision.current) { setGlobal((current) => current ? { ...current, ...saved } : current); onUiSettingsChanged(saved); setNotice({ kind: "success", text: success }); }
-    }).catch(async (reason) => {
-      if (revision === uiSaveRevision.current) {
-        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save interface setting" });
-        const restored = await api.uiSettings().catch(() => null);
-        if (restored) { setGlobal((current) => current ? { ...current, ...restored } : current); applyTheme(restored.theme); onUiSettingsChanged(restored); }
-      }
-    }).finally(() => { if (revision === uiSaveRevision.current) setSaving(false); });
-    uiSaveQueue.current = task;
     return task;
   }
 
@@ -339,9 +322,12 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
     return task;
   }
 
-  function selectTheme(theme: ThemeId) {
-    if (!global) return;
-    void persistUiSettings({ ...global, theme }, "Theme saved.");
+  function updateAppearance(patch: Partial<AppearanceSettings>) {
+    onAppearanceChange({ ...appearance, ...patch });
+  }
+
+  function selectTheme(theme: AppearanceSettings["theme"]) {
+    updateAppearance({ theme });
   }
 
   function updateFileSettings(files: GlobalPreferences["files"], success: string) {
@@ -370,7 +356,7 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
         {categories.map((item) => <button type="button" key={item.id} className={category === item.id ? "active" : ""} aria-current={category === item.id ? "page" : undefined} onClick={() => { setCategory(item.id); setNotice(null); }}><item.icon size={16} /><span>{item.label}</span></button>)}
       </nav>
       <main className="settings-content" ref={contentRef} onScroll={(event) => { if (active) scrollPositions.current[category] = event.currentTarget.scrollTop; }}>
-        <div className="settings-content-heading"><span>{category === "terminal" ? "Server and browser settings" : category === "skills" || category === "mcp" ? "Agent resources" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
+        <div className="settings-content-heading"><span>{category === "terminal" ? "Server and browser settings" : category === "appearance" || category === "account" ? "Browser settings" : category === "skills" || category === "mcp" ? "Agent resources" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
         {notice && <div role="status" className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={15} /> : <CircleAlert size={15} />}{notice.text}</div>}
         <div className="settings-category" hidden={category !== "terminal"}>
           <TerminalSettings ref={terminalSettingsRef} active={active && category === "terminal"} onBusyChange={setTerminalBusy} />
@@ -382,15 +368,23 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
           <McpSettings active={active && category === "mcp"} />
         </div>
         {global && <>
-          <div className="settings-category" hidden={category !== "interface"}>
+          <div className="settings-category" hidden={category !== "appearance"}>
           <section className="settings-section">
-            <div className="settings-section-title"><Palette size={17} /><div><h3>Appearance</h3><p>Theme and conversation visibility shared by every workspace and device using this service.</p></div></div>
-            <div className="theme-options" aria-label="Theme">{themes.map((theme) => <button type="button" aria-pressed={global.theme === theme.id} title={theme.description} className={global.theme === theme.id ? "selected" : ""} onClick={() => selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><strong>{theme.name}</strong><Check size={13} className={global.theme === theme.id ? "" : "theme-check-hidden"} /></button>)}</div>
-            <div className="settings-rows"><div className="settings-row"><div><strong>Hide reasoning</strong><span>Hide reasoning content in every conversation while preserving it in Session history.</span></div><Toggle checked={global.hideReasoning} onChange={(checked) => void persistUiSettings({ ...global, hideReasoning: checked }, "Reasoning visibility saved.")} /></div><div className="settings-row"><div><strong>Keep line breaks</strong><span>Show each new line in conversations and Markdown files on a new line. Turn off to join lines within a paragraph.</span></div><Toggle label="Keep line breaks" checked={global.markdownLineBreaks} onChange={(checked) => void persistUiSettings({ ...global, markdownLineBreaks: checked }, "Line break preference saved.")} /></div></div>
+            <div className="settings-section-title"><Palette size={17} /><div><h3>Theme</h3><p>Color palette for the whole interface in this browser.</p></div></div>
+            <div className="theme-options" aria-label="Theme">{themes.map((theme) => <button type="button" aria-pressed={appearance.theme === theme.id} title={theme.description} className={appearance.theme === theme.id ? "selected" : ""} onClick={() => selectTheme(theme.id)} key={theme.id}><span className="theme-preview">{theme.colors.map((color) => <i style={{ background: color }} key={color} />)}</span><strong>{theme.name}</strong><Check size={13} className={appearance.theme === theme.id ? "" : "theme-check-hidden"} /></button>)}</div>
           </section>
           <section className="settings-section">
-            <div className="settings-section-title"><HardDrive size={17} /><div><h3>Browser cache</h3><p>Recent conversations and composer state stored in this browser for faster reopening.</p></div></div>
-            <div className="settings-rows"><div className="settings-row settings-cache-row"><div><strong>Cached data</strong><span>{cacheSummary.snapshots === 0 && cacheSummary.uiStates === 0 ? "No cached conversations or composer states in this browser." : `${cacheSummary.snapshots} cached ${cacheSummary.snapshots === 1 ? "conversation" : "conversations"} and ${cacheSummary.uiStates} ${cacheSummary.uiStates === 1 ? "composer state" : "composer states"} in this browser.`}{!cacheSummary.persistent && " This browser is keeping the cache for the current page only."}</span></div><button type="button" className="secondary-button" disabled={cacheClearing || (cacheSummary.snapshots === 0 && cacheSummary.uiStates === 0)} onClick={() => setCacheClearOpen(true)}><Trash2 size={14} />Clear browser cache</button></div></div>
+            <div className="settings-section-title"><Type size={17} /><div><h3>Text size</h3><p>Scales every interface font in this browser. Conversation text, Settings, and the sidebar scale together.</p></div></div>
+            <div className="text-size-bar">
+              <input type="range" aria-label="Text scale" min={MIN_FONT_SCALE * 100} max={MAX_FONT_SCALE * 100} step={FONT_SCALE_STEP * 100} value={Math.round(appearance.fontScale * 100)} onChange={(event) => updateAppearance({ fontScale: Number(event.target.value) / 100 })} />
+              <output className="text-size-value">{Math.round(appearance.fontScale * 100)}%</output>
+              <button type="button" className="secondary-button" disabled={appearance.fontScale === 1} onClick={() => updateAppearance({ fontScale: 1 })}><RotateCcw size={13} />Reset</button>
+            </div>
+            <div className="text-size-levels">{FONT_LEVELS.map((level) => <div className="text-size-level" key={level.id}><span className="text-size-sample" style={{ fontSize: `var(--fs-${level.id})` }}>Aa</span><strong>{level.label}</strong><span>{level.role}</span><small>{levelPixels(level, appearance.fontScale)} px</small></div>)}</div>
+          </section>
+          <section className="settings-section">
+            <div className="settings-section-title"><MessageSquareText size={17} /><div><h3>Conversation</h3><p>How conversations and Markdown files render in this browser.</p></div></div>
+            <div className="settings-rows"><div className="settings-row"><div><strong>Hide reasoning</strong><span>Hide reasoning content in every conversation while preserving it in Session history.</span></div><Toggle checked={appearance.hideReasoning} onChange={(checked) => updateAppearance({ hideReasoning: checked })} /></div><div className="settings-row"><div><strong>Keep line breaks</strong><span>Show each new line in conversations and Markdown files on a new line. Turn off to join lines within a paragraph.</span></div><Toggle label="Keep line breaks" checked={appearance.markdownLineBreaks} onChange={(checked) => updateAppearance({ markdownLineBreaks: checked })} /></div></div>
           </section>
           </div>
           <div className="settings-category" hidden={category !== "models"}>
@@ -418,6 +412,10 @@ export function Settings({ active, uiSettings, onUiSettingsChanged }: { active: 
             <div className="maintenance-commands"><span>Service management commands</span>{Object.entries(release.commands).map(([name, command]) => <div key={name}><strong>{name}</strong><code>{command}</code></div>)}</div>
             <div className="pi-core-actions"><button type="button" className="secondary-button" disabled={releaseChecking || releaseUpdating} onClick={() => void checkReleaseUpdate()}>{releaseChecking ? <LoaderCircle size={14} /> : <RefreshCw size={14} />}Check for updates</button>{release.rollbackAvailable && <button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseRollbackOpen(true)}><RotateCcw size={14} />Roll back</button>}{release.channel === "stable" && release.latestVersion && release.updateAvailable && <button type="button" className="primary-button" disabled={releaseUpdating || !release.installedRelease} onClick={() => setReleaseUpdateOpen(true)}><Download size={14} />Update to {release.latestVersion}</button>}{release.channel === "stable" && release.latestVersion && !release.updateAvailable && <span className="pi-core-current"><Check size={13} />Up to date</span>}{release.channel === "development" && <span className="pi-core-current">Development build</span>}</div>
           </section>}
+          <section className="settings-section">
+            <div className="settings-section-title"><HardDrive size={17} /><div><h3>Browser cache</h3><p>Recent conversations and composer state stored in this browser for faster reopening.</p></div></div>
+            <div className="settings-rows"><div className="settings-row settings-cache-row"><div><strong>Cached data</strong><span>{cacheSummary.snapshots === 0 && cacheSummary.uiStates === 0 ? "No cached conversations or composer states in this browser." : `${cacheSummary.snapshots} cached ${cacheSummary.snapshots === 1 ? "conversation" : "conversations"} and ${cacheSummary.uiStates} ${cacheSummary.uiStates === 1 ? "composer state" : "composer states"} in this browser.`}{!cacheSummary.persistent && " This browser is keeping the cache for the current page only."}</span></div><button type="button" className="secondary-button" disabled={cacheClearing || (cacheSummary.snapshots === 0 && cacheSummary.uiStates === 0)} onClick={() => setCacheClearOpen(true)}><Trash2 size={13} />Clear browser cache</button></div></div>
+          </section>
           </div>
           <div className="settings-category" hidden={category !== "agent"}>
           <section className="settings-section">

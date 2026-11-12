@@ -327,7 +327,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
 
 ### 等待 Session 加载
 
-首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器使用 IndexedDB 保存最近 50 个 Session 的 snapshot 和 UI state，并按实例与登录账号隔离；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。UI state 会恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开状态，刷新页面后继续保留。Settings → Interface 的 Clear browser cache 可以删除当前实例与账号的缓存、未发送 draft 和 attachments，Session history 与服务端设置保持不变。
+首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器使用 IndexedDB 保存最近 50 个 Session 的 snapshot 和 UI state，并按实例与登录账号隔离；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。UI state 会恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开状态，刷新页面后继续保留。Settings → Maintenance 的 Clear browser cache 可以删除当前实例与账号的缓存、未发送 draft 和 attachments，Session history 与服务端设置保持不变。
 
 长会话的初始 Server snapshot 默认只包含最新约 100 条 messages。点击顶部 Show earlier messages 会向 Server 请求 earlier messages，并逐页扩展当前 display window，直至看到完整活动 branch。
 
@@ -503,9 +503,9 @@ Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧�
 
 ## Settings
 
-Settings 的 Server 设置对所有 Workspace 使用统一的配置，Terminal 的字体设置保存在当前浏览器中。桌面端从左侧选择类别，移动端从顶部横向导航选择类别。类别按以下顺序显示：
+Settings 的 Server 设置对所有 Workspace 使用统一的配置，Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端从左侧选择类别，移动端从顶部横向导航选择类别。类别按以下顺序显示：
 
-1. Interface
+1. Appearance
 2. Models & providers
 3. Agent behavior
 4. Skills
@@ -519,9 +519,9 @@ Settings 的 Server 设置对所有 Workspace 使用统一的配置，Terminal �
 
 首次进入 Settings 后，浏览器保留已经加载的设置、所选类别、各类别的滚动位置，以及尚未保存的草稿（提示词与 Terminal shell 设置）。切换页面后返回可以继续操作。Refresh settings 会主动重新读取设置。Effective prompt preview 在展开时读取；Skills 与 MCP 数据在首次进入对应类别时读取；Terminal shell 配置与 Maintenance 的版本信息在首次进入对应类别时读取。离开 Settings 后，页面会清空尚未提交的 API key。
 
-### Interface
+### Appearance
 
-选择以下 theme，选择后会立即预览并保存：
+Theme 区域列出以下 theme，点击后立即预览并保存：
 
 - Ark Dark
 - Graphite
@@ -529,13 +529,13 @@ Settings 的 Server 设置对所有 Workspace 使用统一的配置，Terminal �
 - Paper
 - Snow
 
-Theme 选择会立即预览，保存后对该 Pi-Ark 服务的浏览器生效。
+Theme 选择只影响当前浏览器。
 
-Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示。开启后，conversation 不显示 Reasoning 折叠项和内容；Session history 与模型使用的上下文继续保留原始 reasoning。该开关会立即保存，刷新页面后继续生效。
+Text size 区域用滑杆调整全部界面文字的整体倍率，范围为 90% 到 130%，默认 100%。滑杆右侧显示当前百分比，Reset 恢复 100%。下方的等级清单列出 Micro、Caption、Dense、Interface、Reading、Section title 和 Page title 七个等级，以及每个等级负责的文字范围和当前像素值。拖动滑杆时，侧栏、会话、Settings 和对话框的文字一起变化。
 
-Keep line breaks（按原文换行）默认开启：原文写成几行，普通文本就按几行显示。关闭后，同一段落内的普通换行会合并显示，使用空行可以分隔段落。该设置统一作用于会话正文、Reasoning、摘要和 Files 的 Markdown 预览，切换后立即保存，刷新后保留选择。
+Conversation 区域包含两个开关。Hide reasoning 控制所有 Workspace 和 Session 的 reasoning 显示；开启后，conversation 不显示 Reasoning 折叠项和内容，Session history 与模型使用的上下文继续保留原始 reasoning。Keep line breaks（按原文换行）默认开启：原文写成几行，普通文本就按几行显示；关闭后，同一段落内的普通换行会合并显示，使用空行可以分隔段落，该设置作用于会话正文、Reasoning、摘要和 Files 的 Markdown 预览。两个开关都立即生效，刷新后保留选择。
 
-Browser cache 显示当前实例与登录账号缓存的 conversation 数量与 composer state 数量。Clear browser cache 会打开确认对话框；确认后删除这些缓存、未发送的 draft 和 attachments。Session history 与服务端设置保持不变。
+以上设置保存在当前浏览器，不会同步到其他设备。
 
 ### Models & providers
 
@@ -656,6 +656,8 @@ Keyboard shortcuts 区域说明系统的默认粘贴行为，以及工具栏的 
 
 ### Maintenance
 
+Browser cache 显示当前实例与登录账号缓存的 conversation 数量与 composer state 数量。Clear browser cache 会打开确认对话框；确认后删除这些缓存、未发送的 draft 和 attachments。Session history 与服务端设置保持不变。
+
 Pi-Ark release 区域显示以下信息：
 
 - Pi-Ark version 与 bundled pi core version。
@@ -729,11 +731,11 @@ Agent 自带 `mcp-servers` skill，可以直接让它读取 `PI_ARK_AGENT_DIR/mc
 - Files 文件列表宽度。
 - Workspaces 展开状态。
 - Conversation width。
-- 最近应用的 theme。
+- Theme、Text size、Hide reasoning 与 Keep line breaks。
 - Terminal 的字体列表和字号。
 - 每个 Workspace 最近选择的 Terminal Tab。
 
-Session snapshot、composer draft、attachments 与 conversation disclosure 状态保存在 IndexedDB 的 Session cache 中，不使用 localStorage；Settings → Interface 的 Clear browser cache 可以清理。
+Session snapshot、composer draft、attachments 与 conversation disclosure 状态保存在 IndexedDB 的 Session cache 中，不使用 localStorage；Settings → Maintenance 的 Clear browser cache 可以清理。
 
 移动端通过顶部菜单按钮打开 drawer sidebar。drawer 打开后，遮罩覆盖页面 header、composer 和 drawer 之外的其他应用内容；点击遮罩可以关闭 drawer。Chat 主列限制在屏幕宽度内，状态栏、conversation、sticky User row、Running 和 composer 不会向屏幕右侧溢出。
 
@@ -881,7 +883,7 @@ Workspace data：
 
 ### Session 长时间显示 Loading conversation
 
-Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/agent/...` 的连接、服务日志和 Session JSONL 的读取权限。如果刷新后仍显示旧的缓存内容，可以在 Settings → Interface 清理 Browser cache 后重试。
+Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/agent/...` 的连接、服务日志和 Session JSONL 的读取权限。如果刷新后仍显示旧的缓存内容，可以在 Settings → Maintenance 清理 Browser cache 后重试。
 
 ### Terminal 显示 Disconnected
 

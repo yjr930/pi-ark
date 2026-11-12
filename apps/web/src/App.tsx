@@ -16,8 +16,8 @@ import { readAgentReturnPosition, withAgentReturnPosition } from "./navigation-h
 import { cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionUiState, initializeSessionCache, sessionCacheKey } from "./session-cache";
 import { resolveActiveSessionId } from "./session-selection";
 import { acknowledgeSessionStatus, mergeSessionStatuses, type SessionStatusMap } from "./session-status";
-import { applyTheme } from "./theme";
-import type { SessionInfo, UiSettings, Workspace } from "./types";
+import { readAppearance, saveAppearance, subscribeAppearance, type AppearanceSettings } from "./appearance";
+import type { SessionInfo, Workspace } from "./types";
 
 const Files = lazy(() => import("./components/Files").then((module) => ({ default: module.Files })));
 const Notebook = lazy(() => import("./components/Notebook").then((module) => ({ default: module.Notebook })));
@@ -36,7 +36,7 @@ export default function App() {
   const [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(true);
-  const [uiSettings, setUiSettings] = useState<UiSettings>({ theme: "ark-dark", hideReasoning: false, markdownLineBreaks: true });
+  const [appearance, setAppearance] = useState<AppearanceSettings>(readAppearance);
   const [workspaceId, setWorkspaceId] = useState("");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionsWorkspaceId, setSessionsWorkspaceId] = useState("");
@@ -67,8 +67,7 @@ export default function App() {
   const loadWorkspaces = useCallback(async () => {
     setWorkspacesLoading(true);
     try {
-      const [workspaceResult, ui] = await Promise.all([api.workspaces(), api.uiSettings()]);
-      applyTheme(ui.theme); setUiSettings(ui);
+      const workspaceResult = await api.workspaces();
       setWorkspaces(workspaceResult.workspaces);
       setWorkspaceId((current) => workspaceResult.workspaces.some((item) => item.id === current) ? current : workspaceResult.workspaces.find((item) => item.id === initialPermalink.current.workspaceId)?.id || workspaceResult.workspaces[0]?.id || "");
     } finally { setWorkspacesLoading(false); }
@@ -82,6 +81,8 @@ export default function App() {
     await loadWorkspaces();
   }, [loadWorkspaces]);
   useEffect(() => { void startSession().catch(() => setAuth("out")); }, [startSession]);
+  useEffect(() => subscribeAppearance(setAppearance), []);
+  const changeAppearance = useCallback((next: AppearanceSettings) => { setAppearance(saveAppearance(next)); }, []);
   useEffect(() => {
     if (auth !== "in") return;
     if (!workspaceId) { setSessions([]); setSessionsWorkspaceId(""); setSessionId(""); setSessionsLoading(false); return; }
@@ -333,7 +334,7 @@ export default function App() {
   if (auth === "loading") return <div className="app-loading"><Box size={28} /><span>Pi-Ark</span></div>;
   if (auth === "out") return <Login onLogin={() => { void startSession().catch(() => setAuth("out")); }} />;
 
-  return <MarkdownLineBreaksContext.Provider value={uiSettings.markdownLineBreaks}><FileLinksContext.Provider value={workspace ? { workspaceId: workspace.id } : undefined}><div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} onClickCapture={(event) => {
+  return <MarkdownLineBreaksContext.Provider value={appearance.markdownLineBreaks}><FileLinksContext.Provider value={workspace ? { workspaceId: workspace.id } : undefined}><div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${sidebarResizing ? "sidebar-resizing" : ""}`} onClickCapture={(event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !(event.target instanceof Element)) return;
     const fileLink = event.target.closest<HTMLAnchorElement>('a[data-pi-ark-file-link="true"]');
     if (fileLink) {
@@ -373,13 +374,13 @@ export default function App() {
     <main className="content-area">
       {error && <div className="global-error">{error}</div>}
       {!workspace && page !== "settings" && (workspacesLoading ? <div className="page-loading"><LoaderCircle size={20} />Loading workspaces</div> : <div className="no-session"><Box size={30} /><h2>No open workspace</h2><p>Add an existing server directory to start working.</p><button className="primary-button" onClick={() => setAddWorkspaceOpen(true)}><Plus size={16} />Add workspace</button></div>)}
-      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}:${historyRevision}`} restorePosition={restorePosition?.workspaceId === workspace.id && restorePosition.sessionId === selectedSession.id && restorePosition.messageId === targetMessageId && restorePosition.leafEntryId === leafEntryId ? restorePosition : undefined} workspace={workspace} session={selectedSession} sessions={workspaceSessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={uiSettings.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : loadingSessions ? <div className="page-loading"><LoaderCircle size={20} />Loading sessions</div> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
+      {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}:${historyRevision}`} restorePosition={restorePosition?.workspaceId === workspace.id && restorePosition.sessionId === selectedSession.id && restorePosition.messageId === targetMessageId && restorePosition.leafEntryId === leafEntryId ? restorePosition : undefined} workspace={workspace} session={selectedSession} sessions={workspaceSessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={appearance.hideReasoning} onSessionChanged={refreshSessions} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : loadingSessions ? <div className="page-loading"><LoaderCircle size={20} />Loading sessions</div> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} />}
         {workspace && page === "files" && <Files key={workspace.id} workspace={workspace} target={fileTarget.workspaceId === workspaceId ? fileTarget : undefined} onNavigate={openFileTarget} />}
       </Suspense>
       {workspaces.filter((item) => terminalWorkspaces.includes(item.id) || (page === "terminal" && workspaceId === item.id)).map((item) => <div className="terminal-page-host" key={item.id} hidden={page !== "terminal" || workspaceId !== item.id} data-terminal-workspace={item.id}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading terminal</div>}><Terminal workspace={item} active={page === "terminal" && workspaceId === item.id} /></Suspense></div>)}
-      {(settingsVisited || page === "settings") && <div className="settings-page-host" hidden={page !== "settings"}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading settings</div>}><Settings active={page === "settings"} uiSettings={uiSettings} onUiSettingsChanged={(next) => { setUiSettings(next); applyTheme(next.theme); }} /></Suspense></div>}
+      {(settingsVisited || page === "settings") && <div className="settings-page-host" hidden={page !== "settings"}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading settings</div>}><Settings active={page === "settings"} appearance={appearance} onAppearanceChange={changeAppearance} /></Suspense></div>}
     </main>
     {addWorkspaceOpen && <AddWorkspaceDialog onClose={() => setAddWorkspaceOpen(false)} onAdded={workspaceAdded} />}
     {sessionLinkOpen && <NameDialog title="Open session link" description="Paste a Pi-Ark internal session or message link." label="Pi-Ark session link" submitLabel="Open session" icon={<Link2 size={18} />} onClose={() => setSessionLinkOpen(false)} onSubmit={openInternalSessionLink} />}
