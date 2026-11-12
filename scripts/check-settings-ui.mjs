@@ -70,7 +70,7 @@ try {
   await page.locator(".workspace-list-item").first().waitFor();
   await appPage("Settings");
   await navigation().waitFor();
-  assert.deepEqual(await navigation().locator("button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Skills", "MCP", "Files", "Terminal", "Maintenance", "Account"]);
+  assert.deepEqual(await navigation().locator("button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Skills", "MCP", "Extensions", "Files", "Terminal", "Maintenance", "Account"]);
   assert.equal(requests.get("/api/settings/system-prompt") || 0, 0);
   assert.equal(requests.get("/api/settings/release") || 0, 0);
   assert.equal(await page.getByText("Workspace configuration", { exact: true }).count(), 0);

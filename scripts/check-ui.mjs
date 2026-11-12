@@ -114,7 +114,7 @@ async function assertDialogChrome(dialog, { input = false } = {}) {
   assert.equal(metrics.padding, "16px");
   assert.equal(metrics.gap, "14px");
   assert.equal(metrics.radius, 12);
-  assert.equal(metrics.titleSize, 15);
+  assert.equal(metrics.titleSize, 14);
   assert.ok(metrics.buttonHeights.length >= 2 && metrics.buttonHeights.every((height) => Math.abs(height - 34) <= 0.5));
   if (input) assert.equal((await dialog.locator("input").first().boundingBox()).height, 36);
 }
@@ -352,7 +352,7 @@ try {
   const foldColors = await page.locator(".run-collapse").last().evaluate((run) => ({ conversation: getComputedStyle(run.closest(".conversation")).backgroundColor, run: getComputedStyle(run.querySelector(":scope > summary")).backgroundColor, tool: getComputedStyle(run.querySelector(".feed-tool-details")).backgroundColor, reasoning: getComputedStyle(run.querySelector(".thinking > summary")).backgroundColor, toolBorder: getComputedStyle(run.querySelector(".feed-tool-details")).borderTopColor }));
   assert.notEqual(foldColors.run, foldColors.conversation);
   assert.notEqual(foldColors.tool, foldColors.conversation);
-  assert.notEqual(foldColors.reasoning, foldColors.conversation);
+  assert.equal(foldColors.reasoning, "rgba(0, 0, 0, 0)");
   assert.notEqual(foldColors.toolBorder, foldColors.tool);
   const restoredAttachmentImage = page.locator(".attachment-preview").filter({ hasText: "preview.png" }).locator("img");
   await restoredAttachmentImage.waitFor();
@@ -635,8 +635,9 @@ try {
   const reasoningToolMessage = activeRun.locator(".feed-ai-message:has(.thinking)");
   assert.equal(await reasoningToolMessage.locator(".feed-text-footer").count(), 0);
   assert.equal(await reasoningToolMessage.locator(".feed-text-actions").count(), 0);
-  const reasoningRhythm = await activeRun.evaluate((run) => ({ reasoning: Number.parseFloat(getComputedStyle(run.querySelector(".thinking > summary")).lineHeight), text: Number.parseFloat(getComputedStyle(run.querySelector(".message-markdown")).lineHeight) }));
-  assert.ok(Math.abs(reasoningRhythm.reasoning - reasoningRhythm.text) <= 0.5);
+  const reasoningRhythm = await activeRun.evaluate((run) => { const summary = getComputedStyle(run.querySelector(".thinking > summary")); const content = getComputedStyle(run.querySelector(".thinking .thinking-markdown")); const text = getComputedStyle(run.querySelector(".message-markdown")); return { summaryLine: Number.parseFloat(summary.lineHeight), contentLine: Number.parseFloat(content.lineHeight), contentSize: Number.parseFloat(content.fontSize), textSize: Number.parseFloat(text.fontSize) }; });
+  assert.equal(reasoningRhythm.summaryLine, reasoningRhythm.contentLine);
+  assert.ok(reasoningRhythm.contentSize < reasoningRhythm.textSize);
   assert.equal(await activeRun.locator(".feed-tool-item").count(), 3);
   const activeTurnSegment = activeRun.locator("xpath=ancestor::div[contains(@class,'ai-feed-segment')]");
   assert.equal(await activeTurnSegment.locator(":scope > .ai-turn-header").count(), 1);
@@ -1376,7 +1377,7 @@ try {
   await page.locator(".workspace-list-item").first().waitFor();
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
   await page.getByRole("navigation", { name: "Settings categories" }).waitFor();
-  assert.deepEqual(await page.locator(".settings-tabs > button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Skills", "MCP", "Files", "Terminal", "Maintenance", "Account"]);
+  assert.deepEqual(await page.locator(".settings-tabs > button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Skills", "MCP", "Extensions", "Files", "Terminal", "Maintenance", "Account"]);
   await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Appearance", exact: true }).click();
   const conversationSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Conversation", exact: true }) });
   const hideReasoningSwitch = conversationSection.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch");

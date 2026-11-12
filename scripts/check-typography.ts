@@ -7,7 +7,7 @@ assert.deepEqual(FONT_LEVELS.map((level) => [level.id, level.baseSize]), [
   ["caption", 10],
   ["dense", 11],
   ["ui", 13],
-  ["reading", 15],
+  ["reading", 14],
   ["section", 20],
   ["page", 26],
 ]);
@@ -30,11 +30,11 @@ assert.equal(normalizeFontScale(2), 1.3);
 const reading = FONT_LEVELS.find((level) => level.id === "reading");
 const micro = FONT_LEVELS.find((level) => level.id === "micro");
 assert.ok(reading && micro);
-assert.equal(levelPixels(reading, 1), 15);
-assert.equal(levelPixels(reading, 1.15), 17.25);
+assert.equal(levelPixels(reading, 1), 14);
+assert.equal(levelPixels(reading, 1.15), 16.1);
 assert.equal(levelPixels(FONT_LEVELS.find((level) => level.id === "ui")!, 1.15), 14.95);
 assert.equal(levelPixels(FONT_LEVELS.find((level) => level.id === "dense")!, 1.15), 12.65);
-assert.equal(levelPixels(reading, 1.3), 19.5);
+assert.equal(levelPixels(reading, 1.3), 18.2);
 assert.equal(levelPixels(micro, 0.9), 8.1);
 
 const pickAppearance = (value: ReturnType<typeof normalizeAppearance>) => ({ theme: value.theme, hideReasoning: value.hideReasoning, markdownLineBreaks: value.markdownLineBreaks, fontScale: value.fontScale, showWorkingCount: value.showWorkingCount });
