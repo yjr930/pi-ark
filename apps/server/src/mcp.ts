@@ -57,6 +57,9 @@ interface McpListPayload {
 }
 
 const PLAYWRIGHT_SERVER = "playwright";
+const EXA_SERVER = "exa";
+const BUILTIN_SERVERS = new Set([PLAYWRIGHT_SERVER, EXA_SERVER]);
+const EXA_DESCRIPTION = "Web search and page content fetching (Exa). Use for current technical docs, papers and news. web_search_exa requires query and objective: objective names the documents that should rank first and the facts to extract. web_fetch_exa takes urls.";
 const PLAYWRIGHT_MCP_PACKAGE = "@playwright/mcp@0.0.85";
 const ADVANCED_CAPABILITIES = "--caps=config,network,storage,devtools,vision";
 const PLAYWRIGHT_BROWSER_ARGS = ["--browser=chromium", "--headless"];
@@ -73,6 +76,12 @@ const DEFAULT_MCP_CONFIG = {
       enabled: false,
       exposure: "codemode",
       description: "Browser automation for web pages",
+    },
+    [EXA_SERVER]: {
+      url: "https://mcp.exa.ai/mcp",
+      enabled: true,
+      exposure: "codemode",
+      description: EXA_DESCRIPTION,
     },
   },
 };
@@ -142,7 +151,7 @@ function mapServer(report: McpListReport): McpServerView | undefined {
   const diagnostics = error ? [error] : [];
   return {
     name,
-    source: name === PLAYWRIGHT_SERVER ? "built-in" : "user",
+    source: BUILTIN_SERVERS.has(name) ? "built-in" : "user",
     enabled,
     exposure: optionalString(report.exposure) ?? "codemode",
     transport: optionalString(report.transport) ?? "",
@@ -165,6 +174,7 @@ async function atomicWriteJson(path: string, value: unknown): Promise<void> {
 
 export interface McpConfiguredServer {
   name: string;
+  source: McpServerSource;
   enabled: boolean;
   exposure: string;
   description: string;
@@ -191,7 +201,9 @@ export class McpService {
       try {
         const config = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
         const servers = typeof config.mcpServers === "object" && config.mcpServers !== null && !Array.isArray(config.mcpServers) ? config.mcpServers as Record<string, unknown> : undefined;
-        const current = servers?.[PLAYWRIGHT_SERVER];
+        if (!servers) return;
+        let changed = false;
+        const current = servers[PLAYWRIGHT_SERVER];
         if (typeof current === "object" && current !== null && !Array.isArray(current)) {
           const entry = current as Record<string, unknown>;
           const args: string[] = Array.isArray(entry.args) ? entry.args.filter((arg): arg is string => typeof arg === "string") : [];
@@ -199,11 +211,16 @@ export class McpService {
           if (usesDefaultArgs && !args.includes("--browser=") && !args.includes("--executable-path")) {
             const next = [PLAYWRIGHT_MCP_PACKAGE, ...PLAYWRIGHT_BROWSER_ARGS, ...(args.includes(ADVANCED_CAPABILITIES) ? [ADVANCED_CAPABILITIES] : [])];
             if (JSON.stringify(next) !== JSON.stringify(args)) {
-              servers![PLAYWRIGHT_SERVER] = { ...entry, args: next };
-              await atomicWriteJson(path, config);
+              servers[PLAYWRIGHT_SERVER] = { ...entry, args: next };
+              changed = true;
             }
           }
         }
+        if (!(EXA_SERVER in servers)) {
+          servers[EXA_SERVER] = DEFAULT_MCP_CONFIG.mcpServers[EXA_SERVER];
+          changed = true;
+        }
+        if (changed) await atomicWriteJson(path, config);
       } catch {
         // Invalid configuration is reported by the pi MCP command.
       }
@@ -225,6 +242,7 @@ export class McpService {
         const url = typeof entry.url === "string" ? entry.url : "";
         return [{
           name,
+          source: BUILTIN_SERVERS.has(name) ? "built-in" as const : "user" as const,
           enabled: entry.enabled !== false,
           exposure: typeof entry.exposure === "string" ? entry.exposure : "codemode",
           description: typeof entry.description === "string" ? entry.description : "",

@@ -9,7 +9,7 @@ type ServerRow = McpServerView & { pending?: boolean };
 function configuredRow(server: McpConfiguredServer): ServerRow {
   return {
     name: server.name,
-    source: server.name === "playwright" ? "built-in" : "user",
+    source: server.source,
     advanced: server.transport.includes("--caps="),
     enabled: server.enabled,
     exposure: server.exposure,

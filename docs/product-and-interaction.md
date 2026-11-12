@@ -259,7 +259,7 @@ Skills 类别按固定顺序显示三段列表：Built-in skills、Global skills
 
 ### MCP
 
-MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、来源（Built-in 或 User）、启用开关、连接状态、Transport、Exposure、注册动作数量（Registered actions）和诊断。`playwright` 行额外显示 Advanced capabilities 开关，默认开启；开启时 `args` 带 `--caps=config,network,storage,devtools,vision`，关闭时移除该参数。该开关只在 `playwright` 启用后可操作，未启用时显示为禁用并提示先启用 server。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。`playwright` 行额外显示 Recommended 标记和 Browser runtime 区域。
+MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、来源（Built-in 或 User）、启用开关、连接状态、Transport、Exposure、注册动作数量（Registered actions）和诊断。`playwright` 行额外显示 Advanced capabilities 开关，默认开启；开启时 `args` 带 `--caps=config,network,storage,devtools,vision`，关闭时移除该参数。该开关只在 `playwright` 启用后可操作，未启用时显示为禁用并提示先启用 server。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。`playwright` 行额外显示 Recommended 标记和 Browser runtime 区域。`exa` 是内置的远程 server，默认启用，提供网页检索与页面抓取，行内没有高级能力开关与浏览器运行时区域。
 
 启用开关保存 server 的 `enabled` 字段。启用 `playwright` 时，页面先检查浏览器运行时；未安装或上次安装失败时自动开始安装 Chromium headless shell，并在 Browser runtime 区域显示 Installing 状态与目标目录，页面轮询安装状态。安装完成后保存启用状态；安装仍在进行或失败时，server 保持未启用，页面显示对应提示，失败日志显示在 `playwright` 行内。其他 server 的开关直接保存。
 

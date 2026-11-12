@@ -334,6 +334,7 @@ export interface McpServerView {
 
 export interface McpConfiguredServer {
   name: string;
+  source: McpServerSource;
   enabled: boolean;
   exposure: string;
   description: string;

@@ -2,7 +2,7 @@
 
 状态：已实现。页面行为见[功能与交互设计](product-and-interaction.md)，模块与数据流见[程序实现架构](architecture.md)，操作步骤见[使用手册](user-guide.md)。
 
-本文档合并两项设计：Skills 管理（Global 与 Workspace 两级）和浏览器能力接入（MCP server `playwright`）。两者在 pi-ark 里属于同一类 Agent 资源，共用发现、启用、诊断与生效流程。
+本文档合并两项设计：Skills 管理（Global 与 Workspace 两级）和内置 MCP server（`playwright` 与 `exa`）的接入。两者在 pi-ark 里属于同一类 Agent 资源，共用发现、启用、诊断与生效流程。
 
 ## 实现入口
 
@@ -23,6 +23,7 @@
 - 系统自带一批 skill，与用户 skill 分开存放、分开展示、分别控制启用。
 - 用户在 Global 与 Workspace 两个作用域管理自己的 skill。
 - 浏览器能力通过 MCP server 提供，内置一份 `playwright` server 配置，由用户控制启用。
+- 网页检索与页面抓取通过内置的 `exa` 远程 server 提供，默认启用，不需要密钥。
 - 系统自带 skill 与 MCP server 的启用状态可在 Settings 页面修改，修改后对空闲 Session 生效，新建 Session 使用最新状态。
 - 通用 MCP server 通过 `pi-ark mcp` 命令与 `mcp.json` 管理，Settings 页面只展示列表与启用开关。
 
@@ -49,7 +50,7 @@ Built-in 与 User 来源由 pi-ark 管理。
 
 | 来源 | 存放位置 | 管理方式 |
 |---|---|---|
-| Built-in | `PI_ARK_AGENT_DIR/mcp.json` 的 `playwright` 条目 | pi-ark 初始化，用户只改启用 |
+| Built-in | `PI_ARK_AGENT_DIR/mcp.json` 的 `playwright` 与 `exa` 条目 | pi-ark 初始化，用户只改启用 |
 | User | `PI_ARK_AGENT_DIR/mcp.json` 的其他条目 | 通过 `pi-ark mcp` 命令或直接编辑 `mcp.json` |
 
 ## 3. 目录与发布布局
@@ -161,7 +162,7 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 ### 8.2 命令行与配置文件
 
 - pi-ark 提供 `pi-ark mcp` 子命令，透传 pi core 的 `mcp` 命令，并设置 `PI_CODING_AGENT_DIR` 指向 `PI_ARK_AGENT_DIR`。
-- `pi-ark mcp list --json` 输出每个 server 的 `name`、`scope`、`source`、`enabled`、`exposure`、`transport`、`state`、`tools` 与 `errors`；界面列表使用其中的名称、启用状态、exposure、transport、连接状态、工具与错误信息，`playwright` 的来源标记为 Built-in。
+- `pi-ark mcp list --json` 输出每个 server 的 `name`、`scope`、`source`、`enabled`、`exposure`、`transport`、`state`、`tools` 与 `errors`；界面列表使用其中的名称、启用状态、exposure、transport、连接状态、工具与错误信息，`playwright` 与 `exa` 的来源标记为 Built-in。
 - `pi-ark mcp add <name>` 写 `mcp.json`，stdio 用 `--env` 与 `--` 后的命令定义，HTTP 用 `--url`、`--header`、`--bearer-token-env-var`。
 - `pi-ark mcp remove <name>` 删除配置，已保存的 OAuth 凭据保留。
 - `pi-ark mcp login <name>` 与 `pi-ark mcp logout <name>` 处理 OAuth 登录与退出。
@@ -178,6 +179,12 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 ```json
 {
   "mcpServers": {
+    "exa": {
+      "url": "https://mcp.exa.ai/mcp",
+      "enabled": true,
+      "exposure": "codemode",
+      "description": "Web search and page content fetching (Exa). Use for current technical docs, papers and news. web_search_exa requires query and objective: objective names the documents that should rank first and the facts to extract. web_fetch_exa takes urls."
+    },
     "playwright": {
       "command": "npx",
       "args": ["@playwright/mcp@0.0.85", "--browser=chromium", "--headless", "--caps=config,network,storage,devtools,vision"],
@@ -189,8 +196,9 @@ MCP server 的定义与启用状态写在 `PI_ARK_AGENT_DIR/mcp.json`，pi core 
 }
 ```
 
-- 当前版本固定为 `0.0.85`；首次启动且 `mcp.json` 不存在时写入该版本，已有的 `mcp.json` 保留原内容。
-- 默认 `enabled: false`，用户首次启用时进入浏览器运行时检查。
+- 首次启动且 `mcp.json` 不存在时写入上面的内容；已有的 `mcp.json` 保留原内容，缺少 `exa` 条目时补上该条目。
+- `playwright` 固定版本 `0.0.85`，默认 `enabled: false`，用户首次启用时进入浏览器运行时检查。
+- `exa` 是远程 streamable HTTP server，默认 `enabled: true`，不需要密钥与运行时。
 - `exposure` 默认 `codemode`，模型通过脚本调用工具，工具声明不常驻请求。
 
 ### 8.4 工具暴露

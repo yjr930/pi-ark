@@ -676,7 +676,7 @@ Development checkout 或带 `dev` prerelease 的本机安装会显示 developmen
 
 ## MCP server 管理
 
-MCP server 定义保存在 `PI_ARK_AGENT_DIR/mcp.json`。`playwright` 条目由 Pi-Ark 初始化；其他 server 通过命令行或直接编辑该文件管理。以下命令中的 `pi-ark` 指安装目录中的稳定 CLI；未加入 PATH 时使用 `node "<prefix>/bin/pi-ark.mjs"` 替换。
+MCP server 定义保存在 `PI_ARK_AGENT_DIR/mcp.json`。`playwright` 与 `exa` 条目由 Pi-Ark 初始化，`exa` 默认启用并提供网页检索与页面抓取；其他 server 通过命令行或直接编辑该文件管理。以下命令中的 `pi-ark` 指安装目录中的稳定 CLI；未加入 PATH 时使用 `node "<prefix>/bin/pi-ark.mjs"` 替换。
 
 列出 server 与连接状态：
 

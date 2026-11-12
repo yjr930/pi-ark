@@ -29,6 +29,20 @@ try {
   assert.equal(playwrightConfig.command, "npx");
   assert.deepEqual(playwrightConfig.args, ["@playwright/mcp@0.0.85", "--browser=chromium", "--headless", "--caps=config,network,storage,devtools,vision"]);
 
+  const exaConfig = config.mcpServers.exa;
+  assert.ok(exaConfig, "ensureConfig must write the default exa entry");
+  assert.equal(exaConfig.url, "https://mcp.exa.ai/mcp");
+  assert.equal(exaConfig.enabled, true);
+  assert.equal(exaConfig.exposure, "codemode");
+  assert.match(String(exaConfig.description), /objective/);
+
+  const configured = await service.listConfigured();
+  const exaEntry = configured.find((server) => server.name === "exa");
+  assert.ok(exaEntry, "listConfigured must return the default exa server");
+  assert.equal(exaEntry.source, "built-in");
+  assert.equal(exaEntry.enabled, true);
+  await service.setEnabled("exa", false);
+
   const listed = await service.list(workspace);
   assert.deepEqual(listed.errors, []);
   const playwright = listed.servers.find((server) => server.name === "playwright");
@@ -59,6 +73,7 @@ try {
   await migrated.ensureConfig();
   const migratedConfig = JSON.parse(await readFile(configPath, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
   assert.deepEqual(migratedConfig.mcpServers.playwright.args, ["@playwright/mcp@0.0.85", "--browser=chromium", "--headless"]);
+  assert.ok(migratedConfig.mcpServers.exa, "ensureConfig must add the exa entry to an existing config");
 
   const browser = await service.browserStatus();
   assert.equal(browser.directory, join(homedir(), ".cache", "ms-playwright"));
