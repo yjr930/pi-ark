@@ -14,7 +14,7 @@ process.env.PI_ARK_AGENT_DIR = agentDir;
 process.env.PI_CODING_AGENT_DIR = agentDir;
 
 try {
-  const { McpService, playwrightBrowsersDirectory } = await import("../apps/server/src/mcp.ts");
+  const { McpService, encodingForCodePage, playwrightBrowsersDirectory, processLaunchPlan } = await import("../apps/server/src/mcp.ts");
   await mkdir(agentDir, { recursive: true });
   await mkdir(workspace.path, { recursive: true });
   const service = new McpService();
@@ -88,6 +88,15 @@ try {
       : process.platform === "darwin"
         ? posix.join(homedir(), "Library", "Caches", "ms-playwright")
         : posix.join(process.env.XDG_CACHE_HOME || posix.join(homedir(), ".cache"), "ms-playwright");
+  assert.deepEqual(processLaunchPlan("C:\\Program Files\\nodejs\\node.exe", ["cli.js", "mcp", "list"], "win32"), { command: "C:\\Program Files\\nodejs\\node.exe", args: ["cli.js", "mcp", "list"], shell: false });
+  assert.equal(processLaunchPlan("npx.cmd", ["@playwright/mcp", "--headless"], "win32").shell, true);
+  assert.equal(processLaunchPlan("C:\\Program Files\\Git\\bin\\bash.EXE", [], "win32").shell, false);
+  assert.equal(processLaunchPlan("/usr/bin/node", [], "linux").shell, false);
+  assert.equal(processLaunchPlan(process.execPath, [], process.platform).shell, process.platform === "win32" && !/\.(exe|com)$/i.test(process.execPath));
+  assert.equal(encodingForCodePage(65001), "utf-8");
+  assert.equal(encodingForCodePage(936), "gbk");
+  assert.equal(encodingForCodePage(1252), undefined);
+
   const browser = await service.browserStatus();
   assert.equal(browser.directory, expectedBrowserDirectory);
   assert.equal(["not-installed", "installing", "installed", "failed"].includes(browser.state), true);

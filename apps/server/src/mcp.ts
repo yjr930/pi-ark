@@ -2,8 +2,9 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, posix, resolve, win32 } from "node:path";
+import { dirname, extname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TextDecoder } from "node:util";
 import { piArkAgentDir, type WorkspaceDefinition } from "./config.js";
 
 export type McpServerSource = "built-in" | "user";
@@ -95,9 +96,64 @@ function appendOutput(current: string, chunk: string): string {
   return next.length > MAX_OUTPUT_BYTES ? next.slice(-MAX_OUTPUT_BYTES) : next;
 }
 
+const windowsExecutableExtensions = new Set([".exe", ".com"]);
+const codePageEncodings = new Map<number, string>([[65001, "utf-8"], [936, "gbk"], [950, "big5"], [932, "shift_jis"], [949, "euc-kr"]]);
+
+export interface ProcessLaunchPlan {
+  command: string;
+  args: string[];
+  shell: boolean;
+}
+
+export function processLaunchPlan(command: string, args: string[], platform: NodeJS.Platform = process.platform): ProcessLaunchPlan {
+  return { command, args, shell: platform === "win32" && !windowsExecutableExtensions.has(extname(command).toLowerCase()) };
+}
+
+export function encodingForCodePage(codePage: number): string | undefined {
+  return codePageEncodings.get(codePage);
+}
+
+let outputEncodingPromise: Promise<string> | undefined;
+
+async function detectWindowsConsoleEncoding(): Promise<string> {
+  return new Promise((resolveEncoding) => {
+    let child: ReturnType<typeof spawn> | undefined;
+    const finish = (encoding: string): void => {
+      clearTimeout(timer);
+      try { new TextDecoder(encoding); resolveEncoding(encoding); }
+      catch { resolveEncoding("utf-8"); }
+    };
+    const timer = setTimeout(() => { child?.kill(); finish("utf-8"); }, 5000);
+    timer.unref();
+    let output = "";
+    child = spawn(process.env.ComSpec || "cmd.exe", ["/d", "/c", "chcp"], { windowsHide: true });
+    child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString("latin1"); });
+    child.on("error", () => finish("utf-8"));
+    child.on("close", () => {
+      const codePage = /(\d{3,5})/.exec(output)?.[1];
+      finish((codePage && encodingForCodePage(Number(codePage))) || "utf-8");
+    });
+  });
+}
+
+function processOutputEncoding(): Promise<string> {
+  if (process.platform !== "win32") return Promise.resolve("utf-8");
+  outputEncodingPromise ||= detectWindowsConsoleEncoding().catch(() => "utf-8");
+  return outputEncodingPromise;
+}
+
 function runProcess(command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; onOutput?: (chunk: string) => void }): Promise<McpProcessResult> {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd: options.cwd, env: options.env, windowsHide: true, shell: process.platform === "win32" });
+  return processOutputEncoding().then((encoding) => new Promise<McpProcessResult>((resolve) => {
+    let decoder: TextDecoder;
+    try { decoder = new TextDecoder(encoding); }
+    catch { decoder = new TextDecoder("utf-8"); }
+    const plan = processLaunchPlan(command, args);
+    let child: ReturnType<typeof spawn>;
+    try { child = spawn(plan.command, plan.args, { cwd: options.cwd, env: options.env, windowsHide: true, shell: plan.shell }); }
+    catch (error) {
+      resolve({ code: -1, stdout: "", stderr: "", error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -113,18 +169,18 @@ function runProcess(command: string, args: string[], options: { cwd: string; env
     }, options.timeoutMs);
     timer.unref();
     child.stdout?.on("data", (data: Buffer) => {
-      const text = data.toString();
+      const text = decoder.decode(data, { stream: true });
       stdout = appendOutput(stdout, text);
       options.onOutput?.(text);
     });
     child.stderr?.on("data", (data: Buffer) => {
-      const text = data.toString();
+      const text = decoder.decode(data, { stream: true });
       stderr = appendOutput(stderr, text);
       options.onOutput?.(text);
     });
     child.on("error", (error) => finish({ code: -1, stdout, stderr, error: error.message }));
     child.on("close", (code) => finish({ code: code ?? -1, stdout, stderr }));
-  });
+  }));
 }
 
 function stringList(value: unknown): string[] {

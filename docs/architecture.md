@@ -517,6 +517,8 @@ Settings 的 MCP 类别分两阶段读取：先调用 `/api/mcp/configured` 渲�
 
 `McpService.list()` 运行 `process.execPath <pi-core-cli> mcp list --json`，工作目录为目标 Workspace，环境变量设置 `PI_CODING_AGENT_DIR` 与 `NO_COLOR=1`，超时 120 秒。Server 把返回的 `state` 映射为 `connected`、`starting`、`needs-sign-in`、`failed`，并把 `enabled` 为 false 的 server 显示为 `disabled`；`tools`、每个 server 的 `error` 与顶层 `errors` 进入列表和诊断。
 
+子进程启动按命令类型选择方式：Windows 上以 `.exe` 或 `.com` 结尾的命令直接执行，使其路径中的空格不被命令解释器拆分；其他命令（例如 `npx.cmd`）仍经命令解释器执行。子进程输出按流增量解码，Windows 上先读取控制台的代码页（`chcp`）并据此选择解码器，例如 936 对应 `gbk`、65001 对应 `utf-8`，读取失败或代码页不受支持时回退到 UTF-8。
+
 `McpService.setEnabled()` 校验 server 名称与 boolean，串行读取 `mcp.json`，只更新目标条目的 `enabled` 字段，以 temporary file 加 rename 原子写入，然后调用 `reloadIdleSessions()`。`McpService.setAdvanced()` 只接受 `playwright`，过滤 `args` 中已有的 `--caps=` 后按开关追加或移除 `--caps=config,network,storage,devtools,vision`，写回配置并重载空闲 Session。`mcp.json` 解析失败、条目不存在或写入失败时返回对应的 HTTP 错误。
 
 `McpService.browserStatus()` 检查 Playwright 的浏览器缓存目录：设置 `PLAYWRIGHT_BROWSERS_PATH` 时取该变量的值，否则取平台缓存目录下的 `ms-playwright`，其中 macOS 是服务账号 home 下的 `Library/Caches`，Windows 是 `%LOCALAPPDATA%`（变量缺失时取 home 下的 `AppData/Local`），Linux 是 `XDG_CACHE_HOME`（变量缺失时取 home 下的 `.cache`）。状态检查识别 `chromium_headless_shell-<数字>` 与 `chromium-<数字>` 目录并优先使用 headless shell。`installBrowser()` 在状态为 `not-installed` 或 `failed` 时执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`，设置 `npm_config_yes=true`，超时 15 分钟，并保留最多 64 KiB 的安装日志。安装目录出现后状态变为 `installed`；命令失败或没有生成目录时保持 `failed` 并保留日志。
