@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { atomicJson, delay, healthRequest, installationDefaults, migratedPath, optionalJson, readJson, shellQuote, stageRelease, switchRelease, systemdServiceUnit, validateVersion, verifySystemdUnit } from "./platform.mjs";
+import { atomicJson, compareVersions, delay, healthRequest, installationDefaults, migratedPath, optionalJson, readJson, shellQuote, stageRelease, switchRelease, systemdServiceUnit, validateVersion, verifySystemdUnit } from "./platform.mjs";
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
@@ -88,6 +88,8 @@ if (listenPort !== undefined) {
   const config = await optionalJson(configPath);
   if (config) { config.listen.port = listenPort; await atomicJson(configPath, config); }
 }
+const installedManifest = await optionalJson(join(prefix, "current", "RELEASE.json"));
+if (installedManifest?.version && compareVersions(manifest.version, installedManifest.version) < 0) console.warn(`Warning: ${manifest.version} is lower than the installed ${installedManifest.version}. Development versions must use the next unreleased formal version (see AGENTS.md).`);
 const destination = await stageRelease(source, prefix, manifest.version);
 execFileSync(process.execPath, [join(source, "scripts/pi-ark.mjs"), "verify", "--release", destination], { stdio: "inherit", windowsHide: true });
 

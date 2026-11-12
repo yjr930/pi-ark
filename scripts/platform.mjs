@@ -30,6 +30,26 @@ export function validateVersion(version) {
   return version;
 }
 
+function versionParts(version) {
+  const [core, prerelease] = version.split("-");
+  return { core: core.split(".").map(Number), prerelease: prerelease ? prerelease.split(".") : [] };
+}
+
+export function compareVersions(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  for (let index = 0; index < 3; index += 1) if (a.core[index] !== b.core[index]) return a.core[index] - b.core[index];
+  if (a.prerelease.length === 0 || b.prerelease.length === 0) return b.prerelease.length - a.prerelease.length;
+  for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
+    const leftPart = a.prerelease[index], rightPart = b.prerelease[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    const leftNumber = Number(leftPart), rightNumber = Number(rightPart);
+    if (!Number.isNaN(leftNumber) && !Number.isNaN(rightNumber)) { if (leftNumber !== rightNumber) return leftNumber - rightNumber; }
+    else if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
+  }
+  return 0;
+}
+
 export async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }

@@ -4,7 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import { basename, join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { atomicJson, installationDefaults, migratedPath, optionalJson, readJson, readReleaseState, releaseAssetName, restoreFailedRelease, shellQuote, stageRelease, switchRelease, systemdQuote, systemdServiceUnit, systemdWorkingDirectory, validateVersion, verifySystemdUnit, writeReleaseState } from "./platform.mjs";
+import { atomicJson, compareVersions, installationDefaults, migratedPath, optionalJson, readJson, readReleaseState, releaseAssetName, restoreFailedRelease, shellQuote, stageRelease, switchRelease, systemdQuote, systemdServiceUnit, systemdWorkingDirectory, validateVersion, verifySystemdUnit, writeReleaseState } from "./platform.mjs";
 
 const temporary = await mkdtemp(join(tmpdir(), "pi-ark-platform-"));
 try {
@@ -25,6 +25,10 @@ try {
   assert.equal(windows.dataDir, win32.join("C:\\用户\\Local Data", "Pi-Ark", "data"));
   assert.equal(releaseAssetName("0.2.0-dev.1", "win32", "x64"), "pi-ark-0.2.0-dev.1-win32-x64.zip");
   assert.equal(releaseAssetName("0.2.0", "darwin", "arm64"), "pi-ark-0.2.0-darwin-arm64.tar.gz");
+  assert.ok(compareVersions("0.1.11-dev.1", "0.1.10") > 0);
+  assert.ok(compareVersions("0.1.9-dev.23", "0.1.10") < 0);
+  assert.ok(compareVersions("0.1.11-dev.2", "0.1.11-dev.1") > 0);
+  assert.equal(compareVersions("0.1.11-dev.1", "0.1.11-dev.1"), 0);
   assert.equal(releaseAssetName("0.2.0", "linux", "x64"), "pi-ark-0.2.0-linux-x64.tar.gz");
   for (const invalid of ["", "../other", "v/path", ".", "..", "a\\b"]) assert.throws(() => validateVersion(invalid));
   assert.throws(() => releaseAssetName("0.2.0", "other", "x64"));

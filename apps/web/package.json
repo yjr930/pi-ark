@@ -1,6 +1,6 @@
 {
   "name": "@pi-ark/web",
-  "version": "0.1.9-dev.23",
+  "version": "0.1.11-dev.1",
   "private": true,
   "type": "module",
   "scripts": {

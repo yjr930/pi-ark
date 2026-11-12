@@ -585,7 +585,7 @@ CLI 在上述阶段输出状态行：检查 latest release、下载（每两秒�
 
 Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写入 pending release state，并使用相同的健康检查与重启流程。Global data 和 Workspace data 位于 release 目录之外，更新与回退会保留这些数据。Maintenance 与 CLI 共享相同的 release state，页面展示 previous release 和稳定 CLI 的完整 Node 调用命令。
 
-日常迭代使用 `<next-version>-dev.<iteration>` SemVer prerelease。开发 artifact 安装到本机 `/opt/pi-ark-dev/releases/<dev-version>`，并通过同一套 preflight、symlink 和 systemd 流程运行；该流程不会创建 Git tag 或 GitHub Release。正式 release 需要明确的发布安排。
+日常迭代使用 `<next-version>-dev.<iteration>` SemVer prerelease，其中 `<next-version>` 取大于所有已发布 tag 与已安装正式版本产物的最小正式版本，`<iteration>` 在同一正式版本下从 1 开始递增。开发 artifact 安装到本机 `/opt/pi-ark-dev/releases/<dev-version>`，并通过同一套 preflight、symlink 和 systemd 流程运行；该流程不会创建 Git tag 或 GitHub Release。正式 release 需要明确的发布安排。
 
 ## 数据存储
 

@@ -119,7 +119,7 @@ Installer 使用以下参数创建实例：
 | `--prefix <path>` | 设置 release installation prefix |
 | `--data-dir <path>` | 设置独立的 Global data directory |
 | `--port <number>` | 修改已有或迁移后的 Global config 中的 listen port |
-| `--deferred-restart <seconds>` | 在 Linux 系统安装中使用 transient systemd timer 延后重启当前实例 |
+| `--deferred-restart <seconds>` | 在 Linux 系统安装中使用 transient systemd timer 延后重启当前实例；自替换统一传 30 |
 | `--portable` | 在 Linux 中选择当前用户安装；macOS 与 Windows 默认使用该模式 |
 | `--no-start` | 完成安装后保留服务的当前运行状态，供首次 setup 或另行安排启动 |
 | `--migrate-data <path>` | 从已有目录复制 Global data，并更新对应的 TLS 路径 |
@@ -158,12 +158,12 @@ npm run dev
 
 Vite 默认使用 `http://localhost:5173`，并将 API 和 WebSocket 请求转发给本地 Pi-Ark HTTPS 服务。
 
-日常迭代使用 `<next-version>-dev.<iteration>` 版本。双实例部署中的主力开发版从 `/opt/pi-ark-dev/releases/<dev-version>` 运行；备用正式版从 `/opt/pi-ark-backup/releases/<release-version>` 运行。日常流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起安装时，按以下顺序完成自替换：
+日常迭代使用 `<next-version>-dev.<iteration>` 版本，其中 `<next-version>` 取大于所有已发布 tag 与已安装正式版本产物的最小正式版本，`<iteration>` 在同一正式版本下从 1 开始递增。双实例部署中的主力开发版从 `/opt/pi-ark-dev/releases/<dev-version>` 运行；备用正式版从 `/opt/pi-ark-backup/releases/<release-version>` 运行。日常流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起安装时，按以下顺序完成自替换：
 
 1. 构建已提交源码的安装包，执行安装包的 `verify --release`，并使用独立的配置与数据目录确认安装包可以启动、`/api/health` 正常且实际运行版本符合预期。源码工作区提供 `npm run check:release -- "path/to/extracted-artifact"` 完成独立的安装、启动、重启与认证保持检查。
 2. 确认目标实例的 prefix、data directory、service account、listen 配置和恢复版本，沿用现有实例参数调用安装器。
 3. 安装器在切换版本与写入真实 service unit 前，使用 `systemd-analyze verify` 验证候选 unit；写入后执行 `daemon-reload`，确认 `LoadState=loaded`。
-4. 使用安装器的 `--deferred-restart <seconds>` 登记 transient systemd timer。安装器返回后，确认目标版本路径、保留的配置与 timer 的登记结果，向用户报告检查结果及重启安排。
+4. 使用安装器的 `--deferred-restart 30` 登记 transient systemd timer，自替换的延迟重启统一为 30 秒。安装器返回后，确认目标版本路径、保留的配置与 timer 的登记结果，向用户报告检查结果及重启安排。
 5. 当前 Agent 在重启前返回结果并结束本轮操作，随后由 systemd 重启服务。用户或后续独立 Session 可以查看重启后的运行状态。
 
 Nginx 在同一个 server block 中先配置具体的 instance path，再保留其他应用的 location。Pi-Ark upstream 使用 HTTPS，并转发 WebSocket headers：
