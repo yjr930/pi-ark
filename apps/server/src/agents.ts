@@ -14,6 +14,7 @@ import { SessionReader } from "./session-reader.js";
 import type { WorkspaceService } from "./workspaces.js";
 import { COMPACTION_TIMING_TYPE, type CompactionTiming } from "./compaction-stats.js";
 import { createSubagentTool, SUBAGENT } from "./agent-tools/subagent.js";
+import { createWebfetchTool, WEBFETCH } from "./agent-tools/webfetch.js";
 import { SubagentService, SUBAGENT_ROLE_PROMPT, type SubagentConfiguration } from "./subagents.js";
 import { type SubagentTaskInput } from "./subagent-types.js";
 import { validLeafEntryId } from "./internal-links.js";
@@ -434,7 +435,7 @@ export class AgentService {
     const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
     const settingsManager = createGlobalSettingsManager(workspace.path);
     const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
-    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...FILE_TOOLS, READ_PI_ARK_LINK, SUBAGENT], customTools: [createReadPiArkLinkTool(this.sessionReader), this.subagentTool(workspace, "preview")], resourceLoader });
+    const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools: [...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, SUBAGENT], customTools: [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), this.subagentTool(workspace, "preview")], resourceLoader });
     try { return { content: session.systemPrompt, systemPromptPath, appendSystemPromptPath }; }
     finally { session.dispose(); }
   }
@@ -457,9 +458,9 @@ export class AgentService {
     const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;
-    const activeTools = [...FILE_TOOLS, READ_PI_ARK_LINK, ...(!origin ? [SUBAGENT] : [])];
+    const activeTools = [...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT] : [])];
     const tools = [...activeTools, "codemode"];
-    const customTools = [createReadPiArkLinkTool(this.sessionReader), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : [])];
+    const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : [])];
     const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader, model: configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model), thinkingLevel: configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels });
     session.setActiveToolsByName(activeTools);
     await session.bindExtensions({});

@@ -366,7 +366,7 @@ Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前
 
 ### 查看工具过程
 
-父子 Session 新建和重新打开时统一启用文件工具（`read`、`bash`、`edit` 和 `write`）。
+父子 Session 新建和重新打开时统一启用文件工具（`read`、`bash`、`edit` 和 `write`）与网页抓取工具 `webfetch`。
 
 每条 User message 在 turn 起点显示为全宽色带，其中包含用户头像、`User` 标签、内部链接和可用的 Rollback。色带使用与 conversation 底色有区分的背景，只有上、下 separator，没有左右边框、圆角或阴影，并延伸到 conversation 内容列的左右边界。Separator 与上下内容之间保留更大的间距。色带内部保留与 AI 内容相同的左右留白，使 User 与 AI 的头像、名称和正文共用同一条左边界；上侧留白略大于下侧。每个 theme 都使用与自身背景协调的 User 颜色，并与 AI 颜色保持区分；User 与 AI 的头像和名称都使用更大的尺寸。每轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签。角色头像只占用 header 行，后续内容继续使用 conversation 的完整宽度。普通文字、图片、reasoning、tool 与 Compact 内容按原始顺序组成连续 feed，不再为每条 assistant message 显示独立卡片。Reasoning 使用较小字号和与普通 text 一致的行高。
 

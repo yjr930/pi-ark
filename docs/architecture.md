@@ -82,6 +82,7 @@ docs/               产品、架构、使用和集成文档
 | Session reader | `apps/server/src/session-reader.ts` | Workspace 摘要、Session 分页、Message 定位、前后文和长内容续读 |
 | Pi-Ark link tool | `apps/server/src/agent-tools/read-pi-ark-link.ts` | `read_pi_ark_link` 的参数、输出 schema、说明和执行入口 |
 | Subagent tool | `apps/server/src/agent-tools/subagent.ts` | 任务委派的参数与进度回调 |
+| Web fetch tool | `apps/server/src/agent-tools/webfetch.ts` | `webfetch` 的参数、HTML 转 Markdown、响应体上限与错误处理 |
 | Subagent runtime | `apps/server/src/subagents.ts`、`subagent-types.ts` | 子 Session 的创建、调度、停止与结果汇总 |
 | Subagent store | `apps/server/src/subagent-store.ts` | 委派记录的保存、关系查询与中断恢复 |
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
@@ -226,7 +227,7 @@ AgentService 按 `workspaceId:sessionId` 缓存运行时 handle。Handle 包含�
 创建 AgentSession 时，AgentService 加载以下输入：
 
 - Workspace cwd。
-- 统一启用的文件工具（`read`、`bash`、`edit` 和 `write`），以及父子 Session 自带的 `read_pi_ark_link`；父 Session 还启用 `subagent`。
+- 统一启用的文件工具（`read`、`bash`、`edit` 和 `write`），以及父子 Session 自带的 `read_pi_ark_link` 与 `webfetch`；父 Session 还启用 `subagent`。
 - Pi-Ark agent directory 中的 Global resources。
 - Global system prompt append。
 - 已有 SessionManager。
@@ -252,7 +253,7 @@ Server 自动附加父 Session 最近的 user message 作为来源，并保存�
 
 ### Pi-Ark link 读取工具
 
-`AgentService` 接收当前 `WorkspaceService` registry，并在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `read_pi_ark_link`。显式 `tools` 列表在父子 Session 中均包含该名称，并统一启用文件工具（`read`、`bash`、`edit` 和 `write`）。Global effective system prompt preview 使用相同的文件工具和自带工具定义。工具提供 `description`、`promptSnippet` 和 `promptGuidelines`，引导 Agent 使用工具读取用户提供的内部链接。
+`AgentService` 接收当前 `WorkspaceService` registry，并在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `read_pi_ark_link`。显式 `tools` 列表在父子 Session 中均包含该名称，并统一启用文件工具（`read`、`bash`、`edit` 和 `write`）与 `webfetch`。Global effective system prompt preview 使用相同的文件工具和自带工具定义。工具提供 `description`、`promptSnippet` 和 `promptGuidelines`，引导 Agent 使用工具读取用户提供的内部链接。
 
 `internal-links.ts` 是独立于浏览器环境的链接模块，Web 的 `permalinks.ts` 直接复用该模块。工具支持 `pi-ark://workspace/<workspace-id>`、其后的 `/session/<session-id>`，以及 `/message/<message-id>`。Web 的 Session link 对话框继续接受 Session 和 Message link。短 Message ID 与旧数字目标共用 `session-display.ts` 的定位函数；数字目标按完整活动分支的 display position 解析，返回值中的链接使用短 Message ID。
 
@@ -274,6 +275,17 @@ Server 自动附加父 Session 最近的 user message 作为来源，并保存�
 单次序列化的结果最多为 48 KiB。Message 加前后文时优先为目标分配正文空间，结果仍按 display position 排列。部分消息提供 `nextContentOffset`；`pagination.nextStart` 指向后续条目，调用方使用 Session 或 Workspace link 继续分页。`INVALID_LINK`、`UNKNOWN_WORKSPACE`、`UNKNOWN_SESSION`、`MESSAGE_NOT_FOUND`、`INVALID_ARGUMENT`、`PAGE_OUT_OF_RANGE` 和 `CONTENT_OUT_OF_RANGE` 区分链接与读取错误。工具支持 AbortSignal，并声明读取性质的 annotations。
 
 链接参数与工具参数中的 `leafEntryId` 需要一致。返回的 Session 信息包含所选的 `leafEntryId`，指定分支时返回的链接也携带该参数。`BRANCH_NOT_FOUND` 表示指定 entry 已不存在。历史读取保持当前活动 leaf。
+
+### 网页抓取工具
+
+`AgentService` 在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `webfetch`，父子 Session 都在 `tools` 列表中启用它。工具接收 `url`、`format` 和 `timeout` 参数，发起 HTTP 请求并跟随重定向。
+
+- `format` 取 `markdown` 或 `raw`。HTML 响应在 `markdown` 下转换成 Markdown，脚本、样式、模板与 svg 内容在转换前移除；JSON、XML 与纯文本按原样返回。
+- 响应体上限为 5 MiB，超出时截断并在结果末尾标注被截断。`details` 与 `structuredContent` 返回最终 URL、状态码、content type、字节数与 `truncated`。
+- 默认超时 30 秒，最大 120 秒。工具信号与超时都会中断请求。
+- 状态码不为 2xx 时抛出带状态码与正文片段的错误；非文本响应抛出 `Unsupported content type`；只接受 `http` 与 `https`。
+- 文本编码读取 `content-type` 的 charset，无法解码时回退 UTF-8。
+- 工具声明只读 annotations，允许并行执行。说明里要求需要 JavaScript 渲染、登录、点击或截图的页面改用浏览器工具。
 
 ### Snapshot
 

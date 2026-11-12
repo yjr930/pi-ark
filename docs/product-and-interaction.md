@@ -137,6 +137,10 @@ Workspace link 返回 Session 摘要。Session link 默认返回末尾 20 条消
 
 正文包含文本、reasoning、tool arguments、tool result 和 summary；图片以 MIME type 说明表示。单次结果最多为 48 KiB，较长的正文通过 `nextContentOffset` 和 `offset` 继续读取，更多条目通过分页位置继续读取。读取保持目标 Session 的运行状态与活动分支。
 
+### Agent 读取网页
+
+Agent 自带 `webfetch`，可以按 URL 读取网页正文。HTML 页面转换成 Markdown 并保留链接，JSON、XML 与纯文本按原样返回。单次最多返回 5 MiB 的响应体，页面更大时结果末尾标注被截断。需要 JavaScript 渲染、登录、点击或截图的页面继续使用浏览器工具。
+
 ### Subagent 任务
 
 Agent 可以通过 `subagent` 委派独立任务。新建的子 Session 继承本次委派的模型与 thinking level，并在同一个 Workspace 中工作；父 Agent 可以通过工具的可选 `sessionId` 继续向已有的子 Session 发送任务，已有的子 Session 保留自身的上下文与配置。每次委派支持 1–8 个任务，每个父 Session 同时执行的任务上限为 4，服务实例同时执行的任务上限为 8。
