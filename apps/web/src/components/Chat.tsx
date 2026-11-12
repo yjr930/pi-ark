@@ -346,7 +346,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const [optimisticQueueOperations, setOptimisticQueueOperations] = useState<OptimisticQueueOperation[]>([]);
   const [retryNotice, setRetryNotice] = useState<{ attempt: number; maxAttempts: number; errorMessage: string } | null>(null);
   const [suggest, setSuggest] = useState<ComposerSuggestState | null>(null);
-  const suggestCacheRef = useRef<{ workspaceId: string; skills?: SuggestItem[]; servers?: import("../types").McpServerView[] }>({ workspaceId: "" });
+  const suggestCacheRef = useRef<{ workspaceId: string; skills?: SuggestItem[]; configured?: import("../types").McpConfiguredServer[]; servers?: import("../types").McpServerView[]; prefetching?: boolean }>({ workspaceId: "" });
   const suggestTimerRef = useRef<number | undefined>(undefined);
   const suggestSequenceRef = useRef(0);
   const socketRef = useRef<WebSocket | null>(null);
@@ -615,20 +615,34 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     if (suggestCacheRef.current.workspaceId !== workspace.id) suggestCacheRef.current = { workspaceId: workspace.id };
     return suggestCacheRef.current;
   }
-  function mcpItemsFor(servers: import("../types").McpServerView[], query: string): SuggestItem[] {
+  function mcpItemsFor(configured: import("../types").McpConfiguredServer[], servers: import("../types").McpServerView[] | undefined, query: string): SuggestItem[] {
     const split = splitMcpQuery(query);
     if (split) {
-      const server = servers.find((entry) => entry.name === split.server);
+      const server = servers?.find((entry) => entry.name === split.server);
       if (!server) return [];
       return filterSuggestItems(server.tools.map((tool) => ({ id: `mcp:${server.name}/${tool}`, kind: "mcp" as const, label: `${server.name}/${tool}`, detail: "tool", insert: `$${server.name}/${tool}` })), split.tool);
     }
-    return filterSuggestItems(servers.map((server) => ({ id: `mcp:${server.name}`, kind: "mcp" as const, label: server.name, detail: server.tools.length > 0 ? `${server.tools.length} tools` : server.transport, status: server.state, insert: `$${server.name}` })), query);
+    return filterSuggestItems(configured.map((server) => ({ id: `mcp:${server.name}`, kind: "mcp" as const, label: server.name, detail: server.description || server.transport, status: server.exposure, insert: `$${server.name}` })), query);
+  }
+  function prefetchMcpTools() {
+    const cache = suggestCache();
+    if (cache.servers || cache.prefetching) return;
+    const workspaceId = workspace.id;
+    cache.prefetching = true;
+    void api.mcpServers(workspaceId).then((response) => {
+      if (suggestCacheRef.current.workspaceId !== workspaceId) return;
+      suggestCacheRef.current.servers = response.servers.filter((server) => server.enabled);
+    }).catch(() => undefined).finally(() => { suggestCacheRef.current.prefetching = false; });
+  }
+  function closeSuggest() {
+    suggestSequenceRef.current += 1;
+    setSuggest(null);
   }
   function applySuggestItem(item: SuggestItem) {
     if (!suggest) return;
     const next = applySuggestion(draft, suggest.trigger, item.insert);
     setDraft(next.text);
-    setSuggest(null);
+    closeSuggest();
     window.requestAnimationFrame(() => {
       const textarea = composerTextareaRef.current;
       if (!textarea) return;
@@ -664,13 +678,30 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest(null); });
       return;
     }
-    if (cache.servers) { setSuggest({ trigger, items: mcpItemsFor(cache.servers, trigger.query), selected: 0, loading: false, truncated: false }); return; }
+    if (splitMcpQuery(trigger.query)) {
+      if (cache.servers) { setSuggest({ trigger, items: mcpItemsFor(cache.configured || [], cache.servers, trigger.query), selected: 0, loading: false, truncated: false }); return; }
+      setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
+      void api.mcpServers(workspace.id).then((response) => {
+        const servers = response.servers.filter((server) => server.enabled);
+        suggestCacheRef.current.servers = servers;
+        if (suggestSequenceRef.current !== sequence) return;
+        setSuggest({ trigger, items: mcpItemsFor(cache.configured || [], servers, trigger.query), selected: 0, loading: false, truncated: false });
+      }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest(null); });
+      return;
+    }
+    if (cache.configured) {
+      setSuggest({ trigger, items: mcpItemsFor(cache.configured, cache.servers, trigger.query), selected: 0, loading: false, truncated: false });
+      prefetchMcpTools();
+      return;
+    }
     setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
-    void api.mcpServers(workspace.id).then((response) => {
-      const servers = response.servers.filter((server) => server.enabled);
-      suggestCacheRef.current.servers = servers;
+    void api.mcpConfigured().then((response) => {
+      const configured = response.servers.filter((server) => server.enabled);
+      if (suggestCacheRef.current.workspaceId !== workspace.id) return;
+      suggestCacheRef.current.configured = configured;
       if (suggestSequenceRef.current !== sequence) return;
-      setSuggest({ trigger, items: mcpItemsFor(servers, trigger.query), selected: 0, loading: false, truncated: false });
+      setSuggest({ trigger, items: mcpItemsFor(configured, cache.servers, trigger.query), selected: 0, loading: false, truncated: false });
+      prefetchMcpTools();
     }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest(null); });
   }
   function moveSuggestion(direction: number) {
@@ -681,7 +712,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setSuggest(null);
+    closeSuggest();
     const text = draft.trim();
     if (leafEntryId || isSubagent) return;
     if ((!text && attachments.length === 0) || socketRef.current?.readyState !== WebSocket.OPEN || preparingAttachments) return;
@@ -724,7 +755,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}
       {(displayedQueue.length + pendingQueuedMessages.length > 0) && <div className="message-queue"><div className="message-queue-title"><div><strong>Queue</strong><span>Steering runs before follow-up</span></div><button type="button" className="queue-merge-button" disabled={queueBusy || queuedFollowUpCount < 2} onClick={() => void mergeQueuedFollowUps()}>Merge follow-ups</button></div>{displayedQueue.map((item) => { const sameMode = displayedQueue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Edit queued message" aria-label="Edit queued message" disabled={queueBusy} onClick={() => editQueuedMessage(item)}><Pencil size={12} /></button><button type="button" title="Move queued message up" disabled={queueBusy || position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={queueBusy || position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" disabled={queueBusy} onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}{pendingQueuedMessages.map((item) => <div className={`queued-message pending ${item.status}`} key={item.id}><span className="queue-mode followUp">Follow-up</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div className="queue-pending-state" title={item.error}><span>{item.status === "scheduling" ? <LoaderCircle className="queue-pending-spinner" size={12} /> : <TriangleAlert size={12} />}{item.status === "scheduling" ? "Scheduling" : "Failed"}</span>{item.status === "failed" && <button type="button" title="Dismiss failed queued message" aria-label="Dismiss failed queued message" onClick={() => setPendingQueuedMessages((current) => current.filter((pending) => pending.id !== item.id))}><X size={12} /></button>}</div></div>)}</div>}
       {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <div className={`attachment-preview ${attachment.preview ? "image" : "file"}`} key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt={attachment.file.name} /> : <FileIcon size={18} />}<span><strong>{attachment.file.name}</strong><small>{number(attachment.file.size / 1024)} KB</small></span><button type="button" title={`Remove ${attachment.file.name}`} onClick={() => removeAttachment(attachment.id)}><Trash2 size={13} /></button></div>)}</div>}
-      <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); updateSuggest(value, event.currentTarget.selectionStart); }} onPaste={pasteAttachments} onClick={(event) => updateSuggest(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (suggest) { if (event.key === "ArrowDown") { event.preventDefault(); moveSuggestion(1); return; } if (event.key === "ArrowUp") { event.preventDefault(); moveSuggestion(-1); return; } if (event.key === "Escape") { event.preventDefault(); setSuggest(null); return; } if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) { const item = suggest.items[suggest.selected]; if (item) { event.preventDefault(); applySuggestItem(item); return; } } } if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Send message here" rows={1} />
+      <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); updateSuggest(value, event.currentTarget.selectionStart); }} onPaste={pasteAttachments} onClick={(event) => updateSuggest(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (suggest) { if (event.key === "ArrowDown") { event.preventDefault(); moveSuggestion(1); return; } if (event.key === "ArrowUp") { event.preventDefault(); moveSuggestion(-1); return; } if (event.key === "Escape") { event.preventDefault(); closeSuggest(); return; } if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) { const item = suggest.items[suggest.selected]; if (item) { event.preventDefault(); applySuggestItem(item); return; } } } if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Send message here" rows={1} />
       <div className="composer-toolbar"><button type="button" className="attach-button" title="Add attachments or images" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(event.target.files)} /><div className="composer-runtime composer-model"><Select ariaLabel="Session model" value={modelValue} placeholder={snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "Select…"} options={models.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name || model.id, description: model.id, status: model.provider }))} onChange={(value) => { const model = models.find((item) => `${item.provider}/${item.id}` === value); if (model) { setStatus("Changing model"); send({ type: "set-model", provider: model.provider, model: model.id }); } }} /></div><div className="composer-runtime composer-thinking"><Select ariaLabel="Session thinking level" value={snapshot?.thinkingLevel || ""} options={thinkingLevels.map((level) => ({ value: level, label: level }))} onChange={(level) => { setStatus("Changing thinking level"); send({ type: "set-thinking-level", level }); }} /></div><span className="composer-hint">Enter to send · Shift Enter for a new line</span><button className="send-button" title={active ? "Send follow-up" : "Send"} disabled={preparingAttachments || (!draft.trim() && attachments.length === 0)}><ArrowUp size={18} /></button><button type="button" className="stop-button" title="Stop" disabled={!active} onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>
     </form>}
     {!isLoading && renameOpen && <NameDialog title="Rename session" description="Set a title that is easy to find in the session list." label="Session title" initialValue={title} submitLabel="Rename session" icon={<Pencil size={18} />} onClose={() => setRenameOpen(false)} onSubmit={async (name) => { send({ type: "rename-session", name }); setSnapshot((current) => current ? { ...current, name } : current); window.setTimeout(onSessionChanged, 150); setRenameOpen(false); }} />}

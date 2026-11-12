@@ -163,6 +163,14 @@ async function atomicWriteJson(path: string, value: unknown): Promise<void> {
   await rename(temporary, path);
 }
 
+export interface McpConfiguredServer {
+  name: string;
+  enabled: boolean;
+  exposure: string;
+  description: string;
+  transport: string;
+}
+
 export class McpService {
   private configReady?: Promise<void>;
   private configWrite: Promise<void> = Promise.resolve();
@@ -201,6 +209,31 @@ export class McpService {
       }
     })();
     return this.configReady;
+  }
+
+  async listConfigured(): Promise<McpConfiguredServer[]> {
+    await this.ensureConfig();
+    const path = join(piArkAgentDir, "mcp.json");
+    try {
+      const config = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+      const servers = typeof config.mcpServers === "object" && config.mcpServers !== null && !Array.isArray(config.mcpServers) ? config.mcpServers as Record<string, unknown> : {};
+      return Object.entries(servers).flatMap(([name, value]) => {
+        if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+        const entry = value as Record<string, unknown>;
+        const command = typeof entry.command === "string" ? entry.command : "";
+        const args = Array.isArray(entry.args) ? entry.args.filter((arg): arg is string => typeof arg === "string") : [];
+        const url = typeof entry.url === "string" ? entry.url : "";
+        return [{
+          name,
+          enabled: entry.enabled !== false,
+          exposure: typeof entry.exposure === "string" ? entry.exposure : "codemode",
+          description: typeof entry.description === "string" ? entry.description : "",
+          transport: url || [command, ...args].filter(Boolean).join(" "),
+        }];
+      });
+    } catch {
+      return [];
+    }
   }
 
   async list(workspace: WorkspaceDefinition): Promise<McpServersResponse> {

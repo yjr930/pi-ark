@@ -152,6 +152,7 @@ app.put<{ Params: { name: string }; Body: { enabled?: unknown } }>("/api/mcp/ser
   await mcp.setAdvanced(request.params.name, request.body.enabled);
   return { ok: true };
 });
+app.get("/api/mcp/configured", async () => ({ servers: await mcp.listConfigured() }));
 app.get("/api/mcp/browser", async () => mcp.browserStatus());
 app.post("/api/mcp/install-browser", async () => mcp.installBrowser());
 app.get<{ Params: { workspaceId: string }; Querystring: { path?: string } }>("/api/workspaces/:workspaceId/files", async (request) => {

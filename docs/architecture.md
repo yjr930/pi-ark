@@ -481,6 +481,8 @@ Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同
 
 ### MCP server
 
+`McpService.listConfigured()` 直接读取 `mcp.json`，不启动子进程也不连接 server，供 Composer 的 `$` 候选使用。`McpService.list()` 执行 `pi mcp list --json`，会连接每个已启用的 server，耗时取决于 server 的启动时间。
+
 `McpService.ensureConfig()` 在 Server 启动时创建 `PI_ARK_AGENT_DIR/mcp.json`，文件已存在时保留原内容。初始内容为 `playwright` server：`command` 为 `npx`，`args` 为 `@playwright/mcp@0.0.85`、`--browser=chromium`、`--headless` 与 `--caps=config,network,storage,devtools,vision`，`enabled` 为 `false`，`exposure` 为 `codemode`，并带 `description`。`--browser=chromium` 使用 Playwright 自带的 Chromium，`--headless` 适配无显示的服务器。已有配置的 `args` 只含 `@playwright/mcp@0.0.85` 与可选的 `--caps` 时，`ensureConfig()` 补上 browser 与 headless 参数，其他自定义参数保持原样。
 
 `McpService.list()` 运行 `process.execPath <pi-core-cli> mcp list --json`，工作目录为目标 Workspace，环境变量设置 `PI_CODING_AGENT_DIR` 与 `NO_COLOR=1`，超时 120 秒。Server 把返回的 `state` 映射为 `connected`、`starting`、`needs-sign-in`、`failed`，并把 `enabled` 为 false 的 server 显示为 `disabled`；`tools`、每个 server 的 `error` 与顶层 `errors` 进入列表和诊断。
@@ -671,7 +673,8 @@ interface TerminalInfo {
 | GET | `/api/skills?workspaceId=` | 返回 `builtin`、`global`、`workspace` 三段 skill 列表与 `diagnostics` |
 | PUT | `/api/skills/selection` | 保存 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace`，返回刷新后的列表、`selection` 与 `reloaded` |
 | POST | `/api/skills/reload` | 重新加载空闲 Session，返回 `{ reloaded }` |
-| GET | `/api/mcp?workspaceId=` | 返回 `servers` 与配置级 `errors` |
+| GET | `/api/mcp?workspaceId=` | 连接每个已启用的 server，返回 `servers` 与配置级 `errors` |
+| GET | `/api/mcp/configured` | 只读 `mcp.json`，返回名称、启用状态、exposure、描述与启动命令，不连接 server |
 | PUT | `/api/mcp/servers/:name/state` | Body 为 `{ enabled: boolean }`，保存 server 启用状态 |
 | PUT | `/api/mcp/servers/:name/advanced` | Body 为 `{ enabled: boolean }`，保存 playwright 的高级 capability 开关 |
 | GET | `/api/mcp/browser` | 返回浏览器运行时状态、版本、目录与日志 |

@@ -332,6 +332,14 @@ export interface McpServerView {
   diagnostics: string[];
 }
 
+export interface McpConfiguredServer {
+  name: string;
+  enabled: boolean;
+  exposure: string;
+  description: string;
+  transport: string;
+}
+
 export interface McpServersResponse {
   servers: McpServerView[];
   errors: string[];
