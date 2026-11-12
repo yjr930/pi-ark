@@ -14,13 +14,18 @@ export interface ExtensionToolView {
   active: boolean;
 }
 
+export interface ExtensionCommandView {
+  name: string;
+  description?: string;
+}
+
 export interface ExtensionView {
   name: string;
   path: string;
   entry: string;
   status: ExtensionStatus;
   tools: ExtensionToolView[];
-  commands: string[];
+  commands: ExtensionCommandView[];
   diagnostics: string[];
 }
 
@@ -140,9 +145,9 @@ function viewFor(entry: ExtensionDirectoryEntry, result: LoadExtensionsResult): 
   for (const extension of extensions) {
     for (const [name, tool] of extension.tools) tools.set(name, { name, active: isActiveTool(tool.definition) });
   }
-  const commands = new Set<string>();
+  const commands = new Map<string, ExtensionCommandView>();
   for (const extension of extensions) {
-    for (const command of extension.commands.values()) commands.add(command.name);
+    for (const command of extension.commands.values()) commands.set(command.name, { name: command.name, ...(command.description ? { description: command.description } : {}) });
   }
   return {
     name: entry.name,
@@ -150,7 +155,7 @@ function viewFor(entry: ExtensionDirectoryEntry, result: LoadExtensionsResult): 
     entry: entry.entries[0] ?? entry.path,
     status: extensions.length > 0 ? "loaded" : "failed",
     tools: [...tools.values()],
-    commands: [...commands],
+    commands: [...commands.values()],
     diagnostics: diagnostics.length > 0 ? diagnostics : extensions.length > 0 ? [] : ["Entry point was not loaded."],
   };
 }

@@ -345,7 +345,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
 
 Composer 为空时显示 `Send message here`。在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
 
-输入 `/` 会打开 skill 列表，输入 `$` 打开 MCP server 列表，输入 `@` 打开当前 Workspace 的文件列表。继续输入关键词收窄候选；`$` 后面写 `server/` 可以列出该 server 的工具。用 ArrowUp 和 ArrowDown 选择，Enter 或 Tab 插入，Esc 关闭。插入后文本分别是 `/skill-name`、`$server` 或 `$server/tool`、`@relative/path`。
+输入 `/` 会打开 skill 与扩展命令列表，输入 `$` 打开 MCP server 列表，输入 `@` 打开当前 Workspace 的文件列表。继续输入关键词收窄候选；`$` 后面写 `server/` 可以列出该 server 的工具。用 ArrowUp 和 ArrowDown 选择，Enter 或 Tab 插入，Esc 关闭。skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。
 
 输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。当前 turn 的 user message 越过顶部后会固定显示在 conversation 顶部；向上滚动到原 message 时，顶部 bar 会立即切换到前一个 user message。点击顶部 User bar 的任意位置可以返回原 message；定位后的 User message 位于顶部 bar 下方，并保留 8 px 间距。
 
@@ -652,7 +652,7 @@ Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户�
 
 1. 打开 Settings → Extensions。页面显示已安装扩展、加载状态、注册工具数量与扩展目录。
 2. 把扩展文件放入页面 Install directory 显示的目录。单文件直接放在该目录，多文件扩展放一个子目录并按下面三种布局之一组织。
-3. 在列表中确认扩展状态变为 Loaded。注册的工具显示在 Tools 一行；带 ` · on demand` 的工具不会自动加入模型工具列表。
+3. 在列表中确认扩展状态变为 Loaded。注册的工具显示在 Tools 一行，注册的命令显示在 Commands 一行；带 ` · on demand` 的工具不会自动加入模型工具列表。扩展命令同时出现在 Composer 的 `/` 列表中，选中后插入 `/命令名`。
 4. 新建 Session 使用新扩展。已经打开的 Session 保持加载时的扩展集合；需要让空闲 Session 使用新集合时点击 Refresh。
 5. 加载失败时，行内显示错误原因。修正文件后再次点击 Refresh。
 6. 需要卸载时，从扩展目录移走对应文件或目录，然后点击 Refresh。
@@ -687,8 +687,8 @@ export default function (pi: ExtensionAPI) {
 
 pi 的自带示例位于安装包的 `node_modules/@earendil-works/pi-coding-agent/examples/extensions` 目录。可以把 `protected-paths.ts` 与 `session-name.ts` 复制到扩展目录后试用：
 
-- `protected-paths.ts` 阻止 `write` 与 `edit` 写入 `.env`、`.git/` 和 `node_modules/`。
-- `session-name.ts` 注册 `/session-name` 命令，在输入框发送 `/session-name 名称` 可以改当前 Session 的名字。
+- `protected-paths.ts` 阻止 `write` 与 `edit` 写入 `.env`、`.git/` 和 `node_modules/`。它不检查 `bash` 命令里的重定向，用 `write` 工具测试才能触发拦截。
+- `session-name.ts` 注册 `/session-name` 命令，它出现在 Composer 的 `/` 列表中，也可以直接发送 `/session-name 名称` 修改当前 Session 的名字。
 
 ### Files
 

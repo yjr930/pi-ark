@@ -270,7 +270,7 @@ Workspace 下的 `.pi/extensions` 不加载，因为 `SettingsManager` 以 `proj
 
 - `status` 取 `loaded` 或 `failed`。目录中的入口文件没有加载成功时标记为 `failed`。
 - `tools` 中每项的 `active` 表示工具会进入 Session 的模型工具列表；`active` 为 false 的工具已注册，但需要显式激活。
-- `commands` 列出扩展注册的命令名，页面显示为 `/命令名`。
+- `commands` 每项包含 `name` 与 `description`，页面显示为 `/命令名`，Composer 的 `/` 列表同时展示 skill 与扩展命令。
 - `diagnostics` 来自 loader 的错误与警告，按扩展入口归属。不在扩展目录内的加载错误（例如 `settings.json` 中声明的其他路径）进入响应的顶层 `diagnostics`。
 - 目录下不以 `.ts` 或 `.js` 结尾的单文件、没有入口的目录与 dotfile 不进入列表。
 
@@ -317,6 +317,8 @@ Workspace 下的 `.pi/extensions` 不加载，因为 `SettingsManager` 以 `proj
 ### 10.3 Extensions
 
 Extensions 类别显示已加载扩展数量、注册工具数量与扩展列表。每行包含名称、加载状态、注册工具数量、扩展路径、工具标记、命令和诊断。列表上方提供 Refresh，刷新后对空闲 Session 执行 reload。页面底部显示 Install directory 路径与文件布局说明；列表为空时显示添加文件的提示。
+
+扩展命令同时进入 Composer 的 `/` 列表：skill 插入 `/skill:名称`，扩展命令插入 `/名称`，两者不再共用裸 `/名称` 命名空间。
 
 ## 11. API
 

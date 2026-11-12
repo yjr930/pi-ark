@@ -63,7 +63,7 @@ try {
   assert.deepEqual(response.extensions.find((extension) => extension.name === "single")?.tools, [{ name: "check_single", active: true }]);
   const folder = response.extensions.find((extension) => extension.name === "folder");
   assert.equal(folder?.status, "loaded");
-  assert.deepEqual(folder?.commands, ["check-command"]);
+  assert.deepEqual(folder?.commands, [{ name: "check-command", description: "Command registered by the extension check." }]);
   assert.deepEqual(folder?.tools.find((tool) => tool.name === "check_folder"), { name: "check_folder", active: false });
   assert.deepEqual(folder?.tools.find((tool) => tool.name === "check_hidden"), { name: "check_hidden", active: false });
   const broken = response.extensions.find((extension) => extension.name === "broken");

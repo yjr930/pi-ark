@@ -319,13 +319,18 @@ export interface ExtensionToolView {
   active: boolean;
 }
 
+export interface ExtensionCommandView {
+  name: string;
+  description?: string;
+}
+
 export interface ExtensionView {
   name: string;
   path: string;
   entry: string;
   status: ExtensionStatus;
   tools: ExtensionToolView[];
-  commands: string[];
+  commands: ExtensionCommandView[];
   diagnostics: string[];
 }
 

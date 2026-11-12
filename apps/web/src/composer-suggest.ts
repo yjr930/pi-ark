@@ -1,6 +1,6 @@
 export type TriggerSymbol = "/" | "$" | "@";
 
-export type SuggestKind = "skill" | "mcp" | "file";
+export type SuggestKind = "skill" | "command" | "mcp" | "file";
 
 export interface Trigger {
   symbol: TriggerSymbol;

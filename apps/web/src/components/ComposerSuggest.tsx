@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
-import { File as FileIcon, Sparkles, Wrench } from "lucide-react";
+import { File as FileIcon, Sparkles, Terminal, Wrench } from "lucide-react";
 import type { SuggestItem, SuggestKind } from "../composer-suggest";
 
-const TITLES: Record<SuggestKind, string> = { skill: "Skills", mcp: "MCP", file: "Files" };
-const HINTS: Record<SuggestKind, string> = { skill: "Type a skill name", mcp: "Type a server name, or server/ for its tools", file: "Type part of a path" };
+const TITLES: Record<SuggestKind, string> = { skill: "Skills and commands", command: "Commands", mcp: "MCP", file: "Files" };
+const HINTS: Record<SuggestKind, string> = { skill: "Type a skill or command name", command: "Type a command name", mcp: "Type a server name, or server/ for its tools", file: "Type part of a path" };
 
 export interface ComposerSuggestProps {
   kind: SuggestKind;
@@ -18,6 +18,7 @@ export interface ComposerSuggestProps {
 
 function ItemIcon({ kind }: { kind: SuggestKind }) {
   if (kind === "skill") return <Sparkles size={13} />;
+  if (kind === "command") return <Terminal size={13} />;
   if (kind === "mcp") return <Wrench size={13} />;
   return <FileIcon size={13} />;
 }

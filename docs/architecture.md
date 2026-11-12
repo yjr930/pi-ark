@@ -517,7 +517,7 @@ Settings 的 MCP 类别分两阶段读取：先调用 `/api/mcp/configured` 渲�
 
 `PI_ARK_AGENT_DIR/extensions` 是用户扩展目录，`ensurePiArkAgentState()` 在 Server 启动时创建该目录。`DefaultResourceLoader` 的 `agentDir` 指向 `PI_ARK_AGENT_DIR`，SDK 自动发现该目录下一层的 `.ts` 与 `.js` 文件、包含 `index.ts` 或 `index.js` 的目录，以及 `package.json` 中声明 `pi.extensions` 的目录。Workspace 下的 `.pi/extensions` 不加载，因为 pi-ark 以 `projectTrusted: false` 创建 `SettingsManager`。
 
-`ExtensionService.list()` 每次请求重新扫描目录，并用与 Session 相同的配置创建 `DefaultResourceLoader`，读取 `getExtensions()` 得到的扩展、注册工具、命令、加载错误与警告。列表字段为 `name`、`path`、`entry`、`status`、`tools`、`commands` 与 `diagnostics`；`status` 取 `loaded` 或 `failed`，`tools` 中每项的 `active` 表示该工具会进入 Session 的模型工具列表。
+`ExtensionService.list()` 每次请求重新扫描目录，并用与 Session 相同的配置创建 `DefaultResourceLoader`，读取 `getExtensions()` 得到的扩展、注册工具、命令、加载错误与警告。列表字段为 `name`、`path`、`entry`、`status`、`tools`、`commands` 与 `diagnostics`；`status` 取 `loaded` 或 `failed`，`tools` 中每项的 `active` 表示该工具会进入 Session 的模型工具列表，`commands` 中每项包含 `name` 与 `description`。
 
 `AgentService` 在创建 Session 前调用 `extensionToolNames()` 收集用户扩展注册的工具名。只有 `exposure` 为 `direct` 或 `model-only`、且 `defaultActive` 不为 `false` 的工具加入 Session 的工具允许名单与初始活动工具。`<inline:...>` 与 `builtin:` 扩展的工具不参与收集，MCP 工具继续由 MCP extension 的 `codemode` 暴露机制管理。Global system prompt 预览使用同一套工具名，保证预览与运行时一致。
 

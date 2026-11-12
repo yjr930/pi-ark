@@ -177,7 +177,7 @@ Agent 可以通过 `subagent` 委派独立任务。新建的子 Session 继承�
 
 Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只改变 conversation message 区域的宽度。Composer 作为 Agent 页面 Grid 的底部行参与布局，queue 增高时 conversation 使用剩余高度。
 
-Composer 支持三种召唤方式：输入 `/` 打开 skill 列表、`$` 打开 MCP server 列表、`@` 打开当前 Workspace 的文件列表。候选按关键词匹配，`$server/` 继续列出该 server 的工具。弹层显示在 composer 上方，ArrowUp 与 ArrowDown 移动选择，Enter 或 Tab 插入，Esc 关闭，鼠标点击也可以插入。插入文本分别是 `/skill-name`、`$server` 或 `$server/tool`、`@relative/path`。文件候选在停止输入 120 毫秒后请求 Server，列表超过上限时弹层底部提示细化关键词。MCP 候选先读取配置文件，直接列出已启用的 server，同时在后台连接 server 补齐工具列表；输入 `server/` 时如果工具列表尚未就绪，弹层显示 Searching。
+Composer 支持三种召唤方式：输入 `/` 打开 skill 与扩展命令列表、`$` 打开 MCP server 列表、`@` 打开当前 Workspace 的文件列表。候选按关键词匹配，`$server/` 继续列出该 server 的工具。弹层显示在 composer 上方，ArrowUp 与 ArrowDown 移动选择，Enter 或 Tab 插入，Esc 关闭，鼠标点击也可以插入。skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。文件候选在停止输入 120 毫秒后请求 Server，列表超过上限时弹层底部提示细化关键词。MCP 候选先读取配置文件，直接列出已启用的 server，同时在后台连接 server 补齐工具列表；输入 `server/` 时如果工具列表尚未就绪，弹层显示 Searching。
 
 输入框为空时显示 `Send message here`。输入框会随内容增长，最多显示十行，之后使用内部滚动。Enter 发送，Shift+Enter 换行；输入法正在组合文字时，Enter 交给输入法处理。Send 与 Stop 始终显示；Agent active 时 Send 提交 Follow-up，Session idle 时 Send 提交普通 prompt，Stop 在 Session idle 时为 disabled。
 
@@ -288,7 +288,7 @@ Refresh 重新执行列表读取并更新连接状态、注册动作数量和诊
 
 ### Extensions
 
-Extensions 类别显示用户扩展目录、已加载扩展数量、注册工具数量和扩展列表。列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、加载状态（Loaded 或 Failed）、注册工具数量、扩展路径、工具标记、命令和诊断。工具标记显示工具名，带 ` · on demand` 表示工具已注册但没有自动激活；不带该后缀表示模型可以直接调用。加载失败的行显示错误原因，没有注册工具的扩展显示 No tools registered。
+Extensions 类别显示用户扩展目录、已加载扩展数量、注册工具数量和扩展列表。列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、加载状态（Loaded 或 Failed）、注册工具数量、扩展路径、工具标记、命令和诊断。工具标记显示工具名，带 ` · on demand` 表示工具已注册但没有自动激活；不带该后缀表示模型可以直接调用。扩展命令同时进入 Composer 的 `/` 列表，选中后插入 `/命令名`。加载失败的行显示错误原因，没有注册工具的扩展显示 No tools registered。
 
 Refresh 重新读取扩展目录与加载结果，然后重载空闲 Session，并在通知中显示使用新集合的 Session 数量。页面首次进入 Extensions 类别时读取一次，停留在该类别期间不自动刷新。页面不提供启用开关、安装与删除按钮；用户把 `.ts` 或 `.js` 文件放入 Install directory 显示的目录，或放入包含 `index.ts` 或 `index.js` 的目录、包含 `pi.extensions` 声明的 `package.json` 目录，然后新建 Session。列表为空时显示添加文件的提示。
 

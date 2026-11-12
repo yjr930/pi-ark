@@ -72,6 +72,7 @@ export function ExtensionsSettings({ active }: { active: boolean }) {
 
   function renderExtension(extension: ExtensionView) {
     return <div className="agent-resource-row" key={extension.path}>
+      <span className="agent-resource-lock" title="User extension"><Puzzle size={13} /></span>
       <div className="agent-resource-copy">
         <div className="agent-resource-title">
           <strong>{extension.name}</strong>
@@ -80,7 +81,7 @@ export function ExtensionsSettings({ active }: { active: boolean }) {
         <p>{extension.tools.length > 0 ? `${extension.tools.length} registered ${extension.tools.length === 1 ? "tool" : "tools"}` : "No tools registered"}{extension.commands.length > 0 ? ` · ${extension.commands.length} ${extension.commands.length === 1 ? "command" : "commands"}` : ""}</p>
         <code className="agent-resource-path" title={extension.path}>{extension.path}</code>
         {(extension.tools.length > 0 || extension.commands.length > 0) && <div className="agent-resource-details">
-          <dl>{extension.tools.length > 0 && <div><dt>Tools</dt><dd>{extension.tools.map(renderTool)}</dd></div>}{extension.commands.length > 0 && <div><dt>Commands</dt><dd>{extension.commands.map((command) => <code key={command}>/{command}</code>)}</dd></div>}</dl>
+          <dl>{extension.tools.length > 0 && <div><dt>Tools</dt><dd>{extension.tools.map(renderTool)}</dd></div>}{extension.commands.length > 0 && <div><dt>Commands</dt><dd>{extension.commands.map((command) => <code key={command.name}>/{command.name}</code>)}</dd></div>}</dl>
         </div>}
         {extension.diagnostics.length > 0 && <ul className="agent-resource-diagnostics">{extension.diagnostics.map((diagnostic, index) => <li key={index}><span>{diagnostic}</span></li>)}</ul>}
       </div>
@@ -107,7 +108,7 @@ export function ExtensionsSettings({ active }: { active: boolean }) {
     </section>
     {data && <section className="settings-section">
       <div className="settings-section-title"><PackageOpen size={17} /><div><h3>Install directory</h3><p>Pi-Ark loads one level of files and folders from this directory. A folder uses <code>index.ts</code> or a <code>package.json</code> with a <code>pi.extensions</code> entry.</p></div></div>
-      <div className="agent-resource-row"><div className="agent-resource-copy"><code className="agent-resource-path" title={data.directory}>{data.directory}</code><p>Place a TypeScript file here, then create a new Session. Use Refresh after changing files to reload idle Sessions.</p></div></div>
+      <div className="agent-resource-row"><span className="agent-resource-lock" title="Install directory"><PackageOpen size={13} /></span><div className="agent-resource-copy"><code className="agent-resource-path" title={data.directory}>{data.directory}</code><p>Place a TypeScript file here, then create a new Session. Use Refresh after changing files to reload idle Sessions.</p></div></div>
     </section>}
     {data && data.diagnostics.length > 0 && <section className="settings-section">
       <div className="settings-section-title"><CircleAlert size={17} /><div><h3>Diagnostics</h3><p>Problems reported while loading extensions.</p></div></div>

@@ -364,7 +364,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const [retryNotice, setRetryNotice] = useState<{ attempt: number; maxAttempts: number; errorMessage: string } | null>(null);
   const [questionBusyId, setQuestionBusyId] = useState<string>();
   const [suggest, setSuggest] = useState<ComposerSuggestState | null>(null);
-  const suggestCacheRef = useRef<{ workspaceId: string; skills?: SuggestItem[]; configured?: import("../types").McpConfiguredServer[]; servers?: import("../types").McpServerView[]; prefetching?: boolean }>({ workspaceId: "" });
+  const suggestCacheRef = useRef<{ workspaceId: string; skills?: SuggestItem[]; commands?: SuggestItem[]; configured?: import("../types").McpConfiguredServer[]; servers?: import("../types").McpServerView[]; prefetching?: boolean }>({ workspaceId: "" });
   const suggestTimerRef = useRef<number | undefined>(undefined);
   const suggestSequenceRef = useRef(0);
   const socketRef = useRef<WebSocket | null>(null);
@@ -693,14 +693,22 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     }
     const cache = suggestCache();
     if (trigger.kind === "skill") {
-      if (cache.skills) { setSuggest({ trigger, items: filterSuggestItems(cache.skills, trigger.query), selected: 0, loading: false, truncated: false }); return; }
+      if (cache.skills && cache.commands) { setSuggest({ trigger, items: filterSuggestItems([...cache.skills, ...cache.commands], trigger.query), selected: 0, loading: false, truncated: false }); return; }
       setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
-      void api.skills(workspace.id).then((response) => {
-        const items = [...response.builtin, ...response.global, ...response.workspace].filter((skill) => skill.enabled).map((skill) => ({ id: `skill:${skill.name}`, kind: "skill" as const, label: skill.name, detail: skill.description, status: skill.source, insert: `/${skill.name}` }));
-        suggestCacheRef.current.skills = items;
+      const skillsPromise = cache.skills ? Promise.resolve(cache.skills) : api.skills(workspace.id).then((response) => [...response.builtin, ...response.global, ...response.workspace].filter((skill) => skill.enabled).map((skill) => ({ id: `skill:${skill.name}`, kind: "skill" as const, label: skill.name, detail: skill.description, status: skill.source, insert: `/skill:${skill.name}` }))).catch(() => null);
+      const commandsPromise = cache.commands ? Promise.resolve(cache.commands) : api.extensions(workspace.id).then((response) => {
+        const commands = new Map<string, SuggestItem>();
+        for (const extension of response.extensions) for (const command of extension.commands) commands.set(command.name, { id: `command:${command.name}`, kind: "command", label: command.name, detail: command.description || "Extension command", status: "Extension", insert: `/${command.name}` });
+        return [...commands.values()];
+      }).catch(() => null);
+      void Promise.all([skillsPromise, commandsPromise]).then(([skills, commands]) => {
+        if (suggestCacheRef.current.workspaceId !== workspace.id) return;
+        if (skills) suggestCacheRef.current.skills = skills;
+        if (commands) suggestCacheRef.current.commands = commands;
         if (suggestSequenceRef.current !== sequence) return;
+        const items = [...(skills ?? cache.skills ?? []), ...(commands ?? cache.commands ?? [])];
         setSuggest({ trigger, items: filterSuggestItems(items, trigger.query), selected: 0, loading: false, truncated: false });
-      }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest(null); });
+      });
       return;
     }
     if (splitMcpQuery(trigger.query)) {
