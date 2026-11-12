@@ -126,8 +126,8 @@ Compact 的收起高度为普通 tool row 的 3 倍。收起时显示 Duration�
 Agent 可以通过提问工具向用户提交一个带选项的问题组。问题组以卡片形式显示在发起提问的 assistant message 中，替换普通 tool row。
 
 - 卡片 header 显示提问图标、`Question` 标题、阻塞或后台提问的副标题（`Answer to continue` 与 `Answer when you have time`），以及 `Waiting`、`Answered`、`Unanswered` 状态。
-- 待答卡片逐个显示问题：可选的 header、问句、选项按钮和自由输入行。单选点击后替换选择，多选可以叠加；选项可以带描述。
-- 卡片底部提供 `Unanswered` 与 `Submit answers`。整组至少有一个选项或自由输入时才能提交，提交期间按钮显示 Sending。
+- 待答卡片逐个显示问题：可选的 header、问句、选项按钮和自由输入行。单选点击后替换选择，多选可以叠加；选项可以带描述。一组问题全部列在卡片里，选项在整行宽度内单列竖排。每个问题带序号，卡片底部显示已答数量与总数。
+- 卡片底部提供 `Unanswered` 与 `Submit answers`。整组至少有一个选项或自由输入时才能提交，提交期间按钮显示 Sending。全部问题已答时，已答数量使用就绪色。
 - 已答卡片显示最终选择与自由输入，放弃卡片显示放弃原因，两者都不再响应点击。
 - 后台提问返回后会话继续运行，卡片保持可点击，用户可以在有空时作答。
 - 阻塞提问等待作答时，header status 显示 `Waiting for answer`；Session 列表中对应的 Session 显示提问图标。

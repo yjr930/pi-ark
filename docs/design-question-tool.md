@@ -83,8 +83,8 @@ Snapshot 包含 `questions`，即当前 branch 的全部问题组及状态，并
 问题卡片替换普通 tool row，显示在发起提问的 assistant message 中：
 
 - 卡片 header 显示提问图标、标题、`Answer to continue` 或 `Answer when you have time`，以及 `Waiting`、`Answered` 或 `Unanswered` 状态。
-- 待答时逐个显示问题与选项。选项使用按钮，单选点击后替换选择，多选可以叠加；每个问题默认提供自由输入行。
-- 底部提供 `Unanswered` 与 `Submit answers`。整组至少有一个选择或自由输入时才能提交。
+- 待答时逐个显示问题与选项。每个问题带序号，选项使用按钮，在整行宽度内单列竖排；单选点击后替换选择，多选可以叠加；每个问题默认提供自由输入行。
+- 卡片底部左侧显示已答数量与总数（形如 `1 of 3 answered`），右侧提供 `Unanswered` 与 `Submit answers`。整组至少有一项作答时才能提交。
 - 已结算的卡片只显示问题与最终答案；放弃时显示放弃原因。
 - 卡片使用 `--fs-*` 字号变量，与 Appearance 中的字号倍率一起缩放。
 

@@ -27,7 +27,8 @@ export function QuestionCard({ group, busy, onSubmit, onDismiss }: { group: Ques
     else update(index, { selected: draft.selected.includes(label) ? [] : [label] });
   };
   const answers: QuestionAnswer[] = group.questions.map((question, index) => ({ index, selected: draftFor(index).selected, custom: question.allowCustom ? draftFor(index).custom.trim() : "" }));
-  const canSubmit = answers.some((answer) => answer.selected.length > 0 || answer.custom);
+  const answeredCount = answers.filter((answer) => answer.selected.length > 0 || answer.custom).length;
+  const canSubmit = answeredCount > 0;
   const stateLabel = group.status === "pending" ? "Waiting" : group.status === "answered" ? "Answered" : "Unanswered";
   return <article className={`question-card ${group.status}`} data-question-tool-call={group.toolCallId}>
     <header className="question-card-header">
@@ -39,7 +40,7 @@ export function QuestionCard({ group, busy, onSubmit, onDismiss }: { group: Ques
       const draft = draftFor(index);
       return <section className="question-item" key={index}>
         {question.header && <h4>{question.header}</h4>}
-        <p>{question.question}</p>
+        <div className="question-item-title"><span className="question-index" aria-hidden="true">{index + 1}</span><p>{question.question}</p></div>
         <div className="question-options" role="group" aria-label={question.header || question.question}>
           {question.options.map((option) => {
             const selected = draft.selected.includes(option.label);
@@ -57,13 +58,16 @@ export function QuestionCard({ group, busy, onSubmit, onDismiss }: { group: Ques
       if (answer?.custom) parts.push(answer.custom);
       return <section className="question-item settled" key={index}>
         {question.header && <h4>{question.header}</h4>}
-        <p>{question.question}</p>
+        <div className="question-item-title"><span className="question-index" aria-hidden="true">{index + 1}</span><p>{question.question}</p></div>
         <div className="question-answer-text">{group.status === "unanswered" ? reasonLabels[group.reason || ""] || reasonLabels.dismissed : parts.length ? parts.join(" · ") : "No option selected"}</div>
       </section>;
     })}</div>}
     {pending && <div className="question-actions">
-      <button type="button" className="secondary-button" disabled={busy} onClick={onDismiss}>Unanswered</button>
-      <button type="button" className="primary-button" disabled={busy || !canSubmit} onClick={() => onSubmit(answers)}>{busy ? "Sending" : "Submit answers"}</button>
+      <span className={`question-progress ${answeredCount === group.questions.length ? "complete" : ""}`} aria-live="polite">{answeredCount} of {group.questions.length} answered</span>
+      <div className="question-buttons">
+        <button type="button" className="secondary-button" disabled={busy} onClick={onDismiss}>Unanswered</button>
+        <button type="button" className="primary-button" disabled={busy || !canSubmit} onClick={() => onSubmit(answers)}>{busy ? "Sending" : "Submit answers"}</button>
+      </div>
     </div>}
   </article>;
 }

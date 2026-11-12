@@ -489,9 +489,11 @@ html, body { color: var(--text); background: var(--bg); }
 .question-body.settled { gap: 8px; }
 .question-item { display: grid; gap: 7px; }
 .question-item h4 { margin: 0; color: var(--muted); font-size: var(--fs-caption); font-weight: 650; letter-spacing: .05em; text-transform: uppercase; }
+.question-item-title { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 7px; }
+.question-index { width: 18px; height: 18px; margin-top: 1px; display: grid; place-items: center; color: var(--muted-2); border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); font-size: var(--fs-micro); font-weight: 650; }
 .question-item p { margin: 0; color: var(--text-soft); font-size: var(--fs-reading); line-height: 1.5; }
 .question-item.settled p { color: var(--muted); }
-.question-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 5px; }
+.question-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
 .question-option { min-height: 40px; padding: 7px 9px; display: grid; grid-template-columns: 15px minmax(0, 1fr); align-items: start; gap: 7px; color: var(--text-soft); border: 1px solid var(--tool-line); border-radius: 8px; background: var(--input); text-align: left; cursor: pointer; }
 .question-option:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 45%, var(--tool-line)); background: var(--hover); }
 .question-option.selected { border-color: color-mix(in srgb, var(--accent) 65%, var(--tool-line)); background: var(--accent-soft); }
@@ -504,5 +506,8 @@ html, body { color: var(--text); background: var(--bg); }
 .question-custom input { width: 100%; min-height: 34px; padding: 0 9px; color: var(--text); border: 1px solid var(--tool-line); border-radius: 7px; background: var(--input); font-size: var(--fs-ui); }
 .question-custom input:focus { border-color: var(--accent); outline: none; }
 .question-answer-text { color: var(--text-soft); font-size: var(--fs-dense); }
-.question-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
-.question-actions > button { min-height: 32px; padding: 0 12px; font-size: var(--fs-caption); }
+.question-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 7px; }
+.question-progress { color: var(--muted-2); font-size: var(--fs-caption); }
+.question-progress.complete { color: var(--session-ready); }
+.question-buttons { display: flex; align-items: center; gap: 7px; }
+.question-buttons > button { min-height: 32px; padding: 0 12px; font-size: var(--fs-ui); }
