@@ -345,7 +345,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
 
 Composer 为空时显示 `Send message here`。在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
 
-输入 `/` 会打开 skill 与扩展命令列表，输入 `$` 打开 MCP server 列表，输入 `@` 打开当前 Workspace 的文件列表。继续输入关键词收窄候选；`$` 后面写 `server/` 可以列出该 server 的工具。用 ArrowUp 和 ArrowDown 选择，Enter 或 Tab 插入，Esc 关闭。skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。
+输入 `/` 会打开内置命令、skill 与扩展命令列表，输入 `$` 打开 MCP server 列表，输入 `@` 打开当前 Workspace 的文件列表。继续输入关键词收窄候选；`$` 后面写 `server/` 可以列出该 server 的工具。用 ArrowUp 和 ArrowDown 选择，Enter 或 Tab 插入，Esc 关闭。内置 `compact` 插入 `/compact`；skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。
 
 输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。当前 turn 的 user message 越过顶部后会固定显示在 conversation 顶部；向上滚动到原 message 时，顶部 bar 会立即切换到前一个 user message。点击顶部 User bar 的任意位置可以返回原 message；定位后的 User message 位于顶部 bar 下方，并保留 8 px 间距。
 
@@ -418,6 +418,10 @@ AI 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Fo
 ### 停止运行
 
 Send 与 Stop 始终显示为两个按钮。AI 工作时可以继续发送 Follow-up，也可以点击 Stop 请求当前 Session 中止执行。Session 待机时 Stop 为 disabled。已经记录的 message 和 tool activity 继续保存在 Session 中。
+
+### 手动压缩上下文
+
+在输入框输入 `/compact` 并按 Enter，会立即压缩当前 Session 的上下文。`/compact` 后面可以附带一段文字，作为摘要的补充要求，例如 `/compact 保留接口字段和未完成的计划`。压缩使用 Session 当前的 model 生成摘要，状态显示 `Compacting context`；完成后 conversation 中出现 Compact 行，展示压缩前后的 token 用量与耗时，context 百分比随之下降。Session 正在运行时，Pi-Ark 拒绝该命令并提示先停止当前任务。压缩前的原始 message 继续通过 Show earlier messages 查看。
 
 ### Fork
 

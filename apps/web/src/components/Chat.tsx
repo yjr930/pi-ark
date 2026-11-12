@@ -13,6 +13,7 @@ import { NameDialog } from "./NameDialog";
 import { Select } from "./Select";
 import { ComposerSuggest } from "./ComposerSuggest";
 import { applySuggestion, detectTrigger, filterSuggestItems, splitMcpQuery, type SuggestItem, type Trigger } from "../composer-suggest";
+import { builtinCommandItems, compactCommandInstructions } from "../slash-commands";
 import { SubagentBadge, SubagentList, SessionReference } from "./SubagentRun";
 import { QuestionCard } from "./QuestionCard";
 import { subagentListItems } from "../subagent-view";
@@ -594,7 +595,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     onAnswer: (toolCallId, answers) => { if (!send({ type: "answer-question", toolCallId, answers })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
     onDismiss: (toolCallId) => { if (!send({ type: "dismiss-question", toolCallId })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
   }), [snapshot?.questions, questionBusyId]);
-  const statusIsError = Boolean(runtimeError) || !["Connecting session", "Loading conversation", "Refreshing conversation", "Reconnecting…", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
+  const statusIsError = Boolean(runtimeError) || !["Connecting session", "Loading conversation", "Refreshing conversation", "Reconnecting…", "Compacting context", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
 
   function applyAuthoritativeQueueState(state: QueueState) {
     if (state.confirmedOperationId) setOptimisticQueueOperations((current) => current.filter((operation) => operation.id !== state.confirmedOperationId));
@@ -780,7 +781,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     }
     const cache = suggestCache();
     if (trigger.kind === "skill") {
-      if (cache.skills && cache.commands) { setSuggest({ trigger, items: filterSuggestItems([...cache.skills, ...cache.commands], trigger.query), selected: 0, loading: false, truncated: false }); return; }
+      if (cache.skills && cache.commands) { setSuggest({ trigger, items: filterSuggestItems([...builtinCommandItems, ...cache.skills, ...cache.commands], trigger.query), selected: 0, loading: false, truncated: false }); return; }
       setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
       const skillsPromise = cache.skills ? Promise.resolve(cache.skills) : api.skills(workspace.id).then((response) => [...response.builtin, ...response.global, ...response.workspace].filter((skill) => skill.enabled).map((skill) => ({ id: `skill:${skill.name}`, kind: "skill" as const, label: skill.name, detail: skill.description, status: skill.source, insert: `/skill:${skill.name}` }))).catch(() => null);
       const commandsPromise = cache.commands ? Promise.resolve(cache.commands) : api.extensions(workspace.id).then((response) => {
@@ -793,7 +794,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
         if (skills) suggestCacheRef.current.skills = skills;
         if (commands) suggestCacheRef.current.commands = commands;
         if (suggestSequenceRef.current !== sequence) return;
-        const items = [...(skills ?? cache.skills ?? []), ...(commands ?? cache.commands ?? [])];
+        const items = [...builtinCommandItems, ...(skills ?? cache.skills ?? []), ...(commands ?? cache.commands ?? [])];
         setSuggest({ trigger, items: filterSuggestItems(items, trigger.query), selected: 0, loading: false, truncated: false });
       });
       return;
@@ -835,6 +836,13 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     closeSuggest();
     const text = draft.trim();
     if (leafEntryId || isSubagent) return;
+    const compactInstructions = compactCommandInstructions(text);
+    if (compactInstructions !== null) {
+      if (!send({ type: "compact", instructions: compactInstructions || undefined })) { setStatus("Connection is not ready"); return; }
+      setStatus("Compacting context");
+      setDraft("");
+      return;
+    }
     if ((!text && attachments.length === 0) || socketRef.current?.readyState !== WebSocket.OPEN || preparingAttachments) return;
     const pendingId = active && !text.startsWith("/") ? crypto.randomUUID() : undefined;
     const pendingMatchText = text || "Review the attached files.";

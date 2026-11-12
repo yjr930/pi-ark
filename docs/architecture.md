@@ -104,7 +104,7 @@ docs/               产品、架构、使用和集成文档
 | 模块 | 文件 | 职责 |
 |---|---|---|
 | Application shell | `apps/web/src/App.tsx` | Auth 状态、Workspace/Session 选择、页面导航、URL 和响应式侧栏 |
-| Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、自动重连与心跳超时、message renderer、composer、queue、fork 和 rollback |
+| Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、自动重连与心跳超时、手动 compact、message renderer、composer、queue、fork 和 rollback |
 | Connection retry | `apps/web/src/connection-retry.ts` | 重连等待时间、心跳超时判定与 watchdog 间隔 |
 | Subagent list | `apps/web/src/components/SubagentRun.tsx`、`apps/web/src/subagent-view.ts` | 按子 Session 合并最新任务、状态栏数量、活动列表、Completed 分组与父子导航 |
 | Session browser cache | `apps/web/src/session-cache.ts` | IndexedDB 中最近 50 个 Session 的 snapshot、UI state 与文件路径确认结果 LRU cache，并提供清理入口 |
@@ -421,6 +421,8 @@ Server shutdown 会依次清空所有 queue、中止 active Agent、释放 runti
 ## Conversation projection
 
 Server 使用 `SessionManager.getBranch()` 读取当前活动 branch 的完整 entry path，并通过 `sessionEntryToContextMessages()` 转换可显示 entry。该 display projection 保留 compact 前的原始 user、assistant 和 tool messages，并将每个 compaction entry 转换为一条 `compactionSummary` message。Compaction display message 还包含 `compaction`，其中包含 `tokensAfter`、`systemPromptTokens`、`summaryTokens`、`retainedTokens`、`durationMs`、`reason`、`summarizerInputTokens` 和 `summarizerOutputTokens`。Server 使用 `buildSessionProjection(entries, compactionEntryId, byId)` 重建该次压缩当时的上下文，再通过 SDK 的 `getCurrentSystemMessage()` 与 `estimateTokens()` 计算各组成；原生 entry 的 `tokensBefore` 与 `usage` 提供压缩前及摘要生成时的用量。Server 以 `performance.now()` 测量 `compaction_start` 到成功 `compaction_end` 的耗时，并通过 `appendCustomEntry()` 追加 `pi-ark.compaction-timing`，其 data 包含 `compactionEntryId`、`durationMs` 和 `reason`。压缩结束后调度权威 snapshot。System message 与 `display: false` 的 custom message 不进入 Web snapshot。AgentHandle 缓存该 display projection，Session message/tree 变化时清除 cache。pi JSONL 和 Agent runtime 的 compaction-aware context 保持原样。
+
+Web 将 `/compact` 识别为命令并发送 `compact`，不把它作为 prompt 交给模型；命令可以携带 `instructions`，作为摘要的补充要求。AgentService 在 Session 空闲时调用 `AgentSession.compact()`，使用 Session 当前的 model 生成摘要；Session 正在运行或正在压缩时返回 409。压缩使用已有的 `compaction_start` 与 `compaction_end` 事件转发流程，并在完成后递增 update revision、调度一次权威 snapshot。
 
 Server 默认向每个 WebSocket client 发送最新约 100 条 messages。分页起点向前对齐到 user、compaction summary 或 branch summary 边界，避免从一个 turn 的 assistant/tool result 中间开始。Snapshot 使用 `messageNumberOffset` 保存当前 slice 之前的 message 数量，并使用 `totalDisplayMessages` 保存完整 projection 数量；这些 numeric fields 只服务于分页。每条持久化 projection message 还包含七字符短 `messageId`，格式为 `m` 加六位小写 base36。Server 使用 Session ID 生成 31-bit 奇数 multiplier 与 offset，再对 source entry 在 append-only Session entries 中的固定位置执行一一映射，因此同一 Session 中的 ID 不重复，并且新增 entry 不会改变已有 ID。Session source entry 上限是 10000000，达到上限后新的 prompt 返回错误。点击 Show earlier messages 后，Web 发送 `load-earlier`；Server 将该 client 的 window 起点向前移动一页，并发送扩展后的权威 snapshot。Permalink、sticky User、tool source link 和 target highlighting 使用 `messageId`；Fork 与 Rollback 继续使用 pi source entry ID。
 
@@ -776,6 +778,7 @@ Browser commands：
 - `prompt`
 - `load-earlier`
 - `abort`
+- `compact`，可带 `instructions`
 - `rename-session`
 - `set-model`
 - `set-thinking-level`
@@ -957,4 +960,4 @@ npm run release:build
 
 `check:terminal` 将对应的服务源码转为 JavaScript，再以独立 Node 进程使用临时配置与实际 PTY；该进程沿用安装版的 helper 启动方式，并在超时后清理进程树。该检查覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
 
-Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU 与清理、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB draft/attachment/disclosure 恢复、Browser cache 清理、连接中断后的自动重连与草稿和阅读位置保持、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。
+Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU 与清理、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间、手动 compact 命令解析。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB draft/attachment/disclosure 恢复、Browser cache 清理、连接中断后的自动重连与草稿和阅读位置保持、`/` 候选中插入内置 compact 命令、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

@@ -177,7 +177,7 @@ Agent 可以通过 `subagent` 委派独立任务。新建的子 Session 继承�
 
 Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只改变 conversation message 区域的宽度。Composer 作为 Agent 页面 Grid 的底部行参与布局，queue 增高时 conversation 使用剩余高度。
 
-Composer 支持三种召唤方式：输入 `/` 打开 skill 与扩展命令列表、`$` 打开 MCP server 列表、`@` 打开当前 Workspace 的文件列表。候选按关键词匹配，`$server/` 继续列出该 server 的工具。弹层显示在 composer 上方，ArrowUp 与 ArrowDown 移动选择，Enter 或 Tab 插入，Esc 关闭，鼠标点击也可以插入。skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。文件候选在停止输入 120 毫秒后请求 Server，列表超过上限时弹层底部提示细化关键词。MCP 候选先读取配置文件，直接列出已启用的 server，同时在后台连接 server 补齐工具列表；输入 `server/` 时如果工具列表尚未就绪，弹层显示 Searching。
+Composer 支持三种召唤方式：输入 `/` 打开内置命令、skill 与扩展命令列表、`$` 打开 MCP server 列表、`@` 打开当前 Workspace 的文件列表。候选按关键词匹配，`$server/` 继续列出该 server 的工具。弹层显示在 composer 上方，ArrowUp 与 ArrowDown 移动选择，Enter 或 Tab 插入，Esc 关闭，鼠标点击也可以插入。内置命令 `compact` 位于列表首项，插入 `/compact`；输入 `/compact` 并按 Enter 会立即压缩当前 Session 的上下文，后面可以附带一段文字作为摘要的补充要求。skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。文件候选在停止输入 120 毫秒后请求 Server，列表超过上限时弹层底部提示细化关键词。MCP 候选先读取配置文件，直接列出已启用的 server，同时在后台连接 server 补齐工具列表；输入 `server/` 时如果工具列表尚未就绪，弹层显示 Searching。
 
 输入框为空时显示 `Send message here`。输入框会随内容增长，最多显示十行，之后使用内部滚动。Enter 发送，Shift+Enter 换行；输入法正在组合文字时，Enter 交给输入法处理。Send 与 Stop 始终显示；Agent active 时 Send 提交 Follow-up，Session idle 时 Send 提交普通 prompt，Stop 在 Session idle 时为 disabled。
 

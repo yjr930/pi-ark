@@ -335,6 +335,13 @@ try {
   const sessionStateFinalMessageId = await sessionStateFinalMessage.getAttribute("data-message-id");
   await sessionStateFinalMessage.getByRole("button", { name: `Show information for AI message ${sessionStateFinalMessageId}` }).click();
   const restoredComposer = page.locator(".composer textarea");
+  await restoredComposer.fill("/com");
+  const compactSuggestion = page.locator(".composer-suggest [role='option']").filter({ hasText: "Compact the session context now" });
+  await compactSuggestion.waitFor();
+  assert.equal(await compactSuggestion.locator(".suggest-label").textContent(), "compact");
+  assert.equal(await compactSuggestion.locator(".suggest-status").textContent(), "Built-in");
+  await compactSuggestion.click();
+  assert.equal(await restoredComposer.inputValue(), "/compact ");
   await restoredComposer.fill("Session-specific draft");
   await page.locator('.composer input[type="file"]').setInputFiles(join(filesFixtureDirectory, "preview.png"));
   await page.locator(".attachment-preview").filter({ hasText: "preview.png" }).waitFor();

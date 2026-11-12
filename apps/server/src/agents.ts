@@ -508,6 +508,16 @@ export class AgentService {
     } finally { await stopping; }
   }
 
+  async compact(workspace: WorkspaceDefinition, sessionId: string, instructions?: string): Promise<void> {
+    const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
+    if (!handle.session.isIdle) throw Object.assign(new Error("Stop the running task before compacting the context."), { statusCode: 409 });
+    if (handle.session.isCompacting) throw Object.assign(new Error("This Session is already compacting."), { statusCode: 409 });
+    await handle.session.compact(instructions?.trim() || undefined);
+    handle.updateRevision += 1;
+    this.scheduleSnapshot(handle);
+  }
+
   private assertInteractive(workspace: WorkspaceDefinition, sessionId: string): void {
     if (this.subagents.store.state(workspace, sessionId).managed) throw Object.assign(new Error("This subagent is managed by its parent. Stop it or wait for completion before continuing the Session."), { statusCode: 409 });
   }

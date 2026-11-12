@@ -274,11 +274,12 @@ app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { mes
   const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessage, leafEntryId: request.query.leafEntryId, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
   const onMessage = async (raw: Buffer) => {
     try {
-      const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; attachments?: Array<{ name: string; mimeType: string; data: string }>; toolCallId?: string; answers?: unknown };
+      const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; instructions?: string; attachments?: Array<{ name: string; mimeType: string; data: string }>; toolCallId?: string; answers?: unknown };
       if (request.query.leafEntryId && message.type !== "load-earlier") throw Object.assign(new Error("Open the current conversation to send commands"), { statusCode: 409 });
       if (message.type === "prompt" && (message.text?.trim() || message.attachments?.length)) await agents.prompt(workspace, request.params.sessionId, message.text || "", message.attachments || []);
       else if (message.type === "load-earlier") agents.loadEarlier(workspace, request.params.sessionId, socket);
       else if (message.type === "abort") await agents.abort(workspace, request.params.sessionId);
+      else if (message.type === "compact") await agents.compact(workspace, request.params.sessionId, message.instructions);
       else if (message.type === "answer-question" && message.toolCallId) await agents.answerQuestion(workspace, request.params.sessionId, message.toolCallId, message.answers);
       else if (message.type === "dismiss-question" && message.toolCallId) await agents.dismissQuestion(workspace, request.params.sessionId, message.toolCallId);
       else if (message.type === "rename-session" && message.name?.trim()) await agents.updateSession(workspace, request.params.sessionId, { name: message.name });
