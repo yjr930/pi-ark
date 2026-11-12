@@ -327,7 +327,7 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
 
 ### 等待 Session 加载
 
-首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器使用 IndexedDB 保存最近五个 Session 的 snapshot 和 UI state，并按实例与登录账号隔离；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。UI state 会恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开状态，刷新页面后继续保留。Settings → Interface 的 Clear browser cache 可以删除当前实例与账号的缓存、未发送 draft 和 attachments，Session history 与服务端设置保持不变。
+首次打开 Session 时，页面先显示 Loading conversation。首个 snapshot 到达后，composer 和 conversation controls 才会出现。较长 Session 的加载进度采用持续移动的进度条。浏览器使用 IndexedDB 保存最近 50 个 Session 的 snapshot 和 UI state，并按实例与登录账号隔离；切回这些 Session 时会立即显示已有 conversation，并以 Refreshing conversation 状态在后台取得 Server snapshot。UI state 会恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开状态，刷新页面后继续保留。Settings → Interface 的 Clear browser cache 可以删除当前实例与账号的缓存、未发送 draft 和 attachments，Session history 与服务端设置保持不变。
 
 长会话的初始 Server snapshot 默认只包含最新约 100 条 messages。点击顶部 Show earlier messages 会向 Server 请求 earlier messages，并逐页扩展当前 display window，直至看到完整活动 branch。
 

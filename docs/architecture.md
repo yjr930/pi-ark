@@ -101,7 +101,7 @@ docs/               产品、架构、使用和集成文档
 | Application shell | `apps/web/src/App.tsx` | Auth 状态、Workspace/Session 选择、页面导航、URL 和响应式侧栏 |
 | Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、message renderer、composer、queue、fork 和 rollback |
 | Subagent list | `apps/web/src/components/SubagentRun.tsx`、`apps/web/src/subagent-view.ts` | 按子 Session 合并最新任务、状态栏数量、活动列表、Completed 分组与父子导航 |
-| Session browser cache | `apps/web/src/session-cache.ts` | IndexedDB 中最近五个 Session 的 snapshot 与 UI state LRU cache，并提供清理入口 |
+| Session browser cache | `apps/web/src/session-cache.ts` | IndexedDB 中最近 50 个 Session 的 snapshot、UI state 与文件路径确认结果 LRU cache，并提供清理入口 |
 | Session status projection | `apps/web/src/session-status.ts` | 合并 runtime revision、计算 unread output 和记录当前浏览器的查看状态 |
 | Session selection | `apps/web/src/session-selection.ts` | 会话列表刷新后决定保留还是替换当前 Session；尚未写入文件的 Session 依靠 runtime status 识别 |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
@@ -160,6 +160,10 @@ IntersectionObserver 选取视区及附近 200 px 内的内容，内容稳定约
 | 已确认路径的缓存时间 | 60 秒 |
 | 缺失路径或请求失败的缓存时间 | 15 秒 |
 | 路径确认缓存的容量 | 最多 2048 条 |
+| 持久化路径确认的有效期 | 24 小时 |
+| 持久化路径确认的容量 | 最多 2048 条 |
+
+已确认的路径结果随 Session cache 写入同一个 IndexedDB 数据库的 `fileLinks` store，并在页面初始化时、首个确认请求前装载到内存缓存。已保存的结果直接生成链接，不再向 Server 确认；装载后的使用会更新 LRU 时间，24 小时有效期从最后一次真实确认开始计算，过期的结果重新进入确认队列。缺失路径与请求失败的结果不保存。Settings → Interface 的 Clear browser cache 同时清空这份结果。
 
 标准 Markdown 的本地 href 解码一次后送入同一确认队列；正文中的路径保持其字面值。标准本地链接在后台确认前点击时，浏览器先拦截导航，再异步确认并打开 Files。文件链接使用带 `page=files`、`workspace`、`path` 与 `kind` 的应用 URL，App 处理普通点击，修饰键沿用浏览器的新标签页操作。Files 按目标加载目录与文件，刷新时从 URL 恢复该目标。从 Agent 打开文件时，App 通过 `pushState` 新增 Files 的历史记录，并将原会话的阅读位置保存在来源记录的 `history.state.piArkAgentReturn` 中；Files 内的浏览继续使用 `replaceState`。`popstate` 根据 URL 恢复页面、Workspace、Session、message 与历史分支，Chat 在取得 snapshot 后恢复阅读位置，并沿用已有的草稿与 disclosure 缓存。浏览器的前进操作恢复当前的 Files 目标。
 
@@ -304,9 +308,9 @@ Snapshot 包含以下状态：
 - Rollback 和 restore 状态。
 - Session statistics。
 
-首次打开且浏览器没有缓存时，Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。App 在加载 Workspace 前初始化 Session cache，因此 Chat 首次渲染可以同步取得缓存内容。切回最近查看的 Session 时，Web 先显示最多五个 Session 的 IndexedDB LRU snapshot，再连接 Server，并以权威 snapshot 更新 cache。
+首次打开且浏览器没有缓存时，Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。App 在加载 Workspace 前初始化 Session cache，因此 Chat 首次渲染可以同步取得缓存内容。切回最近查看的 Session 时，Web 先显示最多 50 个 Session 的 IndexedDB LRU snapshot，再连接 Server，并以权威 snapshot 更新 cache。
 
-同一模块以 `usedAt` 维护最多五个 Session 的 snapshot 与 UI state，并将二者保存到 IndexedDB。UI state 包括 composer draft、待发送 attachments 和 conversation disclosures。Disclosure key 使用 source entry ID、tool call ID 或 run 中首条 source entry ID，因此 Server snapshot 更新和 earlier-message pagination 不改变该 identity。Attachments 以 Blob 保存，加载 cache 时重建 preview object URL；Session 删除、清理或 UI cache 淘汰时释放对应 URL。数据库名称包含 Pi-Ark base path 与登录 username，实例和账号之间不共享 cache。写入先在内存生效，再以 250 ms debounce 保存；`pagehide` 与 document hidden 时执行 flush。IndexedDB 不可用时，cache 退回当前页面内存。Settings → Interface 的 Clear browser cache 清空内存与当前实例和账号的 stores；Session JSONL 与 Settings 保持不变。
+同一模块以 `usedAt` 维护最多 50 个 Session 的 snapshot 与 UI state，并将二者保存到 IndexedDB；同一个数据库还保存文件路径确认结果。UI state 包括 composer draft、待发送 attachments 和 conversation disclosures。Disclosure key 使用 source entry ID、tool call ID 或 run 中首条 source entry ID，因此 Server snapshot 更新和 earlier-message pagination 不改变该 identity。Attachments 以 Blob 保存，加载 cache 时重建 preview object URL；Session 删除、清理或 UI cache 淘汰时释放对应 URL。数据库名称包含 Pi-Ark base path 与登录 username，实例和账号之间不共享 cache。写入先在内存生效，再以 250 ms debounce 保存；`pagehide` 与 document hidden 时执行 flush。IndexedDB 不可用时，cache 退回当前页面内存。Session snapshot 只包含当前页约 100 条 display message，按当前实测的页面体积（约 0.5 至 1.6 MiB）估算，50 个 Session 的 snapshot 约占 25 至 80 MiB IndexedDB 空间。Settings → Interface 的 Clear browser cache 清空内存与当前实例和账号的 stores；Session JSONL 与 Settings 保持不变。
 
 App 在当前页面内按 Workspace 记录最后查看的 Session。切换 Workspace 时，Session 选择顺序是 URL 指定的 Session、该 Workspace 上次查看的 Session、第一个未归档的普通 Session，选中结果写回 URL。Session 列表与产生它的 Workspace ID 一起保存，请求完成前主内容区显示 Loading sessions，侧栏不渲染上一个 Workspace 的 Session，也不显示空会话提示。切换 Workspace 时，旧 Workspace 尚未返回的列表响应会被丢弃。
 
@@ -870,7 +874,7 @@ npm run release:build
 
 `check:subagents` 使用真实 SDK Session 与受控模型响应，覆盖并发限制、图片引用、结果截取、历史分支、停止、删除、恢复与工具注册。`check:subagents-ui` 构建项目，并自动创建临时 HTTPS 实例，使用临时数据目录与独立端口执行任务面板和双向导航的 Chromium 检查。设置 `PI_ARK_CHECK_FULL_UI=1` 后，该临时实例还会执行现有的 `check:ui` 脚本。
 
-`check:file-links` 覆盖路径解析、文件访问规则、分片识别、队列去重、缓存和取消。`check:file-links-ui` 使用独立实例检查原文首显、延迟确认期间的输入响应、文件及目录跳转、相对链接、刷新、新标签页与长消息的批量处理。
+`check:file-links` 覆盖路径解析、文件访问规则、分片识别、队列去重、内存缓存、持久化确认结果的装载与有效期以及取消。`check:file-links-ui` 使用独立实例检查原文首显、延迟确认期间的输入响应、文件及目录跳转、相对链接、刷新、新标签页与长消息的批量处理。
 
 `check:markdown-ui` 使用 `PI_ARK_CHECK_URL` 与 `PI_ARK_CHECK_WORKSPACE` 指定的临时 HTTPS 实例和独立 Workspace，检查 Keep line breaks 的默认值、保存与刷新，以及会话正文、Reasoning 和 Markdown 文件预览中的换行、段落、代码块、列表和表格。
 

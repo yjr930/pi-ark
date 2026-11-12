@@ -1,8 +1,9 @@
 import { api } from "./api";
 import { fileLocation } from "./permalinks";
+import { cacheResolvedFileLinks, readPersistedFileLinks } from "./session-cache";
 import { deferFileLinks, FILE_LINK_DELAY_MS, FileLinkResolver, FileLinkWorkQueue, FileLinkTextSnapshot, localFileHref, type CancelFileLinkWork, type FilePathToken, type ResolvedFileLink } from "./file-links";
 
-const resolver = new FileLinkResolver((workspaceId, paths, basePath) => api.resolveFileLinks(workspaceId, paths, basePath));
+const resolver = new FileLinkResolver((workspaceId, paths, basePath) => api.resolveFileLinks(workspaceId, paths, basePath), { persist: (links) => cacheResolvedFileLinks(links) });
 const work = new FileLinkWorkQueue((run) => {
   if (typeof window.requestIdleCallback === "function") {
     const id = window.requestIdleCallback(run, { timeout: 300 });
@@ -32,6 +33,12 @@ interface TextScan {
   batch?: { candidates: Candidate[]; waiting: number; writeIndex: number };
 }
 const skipped = new Set(["PRE", "IMG", "SVG", "MATH", "SCRIPT", "STYLE", "TEXTAREA", "BUTTON", "INPUT", "SELECT", "VIDEO", "AUDIO"]);
+
+/** Loads confirmations saved with the browser Session cache before the first render. */
+export async function initializeFileLinks(): Promise<void> {
+  const records = await readPersistedFileLinks();
+  if (records.length) resolver.hydrate(records);
+}
 
 /** Runs only after React commits. Source is never rewritten or fed back to Markdown. */
 export function enhanceFileLinks(article: HTMLElement, workspaceId: string, basePath: string): CancelFileLinkWork {

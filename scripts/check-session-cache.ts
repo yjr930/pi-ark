@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cacheSessionSnapshot, cacheSessionUiState, clearSessionCache, deleteCachedSessionSnapshot, getCachedSessionSnapshot, getCachedSessionUiState, getSessionCacheSummary, SESSION_CACHE_LIMIT } from "../apps/web/src/session-cache.ts";
+import { cacheResolvedFileLinks, cacheSessionSnapshot, cacheSessionUiState, clearSessionCache, deleteCachedSessionSnapshot, getCachedSessionSnapshot, getCachedSessionUiState, getSessionCacheSummary, readPersistedFileLinks, SESSION_CACHE_LIMIT } from "../apps/web/src/session-cache.ts";
 import type { AgentSnapshot } from "../apps/web/src/types.ts";
 
 function snapshot(id: string): AgentSnapshot {
@@ -39,6 +39,9 @@ assert.equal(getCachedSessionUiState("workspace:ui-new"), undefined);
 const summaryBeforeClear = getSessionCacheSummary();
 assert.equal(summaryBeforeClear.persistent, false);
 assert.ok(summaryBeforeClear.snapshots > 0 && summaryBeforeClear.uiStates > 0);
+cacheResolvedFileLinks([{ workspaceId: "workspace", basePath: "", input: "README.md", path: "README.md", type: "file", resolvedAt: 0 }]);
+assert.deepEqual(await readPersistedFileLinks(), [], "Saved file links need IndexedDB");
+assert.deepEqual(getSessionCacheSummary(), summaryBeforeClear);
 await clearSessionCache();
 assert.deepEqual(getSessionCacheSummary(), { snapshots: 0, uiStates: 0, persistent: false });
 console.log("session cache checks passed");

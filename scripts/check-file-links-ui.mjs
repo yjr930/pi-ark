@@ -419,12 +419,14 @@ try {
     assertFilesUrl(await bare.getAttribute("href"), `${prefix}/root.md`);
     await bare.click();
     await expectFile(`${prefix}/root.md`, "Base directory fixture");
+    await sleep(400);
     await page.reload();
     await expectFile(`${prefix}/root.md`, "Base directory fixture");
     await expect(fileArticle().getByRole("link", { name: "Local relative", exact: true })).toHaveAttribute("data-pi-ark-file-link", "true", { timeout: 15000 });
     assertFilesUrl(await fileArticle().getByRole("link", { name: "Local relative", exact: true }).getAttribute("href"), `${prefix}/relative.md`);
     await navigate("Agent");
     await expect(article().getByRole("link", { name: "Standard root", exact: true })).toHaveAttribute("data-pi-ark-file-link", "true", { timeout: 15000 });
+    assert.equal(coreCase.monitor.requests.filter((request) => request.paths.includes(`${prefix}/root.md`)).length, 1, "A saved confirmation is reused after a page reload");
     await article().getByRole("link", { name: "Standard root", exact: true }).click();
     await expectFile(`${prefix}/root.md`, "Base directory fixture");
     await navigate("Agent");

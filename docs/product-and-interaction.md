@@ -87,7 +87,7 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 首次打开 Session 且浏览器没有缓存时，WebSocket 建立后页面继续显示 Loading conversation。首个 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
 
-浏览器使用 IndexedDB 保存最近五个 Session 的 snapshot 和 Session UI state，并按 Pi-Ark 实例与登录账号隔离。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。浏览器刷新后继续使用同一 cache。Settings → Interface 的 Browser cache 显示缓存数量，并提供 Clear browser cache；清理删除当前实例与账号的缓存，Session history 与 Settings 保持不变。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
+浏览器使用 IndexedDB 保存最近 50 个 Session 的 snapshot 和 Session UI state，并按 Pi-Ark 实例与登录账号隔离。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。浏览器刷新后继续使用同一 cache。Settings → Interface 的 Browser cache 显示缓存数量，并提供 Clear browser cache；清理删除当前实例与账号的缓存，Session history 与 Settings 保持不变。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
 
 Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完整 projection 的全局 offset 和总数。顶部 Show earlier messages 每次请求 Server 将当前 client 的 display window 向前扩展一页，直至显示完整活动 branch。
 
@@ -271,7 +271,7 @@ Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在
 
 ## 桌面与移动布局
 
-桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。Session snapshot、draft、attachments 与 disclosure 状态使用最多五个 Session 的 IndexedDB cache，并按实例与账号隔离；Settings → Interface 可以清理。Terminal 的字体设置和每个 Workspace 最近选择的 Tab 也保存在 localStorage，Terminal 的 xterm 界面状态保存在当前页面的内存中。
+桌面侧栏可以折叠，并可以通过 separator 拖动到 220 至 460 px。侧栏折叠状态、侧栏宽度、Files 文件列表宽度、Workspaces 展开状态、conversation width 和最近应用的 theme 存放在浏览器 localStorage；保存后的 Global theme 仍是服务端配置的默认值。Session snapshot、draft、attachments 与 disclosure 状态使用最多 50 个 Session 的 IndexedDB cache，并按实例与账号隔离；Settings → Interface 可以清理。Terminal 的字体设置和每个 Workspace 最近选择的 Tab 也保存在 localStorage，Terminal 的 xterm 界面状态保存在当前页面的内存中。
 
 移动端使用 drawer sidebar 和顶部 mobile bar。drawer 打开时，scrim 覆盖 drawer 之外的完整应用内容，其中包括页面 header、composer 和其他浮动控件；drawer 位于 scrim 上方。点击页面入口或 Session 后，drawer 自动关闭。Composer、对话框和 Settings actions 使用适合窄屏的布局。
 

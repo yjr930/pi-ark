@@ -7,7 +7,13 @@ export const FILE_LINK_SCAN_CHARS = 2048;
 export type CancelFileLinkWork = () => void;
 export type FileLinkTimer = (run: () => void, delay: number) => CancelFileLinkWork;
 export interface ResolvedFileLink { input: string; path: string; type: "file" | "directory" }
+export interface PersistedFileLink extends ResolvedFileLink { workspaceId: string; basePath: string; resolvedAt: number }
 export type FileLinkTransport = (workspaceId: string, paths: string[], basePath: string) => Promise<{ links: ResolvedFileLink[] }>;
+/** Persisted confirmations stay usable for this long after the last real confirmation. */
+export const FILE_LINK_PERSISTED_TTL_MS = 24 * 60 * 60 * 1000;
+export function fileLinkKey(workspaceId: string, basePath: string, input: string): string {
+  return JSON.stringify([workspaceId, basePath, input]);
+}
 const timer: FileLinkTimer = (run, delay) => { const id = setTimeout(run, delay); return () => clearTimeout(id); };
 
 export function deferFileLinks(run: () => void, schedule: FileLinkTimer = timer, delay = FILE_LINK_DELAY_MS): CancelFileLinkWork {
@@ -110,13 +116,16 @@ interface Lookup {
 interface ResolverOptions {
   now?: () => number; schedule?: FileLinkTimer; batchSize?: number; concurrency?: number;
   cacheLimit?: number; pendingLimit?: number; subscriberLimit?: number;
+  persistedTtl?: number; persist?: (links: PersistedFileLink[]) => void;
 }
 
 /** Shared bounded transport queue; ready callbacks are delivered in bounded batches too. */
 export class FileLinkResolver {
   private readonly entries = new Map<string, Lookup>();
-  private readonly cache = new Map<string, { expires: number; result?: ResolvedFileLink }>();
+  private readonly cache = new Map<string, { expires: number; result?: ResolvedFileLink; resolvedAt: number }>();
   private readonly now: () => number;
+  private readonly persistedTtl: number;
+  private readonly persist?: (links: PersistedFileLink[]) => void;
   private readonly schedule: FileLinkTimer;
   private readonly batchSize: number;
   private readonly concurrency: number;
@@ -134,11 +143,25 @@ export class FileLinkResolver {
     this.cacheLimit = Math.max(1, options.cacheLimit ?? 2048);
     this.pendingLimit = Math.max(1, options.pendingLimit ?? 4096);
     this.subscriberLimit = Math.max(1, options.subscriberLimit ?? 8192);
+    this.persistedTtl = Math.max(1, options.persistedTtl ?? FILE_LINK_PERSISTED_TTL_MS);
+    this.persist = options.persist;
+  }
+  /** Confirmed results from earlier page loads join the cache without a transport request. */
+  hydrate(links: PersistedFileLink[]): void {
+    for (const link of links) {
+      if (!link || typeof link.workspaceId !== "string" || typeof link.basePath !== "string" || !link.input || !link.path) continue;
+      const key = fileLinkKey(link.workspaceId, link.basePath, link.input);
+      if (this.cache.has(key)) continue;
+      if (this.cache.size >= this.cacheLimit) break;
+      const expires = link.resolvedAt + this.persistedTtl;
+      if (!(expires > this.now())) continue;
+      this.cache.set(key, { expires, resolvedAt: link.resolvedAt, result: { input: link.input, path: link.path, type: link.type } });
+    }
   }
   get size() { return { pending: this.entries.size, cached: this.cache.size, active: this.active, subscribers: this.subscribers }; }
   request(workspaceId: string, basePath: string, input: string, listener: (result: ResolvedFileLink | undefined) => void): CancelFileLinkWork {
     if (!input || input.length > FILE_LINK_MAX_PATH || this.subscribers >= this.subscriberLimit) { listener(undefined); return () => {}; }
-    const key = JSON.stringify([workspaceId, basePath, input]);
+    const key = fileLinkKey(workspaceId, basePath, input);
     let entry = this.entries.get(key);
     if (!entry) {
       if (this.entries.size >= this.pendingLimit) { listener(undefined); return () => {}; }
@@ -148,6 +171,7 @@ export class FileLinkResolver {
       if (valid) this.cache.set(key, cached);
       entry = { key, workspaceId, basePath, input, state: valid ? "ready" : "queued", result: valid ? cached.result : undefined, listeners: new Set() };
       this.entries.set(key, entry);
+      if (valid && cached.result) this.persist?.([{ workspaceId, basePath, input, path: cached.result.path, type: cached.result.type, resolvedAt: cached.resolvedAt }]);
     }
     // Each subscription gets its own identity, including repeated callback functions.
     const receive = (result: ResolvedFileLink | undefined) => listener(result);
@@ -198,13 +222,17 @@ export class FileLinkResolver {
   private finish(batch: Lookup[], links: ResolvedFileLink[]) {
     this.active -= 1;
     const byInput = new Map(links.map((link) => [link.input, link]));
+    const confirmed: PersistedFileLink[] = [];
+    const resolvedAt = this.now();
     for (const entry of batch) {
       entry.result = byInput.get(entry.input);
       entry.state = "ready";
       this.cache.delete(entry.key);
-      this.cache.set(entry.key, { result: entry.result, expires: this.now() + (entry.result ? 60000 : 15000) });
+      this.cache.set(entry.key, { result: entry.result, expires: resolvedAt + (entry.result ? 60000 : 15000), resolvedAt });
+      if (entry.result) confirmed.push({ workspaceId: entry.workspaceId, basePath: entry.basePath, input: entry.input, path: entry.result.path, type: entry.result.type, resolvedAt });
       if (!entry.listeners.size) this.entries.delete(entry.key);
     }
+    if (confirmed.length) this.persist?.(confirmed);
     while (this.cache.size > this.cacheLimit) this.cache.delete(this.cache.keys().next().value!);
     this.poke();
   }

@@ -1,6 +1,8 @@
 import type { AgentSnapshot } from "./types";
+import { fileLinkKey, type PersistedFileLink } from "./file-links";
 
-export const SESSION_CACHE_LIMIT = 5;
+export const SESSION_CACHE_LIMIT = 50;
+export const FILE_LINK_CACHE_LIMIT = 2048;
 
 export interface CachedSessionAttachment { id: string; file: File; preview?: string }
 export interface SessionUiState { draft: string; attachments: CachedSessionAttachment[]; disclosures: Record<string, boolean> }
@@ -9,9 +11,12 @@ export interface SessionCacheSummary { snapshots: number; uiStates: number; pers
 interface PersistedSnapshot { key: string; usedAt: number; snapshot: AgentSnapshot }
 interface PersistedAttachment { id: string; file: Blob; previewable: boolean }
 interface PersistedUiState { key: string; usedAt: number; draft: string; disclosures: Record<string, boolean>; attachments: PersistedAttachment[] }
+export interface PersistedFileLinkRecord extends PersistedFileLink { key: string; usedAt: number }
 
 const SNAPSHOT_STORE = "snapshots";
 const UI_STATE_STORE = "uiStates";
+const FILE_LINK_STORE = "fileLinks";
+const DATABASE_VERSION = 2;
 const DATABASE_PREFIX = "pi-ark-session-cache:";
 const PERSISTENCE_DELAY_MS = 250;
 
@@ -21,6 +26,7 @@ const uiStates = new Map<string, SessionUiState>();
 const uiStateUsedAt = new Map<string, number>();
 const pendingSnapshots = new Set<string>();
 const pendingUiStates = new Set<string>();
+const pendingFileLinks = new Map<string, PersistedFileLinkRecord>();
 
 let initializedScope = "";
 let initialization: Promise<void> | undefined;
@@ -47,6 +53,7 @@ function clearMemory(): void {
   uiStateUsedAt.clear();
   pendingSnapshots.clear();
   pendingUiStates.clear();
+  pendingFileLinks.clear();
 }
 
 function cancelScheduledPersistence(): void {
@@ -68,11 +75,11 @@ function openDatabase(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === "undefined" || !databaseName) return Promise.resolve(null);
   databasePromise = new Promise((resolve) => {
     let request: IDBOpenDBRequest;
-    try { request = indexedDB.open(databaseName, 1); }
+    try { request = indexedDB.open(databaseName, DATABASE_VERSION); }
     catch { resolve(null); return; }
     request.onupgradeneeded = () => {
       const database = request.result;
-      for (const storeName of [SNAPSHOT_STORE, UI_STATE_STORE]) {
+      for (const storeName of [SNAPSHOT_STORE, UI_STATE_STORE, FILE_LINK_STORE]) {
         const store = database.objectStoreNames.contains(storeName) ? request.transaction!.objectStore(storeName) : database.createObjectStore(storeName, { keyPath: "key" });
         if (!store.indexNames.contains("byUsedAt")) store.createIndex("byUsedAt", "usedAt");
       }
@@ -147,7 +154,7 @@ function clearStore(database: IDBDatabase, storeName: string): Promise<void> {
   });
 }
 
-function trimPersistedStore(database: IDBDatabase, storeName: string): Promise<void> {
+function trimPersistedStore(database: IDBDatabase, storeName: string, limit = SESSION_CACHE_LIMIT): Promise<void> {
   return new Promise((resolve) => {
     try {
       const request = database.transaction(storeName, "readwrite").objectStore(storeName).index("byUsedAt").openCursor(null, "prev");
@@ -155,7 +162,7 @@ function trimPersistedStore(database: IDBDatabase, storeName: string): Promise<v
       request.onsuccess = () => {
         const cursor = request.result;
         if (!cursor) { resolve(); return; }
-        if (kept < SESSION_CACHE_LIMIT) {
+        if (kept < limit) {
           kept += 1;
           cursor.continue();
         } else {
@@ -174,6 +181,11 @@ function isPersistedSnapshot(value: unknown): value is PersistedSnapshot {
 
 function isPersistedUiState(value: unknown): value is PersistedUiState {
   return Boolean(value && typeof value === "object" && typeof (value as PersistedUiState).key === "string");
+}
+
+function isPersistedFileLinkRecord(value: unknown): value is PersistedFileLinkRecord {
+  const record = value as PersistedFileLinkRecord | null;
+  return Boolean(record && typeof record === "object" && typeof record.key === "string" && typeof record.workspaceId === "string" && typeof record.basePath === "string" && typeof record.input === "string" && typeof record.path === "string" && (record.type === "file" || record.type === "directory") && Number.isFinite(record.resolvedAt) && Number.isFinite(record.usedAt));
 }
 
 function restoreUiState(record: PersistedUiState): SessionUiState {
@@ -238,8 +250,9 @@ export async function initializeSessionCache(scope: string): Promise<void> {
       uiStateUsedAt.set(record.key, record.usedAt);
       usageClock = Math.max(usageClock, record.usedAt);
     }
-    await Promise.all([trimPersistedStore(database, SNAPSHOT_STORE), trimPersistedStore(database, UI_STATE_STORE)]);
+    await Promise.all([trimPersistedStore(database, SNAPSHOT_STORE), trimPersistedStore(database, UI_STATE_STORE), trimPersistedStore(database, FILE_LINK_STORE, FILE_LINK_CACHE_LIMIT)]);
     persistenceAvailable = true;
+    if (pendingFileLinks.size) schedulePersistence();
   })();
   return initialization;
 }
@@ -303,6 +316,26 @@ export function deleteCachedSessionSnapshot(key: string): void {
   void deletePersistedRecord(UI_STATE_STORE, key);
 }
 
+export function cacheResolvedFileLinks(links: PersistedFileLink[]): void {
+  for (const link of links) {
+    if (!link || !link.input || !link.path || typeof link.workspaceId !== "string" || typeof link.basePath !== "string") continue;
+    const key = fileLinkKey(link.workspaceId, link.basePath, link.input);
+    pendingFileLinks.set(key, { ...link, key, usedAt: nextUsedAt() });
+  }
+  while (pendingFileLinks.size > FILE_LINK_CACHE_LIMIT) pendingFileLinks.delete(pendingFileLinks.keys().next().value!);
+  schedulePersistence();
+}
+
+/** Confirmed links from earlier page loads are reused before the first transport request. */
+export async function readPersistedFileLinks(): Promise<PersistedFileLinkRecord[]> {
+  if (!persistenceAvailable) return [];
+  const database = await openDatabase();
+  if (!database) return [];
+  const records = (await readAll<PersistedFileLinkRecord>(database, FILE_LINK_STORE)).filter(isPersistedFileLinkRecord).sort((left, right) => right.usedAt - left.usedAt).slice(0, FILE_LINK_CACHE_LIMIT);
+  await trimPersistedStore(database, FILE_LINK_STORE, FILE_LINK_CACHE_LIMIT);
+  return records;
+}
+
 export function getSessionCacheSummary(): SessionCacheSummary {
   return { snapshots: snapshots.size, uiStates: uiStates.size, persistent: persistenceAvailable };
 }
@@ -324,8 +357,10 @@ export async function flushSessionCache(): Promise<void> {
   }
   pendingSnapshots.clear();
   pendingUiStates.clear();
-  await Promise.all([writeRecords(database, SNAPSHOT_STORE, snapshotRecords), writeRecords(database, UI_STATE_STORE, uiRecords)]);
-  await Promise.all([trimPersistedStore(database, SNAPSHOT_STORE), trimPersistedStore(database, UI_STATE_STORE)]);
+  const linkRecords = [...pendingFileLinks.values()];
+  pendingFileLinks.clear();
+  await Promise.all([writeRecords(database, SNAPSHOT_STORE, snapshotRecords), writeRecords(database, UI_STATE_STORE, uiRecords), writeRecords(database, FILE_LINK_STORE, linkRecords)]);
+  await Promise.all([trimPersistedStore(database, SNAPSHOT_STORE), trimPersistedStore(database, UI_STATE_STORE), trimPersistedStore(database, FILE_LINK_STORE, FILE_LINK_CACHE_LIMIT)]);
 }
 
 export async function clearSessionCache(): Promise<void> {
@@ -334,7 +369,7 @@ export async function clearSessionCache(): Promise<void> {
   if (!persistenceAvailable) return;
   const database = await openDatabase();
   if (!database) return;
-  await Promise.all([clearStore(database, SNAPSHOT_STORE), clearStore(database, UI_STATE_STORE)]);
+  await Promise.all([clearStore(database, SNAPSHOT_STORE), clearStore(database, UI_STATE_STORE), clearStore(database, FILE_LINK_STORE)]);
 }
 
 if (typeof window !== "undefined") {

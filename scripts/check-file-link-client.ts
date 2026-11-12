@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { marked, type Token } from "marked";
-import { deferFileLinks, FILE_LINK_DELAY_MS, FILE_LINK_MAX_PATH, FileLinkResolver, FileLinkWorkQueue, FileLinkTextSnapshot, FilePathScanner, isObviousFilePath, localFileHref, type FileLinkTimer, type FileLinkTransport, type ResolvedFileLink } from "../apps/web/src/file-links.ts";
+import { deferFileLinks, FILE_LINK_DELAY_MS, FILE_LINK_MAX_PATH, FILE_LINK_PERSISTED_TTL_MS, fileLinkKey, FileLinkResolver, FileLinkWorkQueue, FileLinkTextSnapshot, FilePathScanner, isObviousFilePath, localFileHref, type FileLinkTimer, type FileLinkTransport, type PersistedFileLink, type ResolvedFileLink } from "../apps/web/src/file-links.ts";
 
 class Clock {
   now = 0;
@@ -259,6 +259,43 @@ await errorClock.advance(15000);
 failing.request("workspace", "", "README.md", () => {});
 await errorClock.advance(60);
 assert.equal(errorCalls, 2);
+
+assert.equal(fileLinkKey("workspace", "docs", "README.md"), JSON.stringify(["workspace", "docs", "README.md"]));
+assert.equal(FILE_LINK_PERSISTED_TTL_MS, 86400000);
+const persistedClock = new Clock();
+const persistedCalls: string[][] = [];
+const persistedLinks: PersistedFileLink[] = [];
+const persistedResolver = new FileLinkResolver(async (_workspace, paths) => {
+  persistedCalls.push(paths);
+  return { links: paths.map((input) => ({ input, path: `resolved/${input}`, type: "file" as const })) };
+}, { now: () => persistedClock.now, schedule: persistedClock.schedule, persist: (links) => persistedLinks.push(...links) });
+persistedResolver.hydrate([{ workspaceId: "workspace", basePath: "", input: "README.md", path: "saved/README.md", type: "file", resolvedAt: 0 }]);
+const hydratedResults: Array<ResolvedFileLink | undefined> = [];
+persistedResolver.request("workspace", "", "README.md", (result) => hydratedResults.push(result));
+await persistedClock.advance(60);
+assert.equal(persistedCalls.length, 0, "A saved confirmation avoids the transport request");
+assert.deepEqual(hydratedResults, [{ input: "README.md", path: "saved/README.md", type: "file" }]);
+assert.deepEqual(persistedLinks.map((link) => [link.input, link.path, link.resolvedAt]), [["README.md", "saved/README.md", 0]], "Using a saved confirmation refreshes its stored usage");
+
+const expiredClock = new Clock();
+const expiredCalls: string[][] = [];
+const expiredResolver = new FileLinkResolver(async (_workspace, paths) => {
+  expiredCalls.push(paths);
+  return { links: paths.map((input) => ({ input, path: input, type: "file" as const })) };
+}, { now: () => expiredClock.now, schedule: expiredClock.schedule });
+await expiredClock.advance(FILE_LINK_PERSISTED_TTL_MS);
+expiredResolver.hydrate([{ workspaceId: "workspace", basePath: "", input: "README.md", path: "saved/README.md", type: "file", resolvedAt: 0 }]);
+expiredResolver.request("workspace", "", "README.md", () => {});
+await expiredClock.advance(60);
+assert.deepEqual(expiredCalls, [["README.md"]], "Saved confirmations expire after their TTL");
+
+const confirmClock = new Clock();
+const confirmed: PersistedFileLink[] = [];
+const confirming = new FileLinkResolver(async (_workspace, paths) => ({ links: paths.filter((input) => input !== "missing.md").map((input) => ({ input, path: input, type: "file" as const })) }), { now: () => confirmClock.now, schedule: confirmClock.schedule, persist: (links) => confirmed.push(...links) });
+confirming.request("workspace", "", "README.md", () => {});
+confirming.request("workspace", "", "missing.md", () => {});
+await confirmClock.advance(60);
+assert.deepEqual(confirmed.map((link) => [link.input, link.resolvedAt]), [["README.md", 30]], "Only confirmed paths are stored");
 
 const workClock = new Clock();
 let workTime = 0;

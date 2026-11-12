@@ -6,6 +6,7 @@ import { Chat } from "./components/Chat";
 import { Login } from "./components/Login";
 import { MarkdownLineBreaksContext } from "./components/Markdown";
 import { FileLinksContext } from "./file-links";
+import { initializeFileLinks } from "./file-link-dom";
 import { NameDialog } from "./components/NameDialog";
 import { SessionList } from "./components/SessionList";
 import { WorkspaceList } from "./components/WorkspaceList";
@@ -76,6 +77,7 @@ export default function App() {
   const startSession = useCallback(async () => {
     const session = await api.session();
     await initializeSessionCache(`${basePath || "/"}:${session.username}`);
+    await initializeFileLinks();
     setAuth("in");
     await loadWorkspaces();
   }, [loadWorkspaces]);
