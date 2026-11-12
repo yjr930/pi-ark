@@ -763,7 +763,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     const text = draft.trim();
     if (leafEntryId || isSubagent) return;
     if ((!text && attachments.length === 0) || socketRef.current?.readyState !== WebSocket.OPEN || preparingAttachments) return;
-    const pendingId = active ? crypto.randomUUID() : undefined;
+    const pendingId = active && !text.startsWith("/") ? crypto.randomUUID() : undefined;
     const pendingMatchText = text || "Review the attached files.";
     if (pendingId) {
       const authoritativeMatches = snapshot?.queue.filter((item) => item.mode === "followUp" && queuedTextMatches(item.text, pendingMatchText)).length || 0;
