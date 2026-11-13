@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, posix, resolve, win32 } from "node:path";
+import { dirname, join, posix, resolve, win32 } from "node:path";
 
 const temporaryRoot = join(process.cwd(), ".tmp");
 await mkdir(temporaryRoot, { recursive: true });
@@ -41,7 +41,7 @@ try {
   assert.ok(exaEntry, "listConfigured must return the default exa server");
   assert.equal(exaEntry.source, "built-in");
   assert.equal(exaEntry.enabled, true);
-  await service.setEnabled("exa", false);
+  await service.setEnabled("exa", false, workspace);
 
   const listed = await service.list(workspace);
   assert.deepEqual(listed.errors, []);
@@ -53,7 +53,7 @@ try {
   assert.equal(playwright.state, "disabled");
   assert.equal(playwright.advanced, true);
 
-  await service.setEnabled("playwright", true);
+  await service.setEnabled("playwright", true, workspace);
   const updated = JSON.parse(await readFile(configPath, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
   assert.equal(updated.mcpServers.playwright.enabled, true);
   assert.equal(updated.mcpServers.playwright.exposure, "codemode");
@@ -74,6 +74,23 @@ try {
   const migratedConfig = JSON.parse(await readFile(configPath, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
   assert.deepEqual(migratedConfig.mcpServers.playwright.args, ["@playwright/mcp@0.0.85", "--browser=chromium", "--headless"]);
   assert.ok(migratedConfig.mcpServers.exa, "ensureConfig must add the exa entry to an existing config");
+
+  const trust = await readFile(join(agentDir, "trust.json"), "utf8");
+  assert.equal(trust.includes(resolve(workspace.path)), true, "a registered workspace must be trusted for project MCP config");
+
+  const projectConfigPath = join(workspace.path, ".pi", "mcp.json");
+  await mkdir(dirname(projectConfigPath), { recursive: true });
+  await writeFile(projectConfigPath, JSON.stringify({ mcpServers: { "project-check": { command: "echo", args: ["hi"], enabled: false } } }));
+  const withProject = await service.list(workspace);
+  const projectServer = withProject.servers.find((server) => server.name === "project-check");
+  assert.ok(projectServer, "a server from the workspace .pi/mcp.json must be listed");
+  assert.equal(projectServer.source, "project");
+  assert.equal(projectServer.enabled, false);
+  await service.setEnabled("project-check", true, workspace);
+  const projectConfig = JSON.parse(await readFile(projectConfigPath, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
+  assert.equal(projectConfig.mcpServers["project-check"].enabled, true);
+  const globalConfig = JSON.parse(await readFile(configPath, "utf8")) as { mcpServers: Record<string, unknown> };
+  assert.equal(globalConfig.mcpServers["project-check"], undefined, "a project server must not be copied into the global config");
 
   assert.equal(playwrightBrowsersDirectory({ platform: "linux", home: "/home/ark", env: {} }), posix.join("/home/ark", ".cache", "ms-playwright"));
   assert.equal(playwrightBrowsersDirectory({ platform: "linux", home: "/home/ark", env: { XDG_CACHE_HOME: "/var/cache/ark" } }), posix.join("/var/cache/ark", "ms-playwright"));

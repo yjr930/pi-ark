@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { readFile, mkdir, writeFile, access, rename, copyFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { normalizeTerminalSettings, resolveTerminalShell, validateTerminalSettings, type TerminalSettings } from "./terminal-shells.js";
 export type { TerminalSettings, TerminalShell, TerminalProfile } from "./terminal-shells.js";
 
@@ -35,6 +36,17 @@ export interface GlobalPreferences {
 export const arkHome = resolve(process.env.PI_ARK_HOME || join(homedir(), ".pi-ark"));
 export const piArkAgentDir = resolve(process.env.PI_ARK_AGENT_DIR || join(arkHome, "pi-agent"));
 export const configPath = join(arkHome, "config.json");
+
+// Every workspace in the Pi-Ark registry is an explicit operator choice, so Pi trusts it and reads
+// the project `.pi` directory plus `.agents/skills` from it.
+export function ensureWorkspaceTrust(workspacePath: string): void {
+  try {
+    const store = new ProjectTrustStore(piArkAgentDir);
+    if (store.get(workspacePath) !== true) store.set(workspacePath, true);
+  } catch {
+    // The trust store keeps its previous content when it cannot be written.
+  }
+}
 
 export async function ensurePiArkAgentState(previousAgentDir?: string): Promise<void> {
   await mkdir(piArkAgentDir, { recursive: true, mode: 0o700 });

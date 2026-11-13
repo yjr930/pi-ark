@@ -77,7 +77,11 @@ try {
   for (const target of [workspace, otherWorkspace]) {
     const loader = await internal.createResourceLoader(target, saved.preferences.agent.systemPrompt.append);
     assert.equal(loader.getSystemPrompt(), "Global replacement");
-    assert.deepEqual(loader.getAppendSystemPrompt(), ["Global append", "Shared instructions"]);
+    const appended = loader.getAppendSystemPrompt();
+    assert.equal(appended.length, 3);
+    assert.match(appended[0], /## Pi-Ark resource locations/);
+    assert.equal(appended[0].includes(config.piArkAgentDir), true);
+    assert.deepEqual(appended.slice(1), ["Global append", "Shared instructions"]);
     const preview = await service.getGlobalSystemPrompt(target);
     assert.match(preview.content, /Shared instructions/);
     assert.equal(preview.content.includes("Project append"), false);

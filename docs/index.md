@@ -31,7 +31,7 @@
 - 程序实现架构文档描述模块职责、数据流、存储和运行机制。
 - 使用手册按照用户完成任务的顺序描述操作步骤。
 - Pi 集成调研记录技术选型依据和上游 pi API 背景。
-- Agent 资源联合设计记录 Skills、MCP 与 Extensions 的资源模型、服务端与页面实现入口，以及内置 `browser` 与 `mcp-servers` skill、`playwright` server、MCP 密钥目录与用户扩展目录的接入。
+- Agent 资源联合设计记录 Skills、MCP 与 Extensions 的资源模型、服务端与页面实现入口，以及内置 `browser`、`mcp-servers` 与 `skill-authoring` skill、`playwright` server、MCP 密钥目录与用户扩展目录的接入。
 - 交互式提问工具文档记录提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面行为。
 
 ## 维护检查表

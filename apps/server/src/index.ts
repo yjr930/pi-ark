@@ -155,9 +155,9 @@ app.post("/api/skills/reload", async () => ({ reloaded: await skills.reloadIdleS
 app.get<{ Querystring: { workspaceId?: string } }>("/api/extensions", async (request) => extensions.list(workspaceFromQuery(request.query.workspaceId)));
 app.post("/api/extensions/reload", async () => ({ reloaded: await extensions.reloadIdleSessions() }));
 app.get<{ Querystring: { workspaceId?: string } }>("/api/mcp", async (request) => mcp.list(workspaceFromQuery(request.query.workspaceId)));
-app.put<{ Params: { name: string }; Body: { enabled?: unknown } }>("/api/mcp/servers/:name/state", async (request) => {
+app.put<{ Params: { name: string }; Body: { enabled?: unknown; workspaceId?: string } }>("/api/mcp/servers/:name/state", async (request) => {
   if (typeof request.body?.enabled !== "boolean") throw Object.assign(new Error("MCP server state must be a boolean"), { statusCode: 400 });
-  await mcp.setEnabled(request.params.name, request.body.enabled);
+  await mcp.setEnabled(request.params.name, request.body.enabled, workspaceFromQuery(request.body?.workspaceId));
   return { ok: true };
 });
 app.put<{ Params: { name: string }; Body: { enabled?: unknown } }>("/api/mcp/servers/:name/advanced", async (request) => {

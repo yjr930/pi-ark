@@ -284,11 +284,14 @@ export type SkillScope = "builtin" | "global" | "workspace";
 
 export type SkillSource = "built-in" | "managed";
 
+export type SkillOrigin = "built-in" | "pi-ark" | "pi" | "agents";
+
 export interface SkillView {
   name: string;
   description: string;
   scope: SkillScope;
   source: SkillSource;
+  origin: SkillOrigin;
   location: string;
   enabled: boolean;
   explicitOnly: boolean;
@@ -345,7 +348,7 @@ export interface ExtensionsResponse {
   diagnostics: ExtensionDiagnostic[];
 }
 
-export type McpServerSource = "built-in" | "user";
+export type McpServerSource = "built-in" | "user" | "project";
 
 export type McpServerState = "connected" | "disabled" | "failed" | "needs-sign-in" | "starting";
 

@@ -19,11 +19,13 @@ function skillFile(name: string, description: string): string {
 
 try {
   const { SkillService } = await import("../apps/server/src/skills.ts");
-  const { createResourceLoader, builtinSkillDir, globalSkillDir, workspaceSkillDir } = await import("../apps/server/src/resource-loader.ts");
+  const { createResourceLoader, builtinSkillDir, globalSkillDir, skillSources, userAgentsSkillDir, workspaceSkillDir } = await import("../apps/server/src/resource-loader.ts");
   const { createGlobalSettingsManager } = await import("../apps/server/src/settings.ts");
   const { loadSkillSelection } = await import("../apps/server/src/config.ts");
 
   const workspaceSkills = workspaceSkillDir(workspace);
+  const piSkills = join(workspace.path, ".pi", "skills");
+  const agentsSkills = join(workspace.path, ".agents", "skills");
   const globalConflictFile = join(globalSkillDir, "conflict-check", "SKILL.md");
   const workspaceConflictFile = join(workspaceSkills, "conflict-check", "SKILL.md");
   await mkdir(agentDir, { recursive: true });
@@ -32,6 +34,10 @@ try {
     mkdir(join(globalSkillDir, "conflict-check"), { recursive: true }),
     mkdir(join(workspaceSkills, "workspace-check"), { recursive: true }),
     mkdir(join(workspaceSkills, "conflict-check"), { recursive: true }),
+    mkdir(join(piSkills, "pi-check"), { recursive: true }),
+    mkdir(join(piSkills, "precedence-check"), { recursive: true }),
+    mkdir(join(agentsSkills, "agents-check"), { recursive: true }),
+    mkdir(join(agentsSkills, "precedence-check"), { recursive: true }),
   ]);
   await writeFile(join(arkHome, "config.json"), JSON.stringify({ tls: { keyPath: join(directory, "key"), certPath: join(directory, "cert") }, auth: { username: "check", passwordHash: "check" }, workspaces: [workspace], preferences: {} }));
   await Promise.all([
@@ -39,6 +45,10 @@ try {
     writeFile(globalConflictFile, skillFile("conflict-check", "Global winner for the duplicate skill name check.")),
     writeFile(join(workspaceSkills, "workspace-check", "SKILL.md"), skillFile("workspace-check", "Workspace skill used by the behavior check.")),
     writeFile(workspaceConflictFile, skillFile("conflict-check", "Workspace duplicate that must be ignored.")),
+    writeFile(join(piSkills, "pi-check", "SKILL.md"), skillFile("pi-check", "Project .pi skill used by the behavior check.")),
+    writeFile(join(piSkills, "precedence-check", "SKILL.md"), skillFile("precedence-check", "Project .pi winner for the precedence check.")),
+    writeFile(join(agentsSkills, "agents-check", "SKILL.md"), skillFile("agents-check", "Project .agents skill used by the behavior check.")),
+    writeFile(join(agentsSkills, "precedence-check", "SKILL.md"), skillFile("precedence-check", "Project .agents duplicate that must be ignored.")),
   ]);
 
   await writeFile(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { playwright: { enabled: true } } }));
@@ -65,6 +75,26 @@ try {
   assert.equal(workspaceSkill.location, join(workspaceSkills, "workspace-check"));
   assert.equal(workspaceSkill.enabled, true);
 
+  const piSkill = initial.workspace.find((skill) => skill.name === "pi-check");
+  assert.ok(piSkill, "the project .pi skill must be listed");
+  assert.equal(piSkill.origin, "pi");
+  assert.equal(piSkill.location, join(piSkills, "pi-check"));
+
+  const agentsSkill = initial.workspace.find((skill) => skill.name === "agents-check");
+  assert.ok(agentsSkill, "the project .agents skill must be listed");
+  assert.equal(agentsSkill.origin, "agents");
+  assert.equal(agentsSkill.location, join(agentsSkills, "agents-check"));
+
+  const precedence = initial.workspace.find((skill) => skill.name === "precedence-check");
+  assert.ok(precedence, "the precedence skill must be listed");
+  assert.equal(precedence.location, join(piSkills, "precedence-check"));
+  assert.equal(initial.diagnostics.some((diagnostic) => diagnostic.path === join(agentsSkills, "precedence-check", "SKILL.md")), true);
+
+  const sources = skillSources(workspace);
+  assert.equal(sources.some((source) => source.scope === "global" && source.directory === userAgentsSkillDir()), true);
+  assert.equal(sources.some((source) => source.origin === "agents" && source.directory === join(workspace.path, ".agents", "skills")), true);
+  assert.equal(sources.at(-1)?.directory, workspaceSkills);
+
   assert.equal(initial.global.some((skill) => skill.name === "conflict-check"), true);
   assert.equal(initial.workspace.some((skill) => skill.name === "conflict-check"), false);
   const conflictDiagnostic = initial.diagnostics.find((diagnostic) => diagnostic.message.includes('Skill name "conflict-check" is already defined'));
@@ -84,12 +114,15 @@ try {
   }
 
   const enabledPrompt = await renderSystemPrompt();
-  for (const name of ["browser", "global-check", "workspace-check", "conflict-check"]) assert.match(enabledPrompt, new RegExp(`<name>${name}</name>`));
+  assert.match(enabledPrompt, /Pi-Ark resource locations/);
+  assert.equal(enabledPrompt.includes(workspaceSkills), true, "the system prompt must name the Pi-Ark workspace skill directory");
+  assert.equal(enabledPrompt.includes(globalSkillDir), true, "the system prompt must name the Pi-Ark global skill directory");
+  for (const name of ["browser", "global-check", "workspace-check", "conflict-check", "pi-check", "agents-check", "precedence-check"]) assert.match(enabledPrompt, new RegExp(`<name>${name}</name>`));
 
   const selection = {
     disabledBuiltin: [],
     disabledGlobal: ["global-check"],
-    disabledWorkspace: { [workspace.id]: ["workspace-check"] },
+    disabledWorkspace: { [workspace.id]: ["workspace-check", "agents-check"] },
   };
   const saved = await service.saveSelection(selection);
   assert.deepEqual(saved, { selection, reloaded: 0 });
@@ -102,13 +135,13 @@ try {
   assert.equal(disabled.global.find((skill) => skill.name === "conflict-check")?.enabled, true);
 
   const disabledPrompt = await renderSystemPrompt();
-  for (const name of ["browser", "global-check", "workspace-check"]) assert.equal(disabledPrompt.includes(`<name>${name}</name>`), false);
+  for (const name of ["browser", "global-check", "workspace-check", "agents-check"]) assert.equal(disabledPrompt.includes(`<name>${name}</name>`), false);
   assert.match(disabledPrompt, /<name>conflict-check<\/name>/);
 
   const normalized = await service.saveSelection({
     disabledBuiltin: ["browser", "browser", "removed-builtin"],
     disabledGlobal: ["global-check", "removed-global", "global-check"],
-    disabledWorkspace: { [workspace.id]: ["workspace-check", "removed-workspace", "workspace-check"] },
+    disabledWorkspace: { [workspace.id]: ["workspace-check", "agents-check", "removed-workspace", "workspace-check"] },
   });
   assert.deepEqual(normalized, { selection, reloaded: 0 });
   assert.deepEqual(await loadSkillSelection(), selection);

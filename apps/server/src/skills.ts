@@ -3,17 +3,19 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import { loadSkillSelection, piArkAgentDir, saveSkillSelection, validateSkillSelection, type SkillSelection, type WorkspaceDefinition } from "./config.js";
-import { builtinSkillDir, globalSkillDir, workspaceSkillDir } from "./resource-loader.js";
+import { skillSources, type SkillLocation, type SkillOrigin } from "./resource-loader.js";
 import type { WorkspaceService } from "./workspaces.js";
 
 export type SkillScope = "builtin" | "global" | "workspace";
 export type SkillSource = "built-in" | "managed";
+export type { SkillOrigin };
 
 export interface SkillView {
   name: string;
   description: string;
   scope: SkillScope;
   source: SkillSource;
+  origin: SkillOrigin;
   location: string;
   enabled: boolean;
   explicitOnly: boolean;
@@ -36,6 +38,7 @@ interface ScannedSkill {
   description: string;
   scope: SkillScope;
   source: SkillSource;
+  origin: SkillOrigin;
   location: string;
   explicitOnly: boolean;
   filePath: string;
@@ -51,10 +54,10 @@ interface ScanResult {
 function scanWorkspace(workspace?: WorkspaceDefinition): ScanResult {
   const result: ScanResult = { builtin: [], global: [], workspace: [], diagnostics: [] };
   const winners = new Map<string, string>();
-  const add = (scope: SkillScope, directory: string): void => {
-    if (!existsSync(directory)) return;
-    const loaded = loadSkillsFromDir({ dir: directory, source: scope === "builtin" ? "builtin" : "user" });
-    for (const diagnostic of loaded.diagnostics) result.diagnostics.push({ path: diagnostic.path || directory, message: diagnostic.message });
+  const add = (source: SkillLocation): void => {
+    if (!existsSync(source.directory)) return;
+    const loaded = loadSkillsFromDir({ dir: source.directory, source: source.scope === "builtin" ? "builtin" : "user" });
+    for (const diagnostic of loaded.diagnostics) result.diagnostics.push({ path: diagnostic.path || source.directory, message: diagnostic.message });
     for (const skill of loaded.skills) {
       const winner = winners.get(skill.name);
       if (winner) {
@@ -62,20 +65,19 @@ function scanWorkspace(workspace?: WorkspaceDefinition): ScanResult {
         continue;
       }
       winners.set(skill.name, skill.filePath);
-      result[scope].push({
+      result[source.scope].push({
         name: skill.name,
         description: skill.description,
-        scope,
-        source: scope === "builtin" ? "built-in" : "managed",
+        scope: source.scope,
+        source: source.scope === "builtin" ? "built-in" : "managed",
+        origin: source.origin,
         location: skill.baseDir,
         explicitOnly: skill.disableModelInvocation,
         filePath: skill.filePath,
       });
     }
   };
-  add("builtin", builtinSkillDir);
-  add("global", globalSkillDir);
-  if (workspace) add("workspace", workspaceSkillDir(workspace));
+  for (const source of skillSources(workspace)) add(source);
   return result;
 }
 

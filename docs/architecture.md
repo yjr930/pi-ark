@@ -73,10 +73,10 @@ docs/               产品、架构、使用和集成文档
 | Global config | `apps/server/src/config.ts` | 配置解析、data directory、共享 preferences 和串行原子写入 |
 | Authentication | `apps/server/src/auth.ts` | scrypt password、持久化 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
-| Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、queue、fork、rollback、attachments、自带工具注册、问题挂起与广播 |
-| Agent resources | `apps/server/src/resource-loader.ts` | 三个 skill 目录、`skillsOverride`、MCP 与 codemode extension 和 Session resource loader |
-| Skills | `apps/server/src/skills.ts` | skill 目录扫描、同名冲突、停用过滤、选择保存和空闲 Session 重载 |
-| MCP | `apps/server/src/mcp.ts` | `mcp.json` 初始化、server 列表、启用状态、浏览器运行时状态与安装 |
+| Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、snapshot-only client、queue、fork、rollback、attachments、自带工具注册、问题挂起与广播 |
+| Agent resources | `apps/server/src/resource-loader.ts` | skill 来源表、`skillsOverride`、工作区信任、资源安装提示、MCP 与 codemode extension 和 Session resource loader |
+| Skills | `apps/server/src/skills.ts` | skill 来源扫描、同名冲突、停用过滤、选择保存和空闲 Session 重载 |
+| MCP | `apps/server/src/mcp.ts` | `mcp.json` 初始化、server 列表（含工作区 `.pi/mcp.json`）、启用状态、浏览器运行时状态与安装 |
 | Extensions | `apps/server/src/extensions.ts` | 用户扩展目录扫描、加载结果与诊断、扩展工具名收集和空闲 Session 重载 |
 | Internal links | `apps/server/src/internal-links.ts` | Web 与 Server 共用的 Workspace、Session 和 Message 内部链接解析与生成 |
 | Session display | `apps/server/src/session-display.ts` | 完整活动分支的 display projection、短 Message ID、Compact 统计和旧数字目标的定位 |
@@ -107,7 +107,8 @@ docs/               产品、架构、使用和集成文档
 | Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、自动重连与心跳超时、手动 compact、message renderer、composer、queue、fork 和 rollback |
 | Connection retry | `apps/web/src/connection-retry.ts` | 重连等待时间、心跳超时判定与 watchdog 间隔 |
 | Subagent list | `apps/web/src/components/SubagentRun.tsx`、`apps/web/src/subagent-view.ts` | 按子 Session 合并最新任务、状态栏数量、活动列表、Completed 分组与父子导航 |
-| Session browser cache | `apps/web/src/session-cache.ts` | IndexedDB 中最近 50 个 Session 的 snapshot、UI state 与文件路径确认结果 LRU cache，并提供清理入口 |
+| Session browser cache | `apps/web/src/session-cache.ts` | IndexedDB 中最近 50 个 Session 的 snapshot、UI state、每个 Workspace 的 Session 列表与文件路径确认结果，统计存储占用并提供清理入口 |
+| Session prefetch | `apps/web/src/session-prefetch.ts` | 为 running Session 维持只接收 snapshot 的连接，持续更新浏览器缓存 |
 | Session status projection | `apps/web/src/session-status.ts` | 合并 runtime revision、计算 unread output、统计运行中的 Session 数量，并记录当前浏览器的查看状态 |
 | Session selection | `apps/web/src/session-selection.ts` | 会话列表刷新后决定保留还是替换当前 Session；尚未写入文件的 Session 依靠 runtime status 识别 |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
@@ -122,7 +123,7 @@ docs/               产品、架构、使用和集成文档
 | Terminal tooltip | `apps/web/src/components/TerminalTooltip.tsx` | Terminal 的 hover、focus 与触屏详情，portal 定位与交互式连接说明 |
 | Terminal settings | `apps/web/src/components/TerminalSettings.tsx` | 按需加载 Server shell 配置、草稿与保存队列、Refresh 草稿保留及浏览器字体编辑 |
 | Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示设置，保留页面状态，并按需加载 prompt preview、Terminal 配置与 release 信息 |
-| Skills settings | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、Workspace 选择器、启用复选框、诊断和 Refresh |
+| Skills settings | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、来源与 Origin、Workspace 选择器、启用复选框、诊断和 Refresh |
 | MCP settings | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断、浏览器运行时和安装进度 |
 | Extensions settings | `apps/web/src/components/ExtensionsSettings.tsx` | 扩展列表、加载状态、注册工具与命令、诊断、安装目录和 Refresh |
 | API client | `apps/web/src/api.ts` | HTTP request、error mapping 和 WebSocket URL |
@@ -347,9 +348,11 @@ Snapshot 包含以下状态：
 - Rollback 和 restore 状态。
 - Session statistics。
 
-首次打开且浏览器没有缓存时，Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。App 在加载 Workspace 前初始化 Session cache，因此 Chat 首次渲染可以同步取得缓存内容。切回最近查看的 Session 时，Web 先显示最多 50 个 Session 的 IndexedDB LRU snapshot，再连接 Server，并以权威 snapshot 更新 cache。
+首次打开且浏览器没有缓存时，Web 将首个 snapshot 作为加载完成依据。Socket open 只表示连接成功。App 在加载 Workspace 前初始化 Session cache，因此 Chat 首次渲染可以同步取得缓存内容。切回最近查看的 Session 时，Web 先显示最多 50 个 Session 的 IndexedDB LRU snapshot，再连接 Server，并以权威 snapshot 更新 cache。每个 Workspace 的 Session 列表也保存在同一 cache 中：刷新页面或切换 Workspace 后先用缓存列表渲染并选择 Session，Server 返回最新列表后替换。
 
-同一模块以 `usedAt` 维护最多 50 个 Session 的 snapshot 与 UI state，并将二者保存到 IndexedDB；同一个数据库还保存文件路径确认结果。UI state 包括 composer draft、待发送 attachments 和 conversation disclosures。Disclosure key 使用 source entry ID、tool call ID 或 run 中首条 source entry ID，因此 Server snapshot 更新和 earlier-message pagination 不改变该 identity。Attachments 以 Blob 保存，加载 cache 时重建 preview object URL；Session 删除、清理或 UI cache 淘汰时释放对应 URL。数据库名称包含 Pi-Ark base path 与登录 username，实例和账号之间不共享 cache。写入先在内存生效，再以 250 ms debounce 保存；`pagehide` 与 document hidden 时执行 flush。IndexedDB 不可用时，cache 退回当前页面内存。Session snapshot 只包含当前页约 100 条 display message，按当前实测的页面体积（约 0.5 至 1.6 MiB）估算，50 个 Session 的 snapshot 约占 25 至 80 MiB IndexedDB 空间。Settings → Maintenance 的 Clear browser cache 清空内存与当前实例和账号的 stores；Session JSONL 与 Settings 保持不变。
+同一模块以 `usedAt` 维护最多 50 个 Session 的 snapshot 与 UI state，以及最多 100 个 Workspace 的 Session 列表，并将这些数据保存到 IndexedDB；同一个数据库还保存文件路径确认结果。`getSessionCacheSummary` 按记录内容计算缓存占用的字节数，Settings 使用该数值显示存储大小。UI state 包括 composer draft、待发送 attachments 和 conversation disclosures。Disclosure key 使用 source entry ID、tool call ID 或 run 中首条 source entry ID，因此 Server snapshot 更新和 earlier-message pagination 不改变该 identity。Attachments 以 Blob 保存，加载 cache 时重建 preview object URL；Session 删除、清理或 UI cache 淘汰时释放对应 URL。数据库名称包含 Pi-Ark base path 与登录 username，实例和账号之间不共享 cache。写入先在内存生效，再以 250 ms debounce 保存；`pagehide` 与 document hidden 时执行 flush。IndexedDB 不可用时，cache 退回当前页面内存。Session snapshot 只包含当前页约 100 条 display message，按当前实测的页面体积（约 0.5 至 1.6 MiB）估算，50 个 Session 的 snapshot 约占 25 至 80 MiB IndexedDB 空间。Settings → Maintenance 的 Clear browser cache 清空内存与当前实例和账号的 stores；Session JSONL 与 Settings 保持不变。
+
+`SessionPrefetcher` 读取每秒轮询得到的 Session runtime 状态，为 `running` 状态的 Session 各建立一条 `/ws/agent/:workspaceId/:sessionId?snapshotsOnly=1` 连接，并跳过当前正在查看的 Session 与 document hidden 期间。初始 snapshot 与 Server 后续产生的权威 snapshot 直接写入同一 Session cache；连接中断后等待 3 秒再重连，最多同时保持 6 条连接。该连接不接收 `agent-event`、`queue-state`、`subagent-state` 与 `notice`，因此不复制流式 event 流量。
 
 App 在当前页面内按 Workspace 记录最后查看的 Session。切换 Workspace 时，Session 选择顺序是 URL 指定的 Session、该 Workspace 上次查看的 Session、第一个未归档的普通 Session，选中结果写回 URL。Session 列表与产生它的 Workspace ID 一起保存，请求完成前主内容区显示 Loading sessions，侧栏不渲染上一个 Workspace 的 Session，也不显示空会话提示。切换 Workspace 时，旧 Workspace 尚未返回的列表响应会被丢弃。
 
@@ -493,19 +496,24 @@ Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同
 
 ### Skills
 
-`resource-loader.ts` 定义三个 skill 目录：
+`resource-loader.ts` 定义 skill 来源表：
 
-| 作用域 | 目录 | 来源标记 |
-|---|---|---|
-| Built-in | `<install-root>/skills` | `built-in` |
-| Global | `PI_ARK_AGENT_DIR/skills` | `managed` |
-| Workspace | `<workspace>/.pi-ark/skills` | `managed` |
+| 作用域 | 目录 | 来源标记 | Origin |
+|---|---|---|---|
+| Built-in | `<install-root>/skills` | `built-in` | `built-in` |
+| Global | `PI_ARK_AGENT_DIR/skills` | `managed` | `pi-ark` |
+| Global | `~/.agents/skills` | `managed` | `agents` |
+| Workspace | `<workspace>/.pi-ark/skills` | `managed` | `pi-ark` |
+| Workspace | `<workspace>/.pi/skills` | `managed` | `pi` |
+| Workspace | `<workspace>/.agents/skills`，沿父目录到仓库根目录 | `managed` | `agents` |
 
-安装根目录由 `resource-loader.ts` 从自身模块位置向上解析，源码的 `apps/server/src` 与 release 的 `apps/server/dist` 都指向项目或安装根目录。
+安装根目录由 `resource-loader.ts` 从自身模块位置向上解析，源码的 `apps/server/src` 与 release 的 `apps/server/dist` 都指向项目或安装根目录。没有仓库根目录时，`.agents/skills` 只扫描工作区目录。
 
-`createResourceLoader()` 把存在的目录加入 `additionalSkillPaths`，并通过 `skillsOverride` 按 `skill.filePath` 判断作用域，过滤对应停用清单中的名称。loader 同时挂载 `createMcpExtension()` 与 `createCodemodeExtension()`。`codemode` 注册为默认停用；Session 把 `codemode` 加入工具列表，再用初始活动工具集合将其排除。MCP extension 在 Session 启动时根据启用且 `exposure` 为 `codemode` 的 server 配置把 `codemode` 加入活动工具，连接后的工具即可从脚本调用。
+`createResourceLoader()` 把 Pi-Ark 管理的三个目录加入 `additionalSkillPaths`，`.pi`、`.agents` 与 `~/.agents` 由 loader 自身发现。`skillsOverride` 按 `skill.filePath` 对照来源表，过滤对应停用清单中的名称。`reload()` 传入 `resolveProjectTrust: async () => true`，并在 `config.ts` 的 `ensureWorkspaceTrust()` 中把工作区写入 `PI_ARK_AGENT_DIR/trust.json`。loader 同时挂载 `createMcpExtension()` 与 `createCodemodeExtension()`。`codemode` 注册为默认停用；Session 把 `codemode` 加入工具列表，再用初始活动工具集合将其排除。MCP extension 在 Session 启动时根据启用且 `exposure` 为 `codemode` 的 server 配置把 `codemode` 加入活动工具，连接后的工具即可从脚本调用。
 
-`SkillService` 每次请求调用 `loadSkillsFromDir()` 扫描三段目录。扫描顺序为 Built-in、Global、Workspace，同名 skill 保留先发现的项，后续同名项写入诊断。`SkillService` 保存选择时校验 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace`，对已注册的 Workspace 丢弃扫描结果中不存在的名称，去重后写入 `config.json`。保存完成后 `SkillService` 调用 `AgentService.reloadIdleSessions()`，对非 running 的 Session 执行 `session.reload()`；正在运行的 Session 保持当前资源集合。
+`appendSystemPromptOverride` 在用户 append 之前插入 `Pi-Ark resource locations` 段，写明全局与工作区 skill 目录、`mcp.json` 位置，以及兼容目录的用途。
+
+`SkillService` 每次请求调用 `loadSkillsFromDir()` 扫描来源表。扫描顺序与 Pi 一致：`.pi/skills`、各级 `.agents/skills`、`PI_ARK_AGENT_DIR/skills`、`~/.agents/skills`、安装根目录 `skills/`、`.pi-ark/skills`。同名 skill 保留先发现的项，后续同名项写入诊断。`SkillService` 保存选择时校验 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace`，对已注册的 Workspace 丢弃扫描结果中不存在的名称，去重后写入 `config.json`。保存完成后 `SkillService` 调用 `AgentService.reloadIdleSessions()`，对非 running 的 Session 执行 `session.reload()`；正在运行的 Session 保持当前资源集合。
 
 `preferences.skills` 的读取、归一化与保存位于 `config.ts`。字段默认值为空数组与空对象；`disabledWorkspace` 以 Workspace ID 为键，保存时保留其他 Workspace 的停用记录。
 
@@ -515,11 +523,11 @@ Settings 的 MCP 类别分两阶段读取：先调用 `/api/mcp/configured` 渲�
 
 `McpService.ensureConfig()` 在 Server 启动时创建 `PI_ARK_AGENT_DIR/mcp.json`，文件已存在时保留原内容，并补齐缺失的内置条目。初始内容包含两个内置 server。`playwright` 的 `command` 为 `npx`，`args` 为 `@playwright/mcp@0.0.85`、`--browser=chromium`、`--headless` 与 `--caps=config,network,storage,devtools,vision`，`enabled` 为 `false`，`exposure` 为 `codemode`，并带 `description`。`exa` 的 `url` 为 `https://mcp.exa.ai/mcp`，`enabled` 为 `true`，`exposure` 为 `codemode`，`description` 写明 `web_search_exa` 需要 `query` 与 `objective`。已有配置缺少 `exa` 条目时，`ensureConfig()` 补上默认条目；已存在的条目保持不变。`--browser=chromium` 使用 Playwright 自带的 Chromium，`--headless` 适配无显示的服务器。已有配置的 `args` 只含 `@playwright/mcp@0.0.85` 与可选的 `--caps` 时，`ensureConfig()` 补上 browser 与 headless 参数，其他自定义参数保持原样。
 
-`McpService.list()` 运行 `process.execPath <pi-core-cli> mcp list --json`，工作目录为目标 Workspace，环境变量设置 `PI_CODING_AGENT_DIR` 与 `NO_COLOR=1`，超时 120 秒。Server 把返回的 `state` 映射为 `connected`、`starting`、`needs-sign-in`、`failed`，并把 `enabled` 为 false 的 server 显示为 `disabled`；`tools`、每个 server 的 `error` 与顶层 `errors` 进入列表和诊断。
+`McpService.list()` 运行 `process.execPath <pi-core-cli> mcp list --json`，工作目录为目标 Workspace，环境变量设置 `PI_CODING_AGENT_DIR` 与 `NO_COLOR=1`，超时 120 秒。调用前先执行 `ensureWorkspaceTrust()`，让命令读取工作区 `.pi/mcp.json`；同名条目按项目文件判断来源并标记为 `project`。Server 把返回的 `state` 映射为 `connected`、`starting`、`needs-sign-in`、`failed`，并把 `enabled` 为 false 的 server 显示为 `disabled`；`tools`、每个 server 的 `error` 与顶层 `errors` 进入列表和诊断。
 
 子进程启动按命令类型选择方式：Windows 上以 `.exe` 或 `.com` 结尾的命令直接执行，使其路径中的空格不被命令解释器拆分；其他命令（例如 `npx.cmd`）仍经命令解释器执行。子进程输出按流增量解码，Windows 上先读取控制台的代码页（`chcp`）并据此选择解码器，例如 936 对应 `gbk`、65001 对应 `utf-8`，读取失败或代码页不受支持时回退到 UTF-8。
 
-`McpService.setEnabled()` 校验 server 名称与 boolean，串行读取 `mcp.json`，只更新目标条目的 `enabled` 字段，以 temporary file 加 rename 原子写入，然后调用 `reloadIdleSessions()`。`McpService.setAdvanced()` 只接受 `playwright`，过滤 `args` 中已有的 `--caps=` 后按开关追加或移除 `--caps=config,network,storage,devtools,vision`，写回配置并重载空闲 Session。`mcp.json` 解析失败、条目不存在或写入失败时返回对应的 HTTP 错误。
+`McpService.setEnabled()` 校验 server 名称与 boolean，串行读取定义该 server 的文件：工作区 `.pi/mcp.json` 中存在同名条目时写回项目文件，否则写 `PI_ARK_AGENT_DIR/mcp.json`。只更新目标条目的 `enabled` 字段，以 temporary file 加 rename 原子写入，然后调用 `reloadIdleSessions()`。`McpService.setAdvanced()` 只接受 `playwright`，过滤 `args` 中已有的 `--caps=` 后按开关追加或移除 `--caps=config,network,storage,devtools,vision`，写回配置并重载空闲 Session。`mcp.json` 解析失败、条目不存在或写入失败时返回对应的 HTTP 错误。
 
 `McpService.browserStatus()` 检查 Playwright 的浏览器缓存目录：设置 `PLAYWRIGHT_BROWSERS_PATH` 时取该变量的值，否则取平台缓存目录下的 `ms-playwright`，其中 macOS 是服务账号 home 下的 `Library/Caches`，Windows 是 `%LOCALAPPDATA%`（变量缺失时取 home 下的 `AppData/Local`），Linux 是 `XDG_CACHE_HOME`（变量缺失时取 home 下的 `.cache`）。状态检查识别 `chromium_headless_shell-<数字>` 与 `chromium-<数字>` 目录并优先使用 headless shell。`installBrowser()` 在状态为 `not-installed` 或 `failed` 时执行 `npx @playwright/mcp@0.0.85 install-browser chromium --only-shell`，设置 `npm_config_yes=true`，超时 15 分钟，并保留最多 64 KiB 的安装日志。安装目录出现后状态变为 `installed`；命令失败或没有生成目录时保持 `failed` 并保留日志。
 
@@ -607,6 +615,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
 | `PI_ARK_AGENT_DIR/mcp.json` | MCP server 定义、`args`、`enabled`、`exposure`、`toolExposure`、`timeout` 与 `description` |
+| `PI_ARK_AGENT_DIR/trust.json` | 已信任的 Workspace 路径，供 pi core 读取工作区 `.pi` 配置 |
 | `PI_ARK_AGENT_DIR/extensions` | 用户扩展文件与扩展目录；Server 启动时创建，Session 创建时加载 |
 | `PI_ARK_AGENT_DIR/skills/` | Global user skills |
 | `PI_ARK_AGENT_DIR/models.json` | Custom provider/model config |
@@ -621,6 +630,9 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | `<workspace>/.pi-ark/subagent-runs/*.json` | 委派关系、配置快照、状态、结果引用与用量 |
 | `<workspace>/.pi-ark/notebook.md` | Workspace Notebook 的 UTF-8 Markdown 文本 |
 | `<workspace>/.pi-ark/skills/` | Workspace user skills |
+| `<workspace>/.pi/skills/` | 兼容位置，Pi 自身读取的 Workspace skill |
+| `<workspace>/.pi/mcp.json` | 兼容位置，项目级 MCP server 定义 |
+| `<workspace>/.agents/skills/` | 兼容位置，Pi 从工作区到仓库根目录读取的 skill |
 | `<workspace>/.pi-ark/sessions-meta.json` | Pin、Archive、groups 和 group definitions |
 | `<workspace>/.pi-ark/attachments/<session>/` | Session attachments |
 
@@ -730,7 +742,7 @@ interface TerminalInfo {
 
 | Method | Path | 用途 |
 |---|---|---|
-| GET | `/api/skills?workspaceId=` | 返回 `builtin`、`global`、`workspace` 三段 skill 列表与 `diagnostics` |
+| GET | `/api/skills?workspaceId=` | 返回 `builtin`、`global`、`workspace` 三段 skill 列表（含 `origin`）与 `diagnostics` |
 | PUT | `/api/skills/selection` | 保存 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace`，返回刷新后的列表、`selection` 与 `reloaded` |
 | POST | `/api/skills/reload` | 重新加载空闲 Session，返回 `{ reloaded }` |
 | GET | `/api/mcp?workspaceId=` | 连接每个已启用的 server，返回 `servers` 与配置级 `errors` |
@@ -742,7 +754,7 @@ interface TerminalInfo {
 | GET | `/api/extensions?workspaceId=` | 返回用户扩展目录、扩展列表、注册工具与命令、加载状态和诊断 |
 | POST | `/api/extensions/reload` | 重新加载空闲 Session，返回 `{ reloaded }` |
 
-Skills、MCP 与 Extensions 的列表端点要求 `workspaceId`。MCP server 名称只允许字母、数字、`_` 与 `-`。`PUT /api/mcp/servers/:name/state` 与 `PUT /api/skills/selection` 保存后都会重新加载空闲 Session。
+Skills、MCP 与 Extensions 的列表端点要求 `workspaceId`。MCP server 名称只允许字母、数字、`_` 与 `-`。`PUT /api/mcp/servers/:name/state` 的 body 包含 `enabled` 与 `workspaceId`，Project server 的开关写回工作区 `.pi/mcp.json`。`PUT /api/mcp/servers/:name/state` 与 `PUT /api/skills/selection` 保存后都会重新加载空闲 Session。
 
 ### Session
 
@@ -774,6 +786,7 @@ Path：`/ws/agent/:workspaceId/:sessionId`
 - `message`：打开包含指定短 Message ID 的 display window；纯数字值按旧 display position 兼容解析。
 - `start`：从指定的全局 message offset 恢复已经加载的 display window。
 - `leafEntryId`：展示历史分支，并保持当前活动 leaf；该连接使用历史 snapshot，支持 `load-earlier`。
+- `snapshotsOnly=1`：只接收 heartbeat、初始 snapshot 与后续权威 snapshot，不接收 `agent-event`、`queue-state`、`subagent-state` 与 `notice`；浏览器缓存预取使用该模式。
 
 Browser commands：
 
@@ -962,4 +975,4 @@ npm run release:build
 
 `check:terminal` 将对应的服务源码转为 JavaScript，再以独立 Node 进程使用临时配置与实际 PTY；该进程沿用安装版的 helper 启动方式，并在超时后清理进程树。该检查覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
 
-Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state LRU 与清理、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间、手动 compact 命令解析。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB draft/attachment/disclosure 恢复、Browser cache 清理、连接中断后的自动重连与草稿和阅读位置保持、`/` 候选中插入内置 compact 命令、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。
+Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state/Session list cache 与占用统计、running Session snapshot 预取、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间、手动 compact 命令解析。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB Session 列表、draft/attachment/disclosure 恢复、running Session 预取后的立即打开、Browser cache 存储大小与清理、连接中断后的自动重连与草稿和阅读位置保持、`/` 候选中插入内置 compact 命令、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

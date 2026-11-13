@@ -607,7 +607,7 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 2. 在 Workspace skills 顶部选择 Workspace。选择器默认使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。
 3. 勾选或取消勾选 skill 左侧的复选框。修改立即保存，页面显示保存结果；保存失败时列表恢复为服务端状态。
 4. 查看每行的状态：Enabled 表示启用；Disabled 表示停用；Explicit only 表示 skill 已启用，但只进入显式调用，不进入模型可见的 skill 描述。
-5. 点击 View 查看来源、作用域、调用模式和目录。需要阅读正文时，在 Terminal 中打开该目录下的 SKILL.md。
+5. 点击 View 查看来源、作用域、Origin、调用模式和目录。需要阅读正文时，在 Terminal 中打开该目录下的 SKILL.md。
 6. 点击 Refresh 重新扫描目录。Diagnostics 区域列出同名冲突和解析错误。
 
 `browser` 是内置 skill，它的启用状态跟随 `playwright` MCP server。Skills 页面不在 `browser` 行提供开关；`playwright` 未启用时，该行显示 Disabled 与 “Enable playwright in MCP to use this skill.”。到 Settings → MCP 启用 `playwright` 后，`browser` 随之启用。
@@ -620,7 +620,12 @@ Pi-Ark 从以下目录读取 skill：
 |---|---|---|
 | Built-in | `<安装根目录>/skills/<skill-name>/SKILL.md` | 随 release 更新 |
 | Global | `PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md` | 用户创建与编辑 |
+| Global | `~/.agents/skills/<skill-name>/SKILL.md` | 兼容位置，Pi-Ark 读取与展示 |
 | Workspace | `<workspace>/.pi-ark/skills/<skill-name>/SKILL.md` | 用户创建与编辑 |
+| Workspace | `<workspace>/.pi/skills/<skill-name>/SKILL.md` | 兼容位置，Pi-Ark 读取与展示 |
+| Workspace | `<workspace>/.agents/skills/<skill-name>/SKILL.md`，并沿父目录读到仓库根目录 | 兼容位置，Pi-Ark 读取与展示 |
+
+新建 skill 时写入 `PI_ARK_AGENT_DIR/skills` 或 `<workspace>/.pi-ark/skills`。`.pi`、`.agents` 与 `~/.agents` 留给项目已有 skill，Pi-Ark 同样会读取并在列表里提供停用开关。也可以让 Agent 使用内置 `skill-authoring` skill 完成创建与安装。
 
 内置 `browser` skill 位于 `<安装根目录>/skills/browser/SKILL.md`。每个 skill 使用一个目录，目录中的 SKILL.md 包含 YAML frontmatter：
 
@@ -633,16 +638,16 @@ description: 说明这个 skill 的用途和适用场景。
 
 `name` 只使用小写字母、数字与连字符，最长 64 个字符；`description` 最长 1024 个字符。加上 `disable-model-invocation: true` 后，skill 不进入模型可见的 skill 描述，只进入列表和显式调用。新建目录后点击 Skills 页面的 Refresh。
 
-Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户维护。Skill 名称相同时，扫描顺序中先发现的 skill 生效，后续同名项进入 Diagnostics。
+Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户维护。Skill 名称相同时，扫描顺序中先发现的 skill 生效，后续同名项进入 Diagnostics。扫描顺序为 `.pi/skills`、各级 `.agents/skills`、`PI_ARK_AGENT_DIR/skills`、`~/.agents/skills`、安装根目录 `skills/`、`.pi-ark/skills`。
 
 ### MCP
 
 1. 打开 Settings → MCP。页面使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace，并显示 server 列表。
-2. 查看每行的 Source、Transport、Exposure、Registered actions 和连接状态。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。
+2. 查看每行的 Source、Transport、Exposure、Registered actions 和连接状态。Source 取 Built-in、User 或 Project (.pi/mcp.json)，Project 表示 server 定义在工作区 `.pi/mcp.json`。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。
 3. 使用行右侧开关启用或停用 server。修改立即保存，Server 重新加载空闲 Session。
 4. 需要 OAuth 登录时，行内显示 `pi-ark mcp login <server>`；在服务器终端执行该命令，完成登录后点击 Refresh。
 5. 点击 Refresh 重新读取 server 列表、连接状态、注册动作数量和诊断。
-6. 需要添加、删除或修改 server 时，在服务器终端使用 `pi-ark mcp` 命令，或编辑 `PI_ARK_AGENT_DIR/mcp.json`。
+6. 需要添加、删除或修改 server 时，在服务器终端使用 `pi-ark mcp` 命令，或编辑 `PI_ARK_AGENT_DIR/mcp.json`。工作区里已有 `.pi/mcp.json` 时，其中的 server 以 Project 来源显示，开关写回该文件。登记进 Pi-Ark 的工作区按已信任项目处理，Pi 会读取它的 `.pi` 配置。
 
 #### 启用 playwright 与安装浏览器
 
@@ -724,7 +729,7 @@ Keyboard shortcuts 区域说明系统的默认粘贴行为，以及工具栏的 
 
 ### Maintenance
 
-Browser cache 显示当前实例与登录账号缓存的 conversation 数量与 composer state 数量。Clear browser cache 会打开确认对话框；确认后删除这些缓存、未发送的 draft 和 attachments。Session history 与服务端设置保持不变。
+Browser cache 显示当前实例与登录账号的 conversation、Session 列表和 composer state 缓存占用的存储大小。Clear browser cache 会打开确认对话框；确认后删除这些缓存、未发送的 draft 和 attachments。Session history 与服务端设置保持不变。
 
 Pi-Ark release 区域显示以下信息：
 

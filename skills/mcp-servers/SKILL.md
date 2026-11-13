@@ -8,6 +8,7 @@ description: 为 Pi-Ark 接入、验证和维护 MCP server（搜索、文档、
 ## 前置条件
 
 - server 定义保存在环境变量 `PI_ARK_AGENT_DIR` 指向目录下的 `mcp.json`，同一文件保存 `enabled`、`exposure`、`toolExposure` 与 `timeout`。
+- 工作区里已有 `.pi/mcp.json` 时，Pi-Ark 也会读取它，其中的 server 在 Settings 里标记为 Project，开关写回该文件。新增 server 写入 `PI_ARK_AGENT_DIR/mcp.json`，除非用户要求项目级配置。
 - 命令行入口是 `$PI_ARK_CLI_NAME mcp`，其中 `PI_ARK_CLI_NAME` 是当前实例的 CLI 名称，`pi-ark-dev` 是主力开发实例的名称。
 - server 连接在 Session 启动时建立。修改配置后新 Session 才使用新配置，当前 Session 的可用工具保持不变。
 - 传输只支持 stdio 与 streamable HTTP。SSE 端点会被拒绝，很多服务另外提供 `/mcp` 路径的 streamable HTTP。

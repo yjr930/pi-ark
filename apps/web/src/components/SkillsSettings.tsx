@@ -1,12 +1,21 @@
 import { Check, CircleAlert, Eye, EyeOff, Folder, Globe2, LoaderCircle, Lock, PackageOpen, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import type { SkillScope, SkillSelection, SkillView, SkillsResponse, Workspace } from "../types";
+import type { SkillOrigin, SkillScope, SkillSelection, SkillView, SkillsResponse, Workspace } from "../types";
 import { Select } from "./Select";
 
 type Notice = { kind: "success" | "error"; text: string };
 
 const scopeLabels: Record<SkillScope, string> = { builtin: "Built-in", global: "Global", workspace: "Workspace" };
+
+const originLabels: Record<SkillOrigin, string> = { "built-in": "Built-in", "pi-ark": "Pi-Ark", pi: "Project .pi", agents: "Project .agents" };
+
+function originLabel(skill: SkillView): string {
+  if (skill.origin === "agents" && skill.scope === "global") return "User .agents";
+  if (skill.origin === "pi-ark" && skill.scope === "global") return "Pi-Ark global";
+  if (skill.origin === "pi-ark" && skill.scope === "workspace") return "Pi-Ark workspace";
+  return originLabels[skill.origin];
+}
 
 function preferredWorkspaceId(workspaces: Workspace[]): string {
   const fromUrl = new URLSearchParams(window.location.search).get("workspace");
@@ -201,6 +210,7 @@ export function SkillsSettings({ active }: { active: boolean }) {
           <dl>
             <div><dt>Source</dt><dd>{skill.source === "built-in" ? "Built-in" : "Managed"}</dd></div>
             <div><dt>Scope</dt><dd>{scopeLabels[skill.scope]}</dd></div>
+            <div><dt>Origin</dt><dd>{originLabel(skill)}</dd></div>
             <div><dt>Mode</dt><dd>{skill.explicitOnly ? "Explicit invocation only" : "Model list and explicit invocation"}</dd></div>
             <div><dt>Location</dt><dd><code>{skill.location}</code></dd></div>
           </dl>
@@ -229,11 +239,11 @@ export function SkillsSettings({ active }: { active: boolean }) {
         {renderSkillRows(data.builtin, "builtin", "No built-in skills found.")}
       </section>
       <section className="settings-section">
-        <div className="settings-section-title"><Globe2 size={17} /><div><h3>Global skills</h3><p>Skills available in every workspace.</p></div></div>
+        <div className="settings-section-title"><Globe2 size={17} /><div><h3>Global skills</h3><p>Skills in the Pi-Ark agent directory and <code>~/.agents/skills</code>. Available in every workspace.</p></div></div>
         {renderSkillRows(data.global, "global", "No global skills found.")}
       </section>
       <section className="settings-section">
-        <div className="settings-section-title"><Folder size={17} /><div><h3>Workspace skills</h3><p>Skills available only in the selected workspace.</p></div></div>
+        <div className="settings-section-title"><Folder size={17} /><div><h3>Workspace skills</h3><p>Skills in the selected workspace: <code>.pi-ark/skills</code>, <code>.pi/skills</code> and <code>.agents/skills</code>.</p></div></div>
         {workspaces.length > 0 ? <>
           <label className="settings-field agent-resource-workspace-field"><span>Workspace</span><Select ariaLabel="Workspace for skills" value={workspaceId} disabled={saving || loading || refreshing} onChange={selectWorkspace} options={workspaces.map((workspace) => ({ value: workspace.id, label: workspace.name, description: workspace.path }))} /></label>
           {renderSkillRows(data.workspace, "workspace", "No workspace skills found.")}

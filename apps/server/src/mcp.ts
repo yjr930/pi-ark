@@ -5,9 +5,9 @@ import { homedir } from "node:os";
 import { dirname, extname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
-import { piArkAgentDir, type WorkspaceDefinition } from "./config.js";
+import { piArkAgentDir, ensureWorkspaceTrust, type WorkspaceDefinition } from "./config.js";
 
-export type McpServerSource = "built-in" | "user";
+export type McpServerSource = "built-in" | "user" | "project";
 export type McpServerState = "connected" | "disabled" | "failed" | "needs-sign-in" | "starting";
 export type McpBrowserState = "not-installed" | "installing" | "installed" | "failed";
 
@@ -199,7 +199,7 @@ function mapServerState(state: unknown, enabled: boolean): McpServerState {
   return "failed";
 }
 
-function mapServer(report: McpListReport): McpServerView | undefined {
+function mapServer(report: McpListReport, projectNames: Set<string>): McpServerView | undefined {
   const name = optionalString(report.name);
   if (!name) return undefined;
   const enabled = report.enabled !== false;
@@ -207,7 +207,7 @@ function mapServer(report: McpListReport): McpServerView | undefined {
   const diagnostics = error ? [error] : [];
   return {
     name,
-    source: BUILTIN_SERVERS.has(name) ? "built-in" : "user",
+    source: BUILTIN_SERVERS.has(name) ? "built-in" : projectNames.has(name) ? "project" : "user",
     enabled,
     exposure: optionalString(report.exposure) ?? "codemode",
     transport: optionalString(report.transport) ?? "",
@@ -235,6 +235,21 @@ export function playwrightBrowsersDirectory(options: PlaywrightDirectoryOptions)
 
 function browserCacheDirectory(): string {
   return playwrightBrowsersDirectory({ platform: process.platform, home: homedir(), env: process.env });
+}
+
+async function readServerEntries(path: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const config = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const servers = config.mcpServers;
+    if (typeof servers !== "object" || servers === null || Array.isArray(servers)) return undefined;
+    return servers as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+export function projectMcpConfigPath(workspace: WorkspaceDefinition): string {
+  return join(workspace.path, ".pi", "mcp.json");
 }
 
 async function atomicWriteJson(path: string, value: unknown): Promise<void> {
@@ -327,6 +342,13 @@ export class McpService {
 
   async list(workspace: WorkspaceDefinition): Promise<McpServersResponse> {
     await this.ensureConfig();
+    ensureWorkspaceTrust(workspace.path);
+    const projectServers = await readServerEntries(projectMcpConfigPath(workspace));
+    const projectNames = new Set(Object.entries(projectServers ?? {}).flatMap(([name, entry]) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+      const record = entry as Record<string, unknown>;
+      return typeof record.command === "string" || typeof record.url === "string" || typeof record.type === "string" ? [name] : [];
+    }));
     const result = await runProcess(process.execPath, [piCoreCliPath(), "mcp", "list", "--json"], {
       cwd: workspace.path,
       env: { ...process.env, PI_CODING_AGENT_DIR: piArkAgentDir, NO_COLOR: "1" },
@@ -345,7 +367,7 @@ export class McpService {
       return { servers: [], errors: [message] };
     }
     const servers = Array.isArray(payload.servers) ? payload.servers.flatMap((report) => {
-      const mapped = typeof report === "object" && report !== null ? mapServer(report as McpListReport) : undefined;
+      const mapped = typeof report === "object" && report !== null ? mapServer(report as McpListReport, projectNames) : undefined;
       return mapped ? [mapped] : [];
     }) : [];
     return { servers, errors: stringList(payload.errors) };
@@ -380,12 +402,16 @@ export class McpService {
     await this.reloadSessions();
   }
 
-  async setEnabled(name: string, enabled: boolean): Promise<void> {
+  async setEnabled(name: string, enabled: boolean, workspace: WorkspaceDefinition): Promise<void> {
     if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw Object.assign(new Error("Invalid MCP server name"), { statusCode: 400 });
     if (typeof enabled !== "boolean") throw Object.assign(new Error("MCP server state must be a boolean"), { statusCode: 400 });
     await this.ensureConfig();
-    const path = join(piArkAgentDir, "mcp.json");
+    ensureWorkspaceTrust(workspace.path);
+    const projectPath = projectMcpConfigPath(workspace);
+    const projectServers = await readServerEntries(projectPath);
+    const path = projectServers && Object.hasOwn(projectServers, name) ? projectPath : join(piArkAgentDir, "mcp.json");
     const task = this.configWrite.catch(() => undefined).then(async () => {
+      if (path === projectPath) await mkdir(dirname(path), { recursive: true, mode: 0o700 });
       let config: Record<string, unknown>;
       try {
         config = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;

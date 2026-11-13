@@ -215,7 +215,7 @@ export function McpSettings({ active }: { active: boolean }) {
           return;
         }
       }
-      await api.setMcpServerState(server.name, enabled);
+      await api.setMcpServerState(server.name, enabled, targetWorkspace);
       if (!mounted.current) return;
       if (!enabled) {
         await loadData(targetWorkspace, "refresh");
@@ -279,7 +279,7 @@ export function McpSettings({ active }: { active: boolean }) {
         {busy ? <LoaderCircle size={16} className="agent-resource-spin" /> : <Toggle checked={server.enabled} disabled={busyName !== null || loading || refreshing} onChange={(checked) => void toggleServer(server, checked)} label={`${server.enabled ? "Disable" : "Enable"} ${server.name}`} />}
       </div>
       <div className="mcp-server-meta">
-        <span><em>Source</em><strong>{server.source === "built-in" ? "Built-in" : "User"}</strong></span>
+        <span><em>Source</em><strong>{server.source === "built-in" ? "Built-in" : server.source === "project" ? "Project (.pi/mcp.json)" : "User"}</strong></span>
         <span><em>Transport</em><strong>{server.transport || "—"}</strong></span>
         <span><em>Exposure</em><strong>{server.exposure || "—"}</strong></span>
         <span><em>Registered actions</em><strong>{server.pending ? "—" : server.tools.length}</strong></span>

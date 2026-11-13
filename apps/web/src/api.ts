@@ -59,7 +59,7 @@ export const api = {
   reloadExtensions: () => request<{ reloaded: number }>("/api/extensions/reload", { method: "POST" }),
   mcpConfigured: () => request<{ servers: import("./types").McpConfiguredServer[] }>("/api/mcp/configured"),
   mcpServers: (workspaceId: string) => request<import("./types").McpServersResponse>(`/api/mcp?workspaceId=${encodeURIComponent(workspaceId)}`),
-  setMcpServerState: (name: string, enabled: boolean) => request<{ ok: true }>(`/api/mcp/servers/${encodeURIComponent(name)}/state`, { method: "PUT", body: JSON.stringify({ enabled }) }),
+  setMcpServerState: (name: string, enabled: boolean, workspaceId: string) => request<{ ok: true }>(`/api/mcp/servers/${encodeURIComponent(name)}/state`, { method: "PUT", body: JSON.stringify({ enabled, workspaceId }) }),
   setMcpAdvanced: (name: string, enabled: boolean) => request<{ ok: true }>(`/api/mcp/servers/${encodeURIComponent(name)}/advanced`, { method: "PUT", body: JSON.stringify({ enabled }) }),
   mcpBrowser: () => request<import("./types").McpBrowserStatus>("/api/mcp/browser"),
   installMcpBrowser: () => request<import("./types").McpBrowserStatus>("/api/mcp/install-browser", { method: "POST" }),

@@ -83,7 +83,7 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 ### 新建与选择
 
-新建 Session 后，应用切换到 Agent 页面并打开新 Session。尚未发送 message 的 Session 不进入侧栏列表；发送首条 message 后，该 Session 立即出现在侧栏列表，标题使用这条 message 的文本。在未发送状态切换到别的 Session 或 Workspace 后，再次点击 New session 会回到这个未发送的 Session，Composer 中尚未发送的内容随之恢复。切换 Workspace 时，应用优先恢复 URL 指定的 Session，其次恢复该 Workspace 上次查看的 Session，最后选择第一个未归档的普通 Session，并把选中的 Session 写回 URL。Session 列表加载期间，主内容区显示 Loading sessions，侧栏不显示其他 Workspace 的 Session。侧栏的 Session 列表展示普通 Session，subagent 通过会话状态栏的列表与内部链接进入。
+新建 Session 后，应用切换到 Agent 页面并打开新 Session。尚未发送 message 的 Session 不进入侧栏列表；发送首条 message 后，该 Session 立即出现在侧栏列表，标题使用这条 message 的文本。在未发送状态切换到别的 Session 或 Workspace 后，再次点击 New session 会回到这个未发送的 Session，Composer 中尚未发送的内容随之恢复。切换 Workspace 时，应用优先恢复 URL 指定的 Session，其次恢复该 Workspace 上次查看的 Session，最后选择第一个未归档的普通 Session，并把选中的 Session 写回 URL。首次加载某个 Workspace 且浏览器没有缓存时，Session 列表加载期间主内容区显示 Loading sessions，侧栏不显示其他 Workspace 的 Session。同一浏览器再次打开该 Workspace 时，侧栏先显示缓存列表，Server 返回后替换。侧栏的 Session 列表展示普通 Session，subagent 通过会话状态栏的列表与内部链接进入。
 
 ## Agent conversation
 
@@ -91,7 +91,7 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 首次打开 Session 且浏览器没有缓存时，WebSocket 建立后页面继续显示 Loading conversation。首个 snapshot 到达前，欢迎内容和 composer 保持隐藏，Session 相关的 header controls 保持 disabled。进度条采用 indeterminate 样式，因为服务端不提供百分比。
 
-浏览器使用 IndexedDB 保存最近 50 个 Session 的 snapshot 和 Session UI state，并按 Pi-Ark 实例与登录账号隔离。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。浏览器刷新后继续使用同一 cache。Settings → Maintenance 的 Browser cache 显示缓存数量，并提供 Clear browser cache；清理删除当前实例与账号的缓存，Session history 与 Settings 保持不变。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
+浏览器使用 IndexedDB 保存最近 50 个 Session 的 snapshot、Session UI state 和每个 Workspace 的 Session 列表，并按 Pi-Ark 实例与登录账号隔离。刷新页面或切换 Workspace 时，Session 列表立即使用缓存渲染，同时向 Server 请求最新列表。正在 running 的 Session 在后台保持一条只接收 snapshot 的连接，Server 每次产生权威 snapshot 时更新这些 Session 的缓存 conversation。切回这些 Session 时，页面立即显示缓存 conversation 和 controls，状态显示 Refreshing conversation，并在后台连接 Server；权威 snapshot 到达后替换缓存内容。UI state 恢复 composer 中尚未发送的 text、attachments，以及 Running、Tool、Reasoning、Compact 和 Message Info 的展开或折叠状态。浏览器刷新后继续使用同一 cache。Settings → Maintenance 的 Browser cache 显示这些缓存占用的存储大小，并提供 Clear browser cache；清理删除当前实例与账号的缓存，Session history 与 Settings 保持不变。切换 Session 时，旧 WebSocket 的后续事件不会更新新 Session。
 
 Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完整 projection 的全局 offset 和总数。顶部 Show earlier messages 每次请求 Server 将当前 client 的 display window 向前扩展一页，直至显示完整活动 branch。
 
@@ -253,7 +253,7 @@ Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Appeara
 - Extensions：用户安装的扩展、加载状态、注册工具与命令、诊断和安装目录。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
 - Terminal：Server shell profile、自定义程序的绝对路径、附加参数、环境变量、浏览器字体和键盘操作说明。
-- Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及指向稳定 CLI 的完整 Node 调用命令（status、logs 与 restart 等）；Browser cache 显示当前实例与账号的缓存数量，并提供 Clear browser cache。
+- Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及指向稳定 CLI 的完整 Node 调用命令（status、logs 与 restart 等）；Browser cache 显示当前实例与账号的缓存占用的存储大小，并提供 Clear browser cache。
 - Account：Sign out。
 
 Keep line breaks（按原文换行）默认开启，会话和 Markdown 文件中的普通文本会按原文的单次换行显示。关闭后，同一段落内的普通换行合并显示，空行继续分隔段落。该设置在切换后立即保存并应用到当前页面，刷新后保留选择。
@@ -268,21 +268,21 @@ Update Pi-Ark 根据当前操作系统与 architecture 安装完整的 release a
 
 ### Skills
 
-Skills 类别按固定顺序显示三段列表：Built-in skills、Global skills 和 Workspace skills。Built-in 区域说明 skill 随 Pi-Ark release 更新；Global 区域说明 skill 在所有 Workspace 可用；Workspace 区域顶部提供 Workspace 选择器，默认使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。
+Skills 类别按固定顺序显示三段列表：Built-in skills、Global skills 和 Workspace skills。Built-in 区域说明 skill 随 Pi-Ark release 更新；Global 区域说明 skill 来自 Pi-Ark agent 目录与 `~/.agents/skills`；Workspace 区域说明 skill 来自 `.pi-ark/skills`、`.pi/skills` 与 `.agents/skills`，顶部提供 Workspace 选择器，默认使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。
 
 每一行包含启用复选框、skill 名称、来源标记（Built-in 或 Managed）、状态（Enabled、Disabled 或 Explicit only）、description、skill 目录和 View。勾选或取消勾选后立即保存，页面显示 Saving selection；保存完成后通知 `Skill selection saved. New Sessions use the updated set.`，列表按服务端返回结果更新。保存失败时恢复服务端列表并显示错误。Built-in skill 行同样可以停用；停用记录按名称保存，release 更新后继续有效。
 
-页面顶部显示启用 skill 数量、模型可见 description 的总字符数和估算 token；Explicit only 的 skill 不进入模型可见 description 统计。Refresh 重新扫描三段目录。扫描失败、同名 skill 冲突或 skill 文件解析失败时，Diagnostics 区域列出路径与说明。View 展开 Source、Scope、Mode 与 Location；正文通过 Terminal 打开该目录下的 SKILL.md 阅读。
+页面顶部显示启用 skill 数量、模型可见 description 的总字符数和估算 token；Explicit only 的 skill 不进入模型可见 description 统计。Refresh 重新扫描全部来源目录。扫描失败、同名 skill 冲突或 skill 文件解析失败时，Diagnostics 区域列出路径与说明。View 展开 Source、Scope、Origin、Mode 与 Location；Origin 显示 skill 来自 Pi-Ark、项目 `.pi`、项目 `.agents` 或用户 `.agents` 目录。正文通过 Terminal 打开该目录下的 SKILL.md 阅读。
 
 `browser` 是内置 skill，它的启用状态由 `playwright` MCP server 控制。该行不显示启用复选框，只显示由 MCP 控制的状态；`playwright` 未启用时状态为 Disabled，并显示 “Enable playwright in MCP to use this skill.”，用户到 MCP 类别打开 `playwright` 后该 skill 随之启用。
 
 ### MCP
 
-MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、来源（Built-in 或 User）、启用开关、连接状态、Transport、Exposure、注册动作数量（Registered actions）和诊断。`playwright` 行额外显示 Advanced capabilities 开关，默认开启；开启时 `args` 带 `--caps=config,network,storage,devtools,vision`，关闭时移除该参数。该开关只在 `playwright` 启用后可操作，未启用时显示为禁用并提示先启用 server。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。`playwright` 行额外显示 Recommended 标记和 Browser runtime 区域。`exa` 是内置的远程 server，默认启用，提供网页检索与页面抓取，行内没有高级能力开关与浏览器运行时区域。
+MCP 类别使用一个列表显示所有 server，列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、来源（Built-in、User 或 Project (.pi/mcp.json)）、启用开关、连接状态、Transport、Exposure、注册动作数量（Registered actions）和诊断。Project 来源的开关写回工作区 `.pi/mcp.json`。`playwright` 行额外显示 Advanced capabilities 开关，默认开启；开启时 `args` 带 `--caps=config,network,storage,devtools,vision`，关闭时移除该参数。该开关只在 `playwright` 启用后可操作，未启用时显示为禁用并提示先启用 server。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。`playwright` 行额外显示 Recommended 标记和 Browser runtime 区域。`exa` 是内置的远程 server，默认启用，提供网页检索与页面抓取，行内没有高级能力开关与浏览器运行时区域。
 
 启用开关保存 server 的 `enabled` 字段。启用 `playwright` 时，页面先检查浏览器运行时；未安装或上次安装失败时自动开始安装 Chromium headless shell，并在 Browser runtime 区域显示 Installing 状态与目标目录，页面轮询安装状态。安装完成后保存启用状态；安装仍在进行或失败时，server 保持未启用，页面显示对应提示，失败日志显示在 `playwright` 行内。其他 server 的开关直接保存。
 
-`playwright` 行显示 Browser runtime 状态（Not installed、Installing、Installed 或 Failed）、已安装版本与目标目录。Needs sign-in 的行显示 `pi-ark mcp login <server>` 命令提示。页面不提供添加、编辑、删除和 OAuth 登录按钮；server 定义通过 `pi-ark mcp` 命令或直接编辑 `mcp.json` 管理。配置文件解析失败或 `pi-ark mcp list --json` 返回错误时，列表上方显示 Configuration errors。
+`playwright` 行显示 Browser runtime 状态（Not installed、Installing、Installed 或 Failed）、已安装版本与目标目录。Needs sign-in 的行显示 `pi-ark mcp login <server>` 命令提示。页面不提供添加、编辑、删除和 OAuth 登录按钮；server 定义通过 `pi-ark mcp` 命令或直接编辑 `mcp.json` 管理。登记进 Pi-Ark 的 Workspace 按已信任项目处理，项目 `.pi/mcp.json` 里的 server 出现在列表中并带 Project 来源。配置文件解析失败或 `pi-ark mcp list --json` 返回错误时，列表上方显示 Configuration errors。
 
 Refresh 重新执行列表读取并更新连接状态、注册动作数量和诊断。页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。打开时先读取 `mcp.json` 渲染 server 行，行内状态显示 Checking connection、注册动作显示 `—`；随后连接 server 的请求完成后填入连接状态、工具数量与诊断。连接失败时保留已渲染的行并显示错误提示。列表为空时显示 `pi-ark mcp add <name>` 提示。
 
