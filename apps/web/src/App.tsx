@@ -13,7 +13,8 @@ import { WorkspaceList } from "./components/WorkspaceList";
 import { appLocation, fileLocation, parseInternalSessionLink, readPermalink, sessionLocation, sessionPermalink, workspaceLocation, type AppPage, type InternalSessionTarget } from "./permalinks";
 import { basePath } from "./base-path";
 import { readAgentReturnPosition, withAgentReturnPosition } from "./navigation-history";
-import { cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionUiState, initializeSessionCache, sessionCacheKey } from "./session-cache";
+import { cacheSessionList, cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionList, getCachedSessionUiState, initializeSessionCache, sessionCacheKey } from "./session-cache";
+import { SessionPrefetcher, type SessionPrefetchTarget } from "./session-prefetch";
 import { resolveActiveSessionId } from "./session-selection";
 import { acknowledgeSessionStatus, countWorkingSessions, mergeSessionStatuses, type SessionStatusMap } from "./session-status";
 import { readAppearance, saveAppearance, subscribeAppearance, type AppearanceSettings } from "./appearance";
@@ -31,6 +32,7 @@ export default function App() {
   const lastSessionByWorkspace = useRef<Record<string, string>>({});
   const pendingNewSessionByWorkspace = useRef<Record<string, string>>({});
   const openSessionIdsRef = useRef<Record<string, string[]>>({});
+  const prefetcherRef = useRef<SessionPrefetcher | undefined>(undefined);
   const selectionRevision = useRef(0);
   const currentWorkspaceId = useRef("");
   const [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
@@ -89,16 +91,15 @@ export default function App() {
     if (!workspaceId) { setSessions([]); setSessionsWorkspaceId(""); setSessionId(""); setSessionsLoading(false); return; }
     let active = true;
     const requestRevision = selectionRevision.current;
-    setSessionId(""); setError(""); setSessionsLoading(true);
-    api.sessions(workspaceId).then((result) => {
-      if (!active) return;
-      setSessions(result.sessions); setSessionsWorkspaceId(workspaceId); setSessionsLoading(false);
-      if (selectionRevision.current !== requestRevision) { pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" }; return; }
-      const pendingTarget = pendingInternalTarget.current?.workspaceId === workspaceId ? pendingInternalTarget.current : undefined;
-      const initialTarget = initialPermalink.current;
-      const linkedSessionId = pendingTarget?.sessionId || (initialTarget.workspaceId === workspaceId ? initialTarget.sessionId : undefined);
+    setError("");
+    const pendingTarget = pendingInternalTarget.current?.workspaceId === workspaceId ? pendingInternalTarget.current : undefined;
+    const initialTarget = initialPermalink.current;
+    const linkedSessionId = pendingTarget?.sessionId || (initialTarget.workspaceId === workspaceId ? initialTarget.sessionId : undefined);
+    const applySelection = (available: SessionInfo[]): boolean => {
+      if (selectionRevision.current !== requestRevision) return false;
+      if (linkedSessionId && !available.some((session) => session.id === linkedSessionId)) return false;
       const rememberedSessionId = lastSessionByWorkspace.current[workspaceId];
-      const selectedId = result.sessions.find((session) => session.id === linkedSessionId)?.id || result.sessions.find((session) => session.id === rememberedSessionId)?.id || result.sessions.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
+      const selectedId = available.find((session) => session.id === linkedSessionId)?.id || available.find((session) => session.id === rememberedSessionId)?.id || available.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
       setSessionId(selectedId);
       if (pendingTarget && selectedId === pendingTarget.sessionId) {
         setTargetMessageId(pendingTarget.messageId); setLeafEntryId(pendingTarget.leafEntryId); setPage("agent"); window.history.replaceState(null, "", sessionPermalink(workspaceId, selectedId, pendingTarget.messageId, pendingTarget.leafEntryId));
@@ -107,14 +108,52 @@ export default function App() {
         if ((!initialTarget.messageId && !initialTarget.leafEntryId) || selectedId !== linkedSessionId) window.history.replaceState(null, "", initialTarget.page === "files" && initialTarget.filePath !== undefined ? fileLocation(workspaceId, initialTarget.filePath, initialTarget.fileType || "file", selectedId) : appLocation(initialTarget.page, workspaceId, selectedId));
       }
       pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" };
+      return true;
+    };
+    const cached = getCachedSessionList(workspaceId);
+    if (cached) {
+      setSessions(cached); setSessionsWorkspaceId(workspaceId);
+      if (applySelection(cached)) setSessionsLoading(false);
+      else { setSessionId(""); setSessionsLoading(true); }
+    } else {
+      setSessionId(""); setSessionsLoading(true);
+    }
+    api.sessions(workspaceId).then((result) => {
+      cacheSessionList(workspaceId, result.sessions);
+      if (!active) return;
+      setSessions(result.sessions); setSessionsWorkspaceId(workspaceId); setSessionsLoading(false);
+      if (selectionRevision.current !== requestRevision) { pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" }; return; }
+      applySelection(result.sessions);
     }).catch((reason) => {
       if (!active) return;
       setSessionsLoading(false); setError(reason.message);
       if (selectionRevision.current !== requestRevision) return;
-      setSessions([]); setSessionsWorkspaceId(workspaceId); setSessionId("");
+      if (!cached) { setSessions([]); setSessionsWorkspaceId(workspaceId); setSessionId(""); }
     });
     return () => { active = false; };
   }, [workspaceId, auth]);
+
+  useEffect(() => {
+    if (auth !== "in") return;
+    const prefetcher = new SessionPrefetcher();
+    prefetcherRef.current = prefetcher;
+    const updateActivity = () => prefetcher.setActive(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", updateActivity);
+    updateActivity();
+    return () => {
+      document.removeEventListener("visibilitychange", updateActivity);
+      prefetcher.dispose();
+      if (prefetcherRef.current === prefetcher) prefetcherRef.current = undefined;
+    };
+  }, [auth]);
+
+  useEffect(() => {
+    const prefetcher = prefetcherRef.current;
+    if (!prefetcher) return;
+    const targets: SessionPrefetchTarget[] = [];
+    for (const item of workspaces) for (const status of Object.values(statusesByWorkspace[item.id] || {})) if (status.state === "running") targets.push({ workspaceId: item.id, sessionId: status.id });
+    prefetcher.update(targets, page === "agent" && sessionId ? sessionCacheKey(workspaceId, sessionId) : undefined);
+  }, [page, sessionId, statusesByWorkspace, workspaceId, workspaces]);
 
   useEffect(() => { currentWorkspaceId.current = workspaceId; }, [workspaceId]);
 
@@ -193,6 +232,7 @@ export default function App() {
   const refreshSessions = useCallback((removedFromActiveId?: string) => {
     if (!workspaceId) return;
     void api.sessions(workspaceId).then((result) => {
+      cacheSessionList(workspaceId, result.sessions);
       if (currentWorkspaceId.current !== workspaceId) return;
       if (removedFromActiveId && !result.sessions.some((session) => session.id === removedFromActiveId)) {
         deleteCachedSessionSnapshot(sessionCacheKey(workspaceId, removedFromActiveId));
@@ -259,7 +299,9 @@ export default function App() {
   async function openCreatedSession(createdSessionId: string) {
     if (!workspaceId) return;
     selectionRevision.current += 1;
-    setSessions(await api.sessions(workspaceId).then((result) => result.sessions)); setSessionsWorkspaceId(workspaceId);
+    const result = await api.sessions(workspaceId);
+    cacheSessionList(workspaceId, result.sessions);
+    setSessions(result.sessions); setSessionsWorkspaceId(workspaceId);
     setSessionId(createdSessionId); setTargetMessageId(undefined); setLeafEntryId(undefined); setPage("agent"); setSidebar(false); window.history.replaceState(null, "", sessionLocation(workspaceId, createdSessionId));
   }
 
@@ -305,6 +347,7 @@ export default function App() {
     if (!target) throw new Error("Enter a valid Pi-Ark session link");
     if (!workspaces.some((item) => item.id === target.workspaceId)) throw new Error("The linked workspace is not open");
     const result = await api.sessions(target.workspaceId);
+    cacheSessionList(target.workspaceId, result.sessions);
     if (!result.sessions.some((item) => item.id === target.sessionId)) throw new Error("The linked session does not exist");
     setSessionLinkOpen(false); setShowArchivedSessions(false); setSidebar(false);
     selectionRevision.current += 1;

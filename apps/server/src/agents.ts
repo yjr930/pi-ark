@@ -31,7 +31,7 @@ type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 type QueueItemMode = "steering" | "followUp";
 interface QueueItem { id: string; mode: QueueItemMode; text: string; images: Array<NonNullable<SavedAttachment["image"]>> }
 interface RollbackMarkerData { targetId: string; restoreEntryId: string; draft: string }
-interface AgentClientState { start: number; targetMessageId?: string; leafEntryId?: string }
+interface AgentClientState { start: number; targetMessageId?: string; leafEntryId?: string; snapshotsOnly?: boolean }
 type SessionRuntimeState = "ready" | "running" | "error";
 interface PendingQuestion {
   toolCallId: string;
@@ -340,7 +340,7 @@ export class AgentService {
     return { id: handle.session.sessionId };
   }
 
-  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessage?: string; start?: number; leafEntryId?: string } = {}): Promise<() => void> {
+  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessage?: string; start?: number; leafEntryId?: string; snapshotsOnly?: boolean } = {}): Promise<() => void> {
     const handle = await this.getOrOpen(workspace, sessionId);
     if (options.leafEntryId !== undefined && !validLeafEntryId(options.leafEntryId)) throw Object.assign(new Error("Invalid historical branch entry"), { statusCode: 400 });
     const messages = options.leafEntryId ? buildSessionDisplayMessages(handle.session.sessionManager, undefined, options.leafEntryId) : this.snapshotMessages(handle);
@@ -348,7 +348,7 @@ export class AgentService {
     const targetIndex = resolveDisplayMessageIndex(messages, options.targetMessage);
     const targetStart = targetIndex >= 0 ? previousDisplayPageStart(messages, targetIndex + 1) : defaultStart;
     const requestedStart = Number.isInteger(options.start) ? Math.max(0, Math.min(options.start!, messages.length)) : undefined;
-    handle.clients.set(socket, { leafEntryId: options.leafEntryId, start: requestedStart ?? Math.min(defaultStart, targetStart), ...(targetIndex >= 0 ? { targetMessageId: messages[targetIndex].messageId } : {}) });
+    handle.clients.set(socket, { leafEntryId: options.leafEntryId, snapshotsOnly: options.snapshotsOnly, start: requestedStart ?? Math.min(defaultStart, targetStart), ...(targetIndex >= 0 ? { targetMessageId: messages[targetIndex].messageId } : {}) });
     this.sendSnapshot(handle, socket, messages);
     return () => handle.clients.delete(socket);
   }
@@ -662,7 +662,7 @@ export class AgentService {
       handle.pendingError = undefined;
     }
     handle.displayMessages = undefined;
-    for (const [client, state] of handle.clients) if (!state.leafEntryId) send(client, { type: "agent-event", event });
+    for (const [client, state] of handle.clients) if (!state.leafEntryId && !state.snapshotsOnly) send(client, { type: "agent-event", event });
     if (event.type === "message_end" || event.type === "agent_settled" || event.type === "compaction_end" || event.type === "session_info_changed") this.scheduleSnapshot(handle);
   }
 
@@ -797,7 +797,7 @@ export class AgentService {
   }
 
   private broadcast(handle: AgentHandle, payload: unknown): void {
-    for (const client of handle.clients.keys()) send(client, payload);
+    for (const [client, state] of handle.clients) if (!state.snapshotsOnly) send(client, payload);
   }
 
   async reloadIdleSessions(): Promise<number> {

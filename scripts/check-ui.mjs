@@ -1518,7 +1518,7 @@ try {
   await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Maintenance", exact: true }).click();
   const cacheSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Browser cache", exact: true }) });
   await cacheSection.waitFor();
-  assert.match(await cacheSection.textContent(), /cached conversation/);
+  assert.match(await cacheSection.textContent(), /Cached conversations, Session lists, and composer states occupy [0-9.]+ (KB|MB|GB) in this browser\./);
   const clearCacheButton = cacheSection.getByRole("button", { name: "Clear browser cache" });
   assert.equal(await clearCacheButton.isEnabled(), true);
   await clearCacheButton.click();
@@ -1527,7 +1527,7 @@ try {
   await assertDialogChrome(cacheDialog);
   await cacheDialog.getByRole("button", { name: "Clear cache", exact: true }).click();
   await page.getByText("Browser cache cleared.", { exact: true }).waitFor();
-  assert.match(await cacheSection.textContent(), /No cached conversations or composer states/);
+  assert.match(await cacheSection.textContent(), /No cached data in this browser/);
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
   await page.locator(".composer textarea").waitFor();
   assert.equal(await page.locator(".composer textarea").inputValue(), "");
@@ -1566,6 +1566,44 @@ try {
   assert.match(String(mobileLayering.aboveComposer), /sidebar-scrim/);
   await page.getByRole("button", { name: "Close sidebar" }).click({ position: { x: 380, y: 400 } });
   assert.equal(await page.locator(".sidebar-scrim").count(), 0);
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  let sessionListAnswered = false;
+  const delaySessionList = async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    sessionListAnswered = true;
+    await route.continue();
+  };
+  await page.route("**/api/workspaces/*/sessions", delaySessionList);
+  await page.reload();
+  await page.locator(".session-list-item").filter({ hasText: "Browser UI fixture" }).waitFor({ timeout: 1500 });
+  assert.equal(sessionListAnswered, false, "a reloaded page shows the cached Session list before the Server list responds");
+  await page.waitForTimeout(2200);
+  assert.equal(sessionListAnswered, true);
+  await page.unroute("**/api/workspaces/*/sessions", delaySessionList);
+
+  await page.locator(".session-list-item").filter({ hasText: "Browser UI fixture" }).locator(".session-open").click();
+  await page.locator(".status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 5000 });
+  const prefetchedSessionId = loadingSessionFixture.getSessionId();
+  await page.routeWebSocket(new RegExp(`/ws/agent/[^/]+/${prefetchedSessionId}(?:\\?|$)`), (webSocket) => {
+    const server = webSocket.connectToServer();
+    webSocket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      let snapshot = false;
+      try { snapshot = JSON.parse(String(message)).type === "snapshot"; } catch { /* forward non-JSON messages */ }
+      if (snapshot) setTimeout(() => webSocket.send(message), 3000);
+      else webSocket.send(message);
+    });
+  });
+  mockedSessionStatuses = [{ id: prefetchedSessionId, state: "running", statusRevision: 1, updateRevision: 0 }];
+  const prefetchedRow = page.locator(".session-list-item").filter({ hasText: "Uncached loading fixture" });
+  await prefetchedRow.getByRole("status", { name: "Session is running" }).waitFor({ timeout: 5000 });
+  await page.waitForTimeout(4500);
+  await prefetchedRow.locator(".session-open").click();
+  await page.getByText("Loading fixture answer", { exact: true }).waitFor({ timeout: 900 });
+  await page.locator(".status-dot").filter({ hasText: "Refreshing conversation" }).waitFor({ timeout: 900 });
+  await page.locator(".status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 5000 });
 
   console.log("browser UI checks passed");
 } catch (error) {

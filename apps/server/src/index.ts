@@ -266,12 +266,12 @@ app.post<{ Params: { workspaceId: string; sessionId: string; toolCallId: string 
   return reply.code(204).send();
 });
 
-app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string; leafEntryId?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
+app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string; leafEntryId?: string; snapshotsOnly?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
   startHeartbeat(socket, { notice: true });
   const workspace = workspaces.get(request.params.workspaceId);
   const targetMessage = request.query.message?.trim() || undefined;
   const requestedStart = Number(request.query.start);
-  const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessage, leafEntryId: request.query.leafEntryId, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
+  const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessage, leafEntryId: request.query.leafEntryId, snapshotsOnly: request.query.snapshotsOnly === "1", start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
   const onMessage = async (raw: Buffer) => {
     try {
       const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; instructions?: string; attachments?: Array<{ name: string; mimeType: string; data: string }>; toolCallId?: string; answers?: unknown };
@@ -297,7 +297,7 @@ app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { mes
   });
   socket.on("close", () => {
     socket.off("message", onMessage);
-    void connection.then((disconnect) => disconnect());
+    void connection.then((disconnect) => disconnect()).catch(() => undefined);
   });
 });
 

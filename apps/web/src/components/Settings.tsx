@@ -1,7 +1,7 @@
 import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, Puzzle, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { clearSessionCache, getSessionCacheSummary } from "../session-cache";
+import { clearSessionCache, flushSessionCache, formatCacheSize, getSessionCacheSummary } from "../session-cache";
 import { themes } from "../theme";
 import { FONT_LEVELS, FONT_SCALE_STEP, MAX_FONT_SCALE, MIN_FONT_SCALE, levelPixels } from "../typography";
 import type { AppearanceSettings } from "../appearance";
@@ -95,12 +95,19 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
     if (!active) { setApiKey(""); setDisconnectOpen(false); setReleaseUpdateOpen(false); setReleaseRollbackOpen(false); setCacheClearOpen(false); }
     if (active && category === "maintenance") {
       setCacheSummary(getSessionCacheSummary());
+      void flushSessionCache().then(() => setCacheSummary(getSessionCacheSummary()));
       if (!releaseRequested.current) {
         releaseRequested.current = true;
         setReleaseChecking(true);
         void api.releaseInfo().then(setRelease).catch((reason) => setNotice({ kind: "error", text: reason.message })).finally(() => setReleaseChecking(false));
       }
     }
+  }, [active, category]);
+
+  useEffect(() => {
+    if (!active || category !== "maintenance") return;
+    const timer = window.setInterval(() => setCacheSummary(getSessionCacheSummary()), 2000);
+    return () => window.clearInterval(timer);
   }, [active, category]);
 
   async function refreshSettings() {
@@ -423,7 +430,7 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
           </section>}
           <section className="settings-section">
             <div className="settings-section-title"><HardDrive size={17} /><div><h3>Browser cache</h3><p>Recent conversations and composer state stored in this browser for faster reopening.</p></div></div>
-            <div className="settings-rows"><div className="settings-row settings-cache-row"><div><strong>Cached data</strong><span>{cacheSummary.snapshots === 0 && cacheSummary.uiStates === 0 ? "No cached conversations or composer states in this browser." : `${cacheSummary.snapshots} cached ${cacheSummary.snapshots === 1 ? "conversation" : "conversations"} and ${cacheSummary.uiStates} ${cacheSummary.uiStates === 1 ? "composer state" : "composer states"} in this browser.`}{!cacheSummary.persistent && " This browser is keeping the cache for the current page only."}</span></div><button type="button" className="secondary-button" disabled={cacheClearing || (cacheSummary.snapshots === 0 && cacheSummary.uiStates === 0)} onClick={() => setCacheClearOpen(true)}><Trash2 size={13} />Clear browser cache</button></div></div>
+            <div className="settings-rows"><div className="settings-row settings-cache-row"><div><strong>Cached data</strong><span>{cacheSummary.entries === 0 ? "No cached data in this browser." : `Cached conversations, Session lists, and composer states occupy ${formatCacheSize(cacheSummary.bytes)} in this browser.`}{!cacheSummary.persistent && " This browser is keeping the cache for the current page only."}</span></div><button type="button" className="secondary-button" disabled={cacheClearing || cacheSummary.entries === 0} onClick={() => setCacheClearOpen(true)}><Trash2 size={13} />Clear browser cache</button></div></div>
           </section>
           </div>
           <div className="settings-category" hidden={category !== "agent"}>
