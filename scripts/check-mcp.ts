@@ -75,8 +75,10 @@ try {
   assert.deepEqual(migratedConfig.mcpServers.playwright.args, ["@playwright/mcp@0.0.85", "--browser=chromium", "--headless"]);
   assert.ok(migratedConfig.mcpServers.exa, "ensureConfig must add the exa entry to an existing config");
 
-  const trust = await readFile(join(agentDir, "trust.json"), "utf8");
-  assert.equal(trust.includes(resolve(workspace.path)), true, "a registered workspace must be trusted for project MCP config");
+  const trust = JSON.parse(await readFile(join(agentDir, "trust.json"), "utf8")) as Record<string, boolean>;
+  const trustedPath = resolve(workspace.path);
+  const trusted = Object.keys(trust).some((path) => process.platform === "win32" ? path.toLowerCase() === trustedPath.toLowerCase() : path === trustedPath);
+  assert.equal(trusted, true, "a registered workspace must be trusted for project MCP config");
 
   const projectConfigPath = join(workspace.path, ".pi", "mcp.json");
   await mkdir(dirname(projectConfigPath), { recursive: true });
