@@ -50,7 +50,7 @@ function main() {
   const commits = git("log", "--format=%h%x09%s", range).split("\n").filter(Boolean).map((line) => {
     const [short, ...subject] = line.split("\t");
     return { short, subject: subject.join("\t") };
-  }).filter(({ subject }) => !/^(?:Prepare|Refresh) release /.test(subject));
+  }).filter(({ subject }) => !/^(?:Prepare|Refresh) (?:development version|release) /.test(subject));
   const date = new Date().toISOString().slice(0, 10);
   process.stdout.write(buildReleaseNotes({ version, previousTag, commits, date }));
 }
