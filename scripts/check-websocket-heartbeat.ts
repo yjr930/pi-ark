@@ -14,6 +14,14 @@ class FakeSocket extends EventEmitter {
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const waitFor = async (predicate: () => boolean, timeoutMs = 1000) => {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) return false;
+    await wait(5);
+  }
+  return true;
+};
 const asSocket = (socket: FakeSocket) => socket as unknown as WebSocket;
 
 assert.equal(heartbeatIntervalMs, 15000);
@@ -21,7 +29,7 @@ assert.equal(heartbeatIntervalMs, 15000);
 const answered = new FakeSocket();
 const stopAnswered = startHeartbeat(asSocket(answered), { intervalMs: 20, notice: true });
 const pong = setInterval(() => { if (answered.pings > 0) answered.emit("pong"); }, 10);
-await wait(70);
+assert.equal(await waitFor(() => answered.pings >= 3), true);
 clearInterval(pong);
 assert.equal(answered.terminated, 0);
 assert.equal(answered.pings >= 3, true);
