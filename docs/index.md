@@ -10,12 +10,15 @@
 | [程序实现架构](architecture.md) | 开发和运维 | 前后端模块、pi SDK 集成、数据流、存储、API、安全和部署 |
 | [使用手册](user-guide.md) | 使用者和管理员 | 安装、登录、Workspace、Session、Agent、Skills、MCP、Files、Terminal 和 Settings 操作 |
 | [Pi 集成调研](research.md) | 开发 | pi SDK 选型、公开 API、事件和 session 存储背景 |
+| [Claude Code 调研：System prompt](research-claude-code-system-prompt.md) | 开发 | 提示词的组成、自定义方式、公开模板和外泄事件 |
+| [Claude Code 调研：Agent 间的通信机制](research-claude-code-agent-communication.md) | 开发 | Subagent 委派、Agent Teams 的消息与任务表、跨会话消息 |
+| [Claude Code 调研：Memory](research-claude-code-memory.md) | 开发 | 项目指令、自动记忆、会话记录和上下文压缩 |
 | [Agent 资源联合设计](design-agent-resources.md) | 产品设计、开发 | Skills、MCP 与 Extensions 的分层来源、启用管理、实现入口、内置 skill 与浏览器能力接入 |
 | [交互式提问工具](design-question-tool.md) | 产品设计、开发 | 提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面 |
 
 ## 信息来源
 
-文档按以下顺序确认当前行为：
+文档按以下顺序确认 Pi-Ark 的当前行为：
 
 1. `apps/server/src/` 和 `apps/web/src/` 中的当前实现。
 2. `scripts/check-*.ts` 与 `scripts/check-*.mjs` 中的行为检查。
@@ -31,6 +34,7 @@
 - 程序实现架构文档描述模块职责、数据流、存储和运行机制。
 - 使用手册按照用户完成任务的顺序描述操作步骤。
 - Pi 集成调研记录技术选型依据和上游 pi API 背景。
+- Claude Code 调研分别记录 system prompt、agent 间的通信机制和 memory 设计，按官方文档、发布记录和带版本的第三方资料标明出处。
 - Agent 资源联合设计记录 Skills、MCP 与 Extensions 的资源模型、服务端与页面实现入口，以及内置 `browser`、`mcp-servers` 与 `skill-authoring` skill、`playwright` server、MCP 密钥目录与用户扩展目录的接入。
 - 交互式提问工具文档记录提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面行为。
 
