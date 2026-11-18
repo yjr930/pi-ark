@@ -246,7 +246,7 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限，并以 Workspace 目�
 Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
 
 - Appearance：Theme 区域使用紧凑的色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）；Text size 区域用滑杆调整全部界面文字的整体倍率，范围 90% 到 130%，并列出七个字号等级的名称、用途与当前像素值；Sidebar 区域包含 Working session count 开关；Conversation 区域包含 Hide reasoning 和 Keep line breaks。这些设置都保存在当前浏览器，改动立即生效。
-- Models & providers：Provider credential 管理、write-only API key、subscription login、模型可见清单、default model 和 default thinking level。
+- Models & providers：Provider credential 管理、write-only API key、subscription login、模型清单刷新、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
 - Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。
 - MCP：MCP server 列表、启用开关、连接状态、诊断与浏览器运行时。
@@ -261,6 +261,8 @@ Keep line breaks（按原文换行）默认开启，会话和 Markdown 文件中
 Settings 在首次访问后保留在当前页面的内存中。页面切换保留已加载的数据、所选类别、各类别的滚动位置和草稿（提示词与 Terminal shell 设置）。模型数据独立加载；effective prompt preview 在展开时加载；Skills、MCP 与 Extensions 数据在首次进入对应类别时加载；Terminal shell 设置在首次进入 Terminal 类别时加载；release 信息在首次进入 Maintenance 时加载。Refresh settings 主动重新读取当前类别需要的数据；在 Terminal 类别中刷新时，页面更新 Server 配置与 profiles，同时保留尚未保存的草稿和刷新期间的新编辑内容。离开 Settings 时，页面清空尚未提交的 API key，并暂停 subscription 登录的轮询。
 
 模型 checkbox 使用填色表示启用，使用空白状态表示关闭。切换非默认模型的启用状态时，页面保留当前的 default model 和 Default thinking level。关闭 default model 时，页面选择模型列表中第一个仍启用的模型作为新 default，并将 thinking level 调整为新 default 支持的等级。最后一个启用的模型保持启用，并显示 Select at least one model 提示。
+
+Models shown in Pi-Ark 标题行在搜索框左侧提供 Refresh models 按钮。点击后按钮显示 Refreshing，模型 checkbox 与星标暂时不可操作；刷新完成后列表原地更新，提示显示新增模型数量，没有新增时显示 No new models。刷新不重启服务，当前 Session 的模型保持不变。部分 Provider 目录请求失败时，列表保留刷新前的内容，并提示失败的 Provider 名称。
 
 Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；模型 checkbox、default model、default thinking level 和 Agent defaults 在选择后保存。Manage Provider 选择器用于切换当前管理的 Provider；新 Session 的 default 由模型行右侧的星标决定。API key 与 Global system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的配置；选择普通 shell profile 且其他字段保持已保存内容时，选择结果立即保存。pi 保存 API key 和 OAuth credential，浏览器接收 credential 状态与来源。使用保存 credential 的 Provider 显示 Disconnect；确认后，Pi-Ark 删除该 credential，并从仍可用的已勾选模型中保留 default，或选择第一个仍可用模型。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面省略该输入项。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，使新的登录 flow 可以继续。
 

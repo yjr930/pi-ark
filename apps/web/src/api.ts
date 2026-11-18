@@ -35,6 +35,7 @@ export const api = {
   saveGlobalAgentDefaults: (settings: Pick<import("./types").GlobalSettings, "steeringMode" | "followUpMode" | "compactionEnabled" | "retryEnabled">) => request<typeof settings>("/api/settings/agent-defaults", { method: "PUT", body: JSON.stringify(settings) }),
   providerModels: (provider: string) => request<{ models: import("./types").ModelOption[] }>(`/api/settings/models?provider=${encodeURIComponent(provider)}`),
   modelPreferences: () => request<import("./types").ModelPreferences>("/api/settings/model-preferences"),
+  refreshModels: () => request<import("./types").ModelRefreshResult>("/api/settings/models/refresh", { method: "POST" }),
   saveModelPreferences: (preferences: Omit<import("./types").ModelPreferences, "models"> & { enabledModels: string[] }) => request<import("./types").ModelPreferences>("/api/settings/model-preferences", { method: "PUT", body: JSON.stringify(preferences) }),
   saveProviderApiKey: (providerId: string, apiKey: string) => request<import("./types").GlobalSettings>(`/api/settings/providers/${encodeURIComponent(providerId)}/api-key`, { method: "POST", body: JSON.stringify({ apiKey }) }),
   disconnectProvider: (providerId: string) => request<import("./types").GlobalSettings>(`/api/settings/providers/${encodeURIComponent(providerId)}/credential`, { method: "DELETE" }),

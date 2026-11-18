@@ -135,6 +135,11 @@ await page.route("**/api/settings/model-preferences", async (route) => {
   }
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(mockedModelPreferences) });
 });
+await page.route("**/api/settings/models/refresh", async (route) => {
+  const added = ["openai/gpt-9-browser"];
+  mockedModelPreferences = { ...mockedModelPreferences, models: [...mockedModelPreferences.models, { provider: "openai", providerName: "OpenAI", id: "gpt-9-browser", name: "GPT-9 Browser", reasoning: true, contextWindow: 400000, thinkingLevels: ["low", "medium", "high"], enabled: false }] };
+  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ preferences: mockedModelPreferences, added, errors: [] }) });
+});
 await page.route("**/api/settings/session-models", async (route) => {
   const models = mockedModelPreferences.models.filter((model) => model.enabled).map(({ providerName: _providerName, enabled: _enabled, ...model }) => model);
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ models }) });
@@ -1507,6 +1512,11 @@ try {
   await page.getByLabel("Paste the authorization code").fill("browser-code");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.locator(".subscription-state.success").getByText("Subscription connected", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Refresh models", exact: true }).click();
+  await page.getByText("Model catalog refreshed. 1 new models available.", { exact: true }).waitFor();
+  assert.equal(await modelPreferences.getByRole("checkbox").count(), 4);
+  assert.equal(await modelPreferences.locator(".model-preference-row").filter({ hasText: "gpt-9-browser" }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Refresh models", exact: true }).count(), 1);
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Agent" }).click();
   await page.locator(".composer-thinking .ark-select-trigger").waitFor();
   await page.locator(".chat-header .status-dot").filter({ hasText: "Ready" }).waitFor();

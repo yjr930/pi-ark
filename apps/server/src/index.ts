@@ -126,6 +126,7 @@ app.post("/api/settings/release/rollback", async () => piCore.rollback());
 app.get<{ Querystring: { provider: string } }>("/api/settings/models", async (request) => ({ models: settings.getModels(request.query.provider) }));
 app.get("/api/settings/model-preferences", async () => settings.getModelPreferences());
 app.put<{ Body: ModelPreferencesInput }>("/api/settings/model-preferences", async (request) => settings.saveModelPreferences(request.body));
+app.post("/api/settings/models/refresh", async () => settings.refreshModels());
 app.get("/api/settings/session-models", async () => ({ models: await settings.getSessionModels() }));
 app.post<{ Params: { providerId: string }; Body: { apiKey: string } }>("/api/settings/providers/:providerId/api-key", async (request) => settings.loginApiKey(request.params.providerId, request.body?.apiKey));
 app.delete<{ Params: { providerId: string } }>("/api/settings/providers/:providerId/credential", async (request) => settings.disconnectProvider(request.params.providerId));

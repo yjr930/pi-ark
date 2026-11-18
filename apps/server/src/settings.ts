@@ -25,6 +25,8 @@ export interface ModelPreferencesInput {
   thinkingLevel: ModelThinkingLevel;
 }
 
+const MODEL_REFRESH_TIMEOUT_MS = 30_000;
+
 export function createGlobalSettingsManager(cwd: string): SettingsManager {
   return SettingsManager.create(cwd, piArkAgentDir, { projectTrusted: false });
 }
@@ -104,6 +106,19 @@ export class SettingsService {
       defaultProvider: defaultModel?.provider || "",
       defaultModel: defaultModel?.id || "",
       thinkingLevel: defaultModel ? clampThinkingLevel(defaultModel, this.manager.getDefaultThinkingLevel() || "medium") : "off",
+    };
+  }
+
+  /** Reloads `models.json` and fetches provider catalogs so new models appear without a service restart. */
+  async refreshModels() {
+    const previous = new Set(this.models.getAvailableSnapshot().map((model) => `${model.provider}/${model.id}`));
+    const allowNetwork = process.env.PI_OFFLINE === undefined;
+    const result = await this.models.refresh({ allowNetwork, force: true, signal: AbortSignal.timeout(MODEL_REFRESH_TIMEOUT_MS) });
+    const added = this.models.getAvailableSnapshot().map((model) => `${model.provider}/${model.id}`).filter((reference) => !previous.has(reference));
+    return {
+      preferences: await this.getModelPreferences(),
+      added,
+      errors: [...result.errors].map(([provider, error]) => ({ provider, message: error instanceof Error ? error.message : String(error) })),
     };
   }
 

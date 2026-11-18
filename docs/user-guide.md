@@ -567,9 +567,12 @@ Conversation 区域包含两个开关。Hide reasoning 控制所有 Workspace �
 
 1. 在 Manage Provider 中选择需要认证或断开的 Provider。模型行右侧的星标继续决定新 Session 的 default。
 2. 通过 API key 或 subscription account 完成认证。
-3. 在 Models shown in Pi-Ark 中选择需要出现在模型菜单中的模型。模型 checkbox 的填色状态表示启用，空白状态表示关闭。列表按 Provider 分组，并支持搜索。
-4. 点击模型行右侧的星标，将已勾选模型指定为新 Session 的 default。选择尚未勾选的模型作为 default 时，Pi-Ark 会同时勾选该模型。
-5. 选择 default model 支持的 Default thinking level。
+3. 需要让新发布的模型出现在列表时，点击 Models shown in Pi-Ark 标题行的 Refresh models。
+4. 在 Models shown in Pi-Ark 中选择需要出现在模型菜单中的模型。模型 checkbox 的填色状态表示启用，空白状态表示关闭。列表按 Provider 分组，并支持搜索。
+5. 点击模型行右侧的星标，将已勾选模型指定为新 Session 的 default。选择尚未勾选的模型作为 default 时，Pi-Ark 会同时勾选该模型。
+6. 选择 default model 支持的 Default thinking level。
+
+Refresh models 重新读取 `models.json` 并从 Provider 目录拉取最新模型清单。刷新在运行中的服务里完成，不重启服务，进行中的 Session 保持当前模型。刷新期间按钮显示 Refreshing，模型 checkbox 与星标暂时不可操作；完成后提示新增模型数量，没有新增时提示 No new models。某个 Provider 的目录请求失败时，列表保留刷新前的内容，并提示该 Provider 名称。新出现的模型是否勾选取决于已保存的模型清单：之前勾选全部模型时，新模型自动启用；之前保存了显式清单时，新模型保持未勾选，手动勾选后进入模型菜单。
 
 模型 checkbox、default 和 Default thinking level 在选择后立即保存。切换普通模型的启用状态时，当前 default 和 Default thinking level 保持原值。关闭 default 模型时，Pi-Ark 从列表中选择第一个仍启用的模型作为新 default，并调整 thinking level 以匹配新 default。最后一个启用的模型保持启用，页面显示 Select at least one model 提示。已有 Session 会继续恢复它记录的当前模型；如果该模型后来取消勾选，composer 仍显示当前的 `provider/model` reference，模型菜单显示当前已勾选的模型。API key 输入是 write-only；输入后使用该区域内的 Save API key 或 Cancel。浏览器接收 credential 状态与来源，credential 内容保存在服务端。
 

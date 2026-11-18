@@ -197,6 +197,12 @@ export interface ModelPreferences {
   thinkingLevel: GlobalSettings["thinkingLevel"];
 }
 
+export interface ModelRefreshResult {
+  preferences: ModelPreferences;
+  added: string[];
+  errors: Array<{ provider: string; message: string }>;
+}
+
 export interface ReleaseInfo {
   version: string;
   coreVersion: string;

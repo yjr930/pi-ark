@@ -474,6 +474,8 @@ API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。�
 
 模型 checkbox 使用 `SettingsManager.getEnabledModels()/setEnabledModels()`。SettingsService 通过 pi 的 `resolveModelScopeWithDiagnostics()` 解析 exact reference、glob 和 thinking suffix；Session model API、模型切换校验和新 Session 创建使用同一 scope。全部当前可用模型均勾选时，Pi-Ark 将 `enabledModels` 保存为 `undefined`，沿用 pi 的“全部可用模型”语义。模型偏好保存要求至少一个当前可用模型，并要求 default 属于已勾选模型。
 
+Settings 的 Refresh models 调用 `SettingsService.refreshModels()`，后者对同一个 `ModelRuntime` 执行 `refresh({ allowNetwork, force: true, signal })`：重新读取 `models.json`、重建 Provider 组合、在未设置 `PI_OFFLINE` 时按 Provider 拉取 pi.dev 目录并将快照写入 `models-store.json`。刷新在服务进程内更新 model snapshot，页面、新 Session 和已有 Session 的模型菜单直接使用新清单，不需要重启服务。单个 Provider 的目录请求失败时保留之前的快照，接口把失败的 Provider 和错误信息返回页面。可用模型在此次刷新前后新增的 reference 作为 `added` 返回，页面据此提示新增数量。
+
 断开 Provider 后，SettingsService 从断开前的已勾选模型中保留仍可用的模型。没有剩余已勾选模型且还有其他可用模型时，SettingsService 选择第一个可用模型，并同步 default 与 thinking level。
 
 ### Terminal 设置
@@ -726,6 +728,7 @@ interface TerminalInfo {
 | PUT | `/api/settings/agent-defaults` | 立即保存 message queue、compaction 和 retry defaults |
 | GET | `/api/settings/models` | Provider catalog model list |
 | GET/PUT | `/api/settings/model-preferences` | 已认证 Provider 的模型清单、checkbox、default 和 thinking level |
+| POST | `/api/settings/models/refresh` | 重新读取 `models.json` 并刷新 Provider 目录，返回 `{ preferences, added, errors }` |
 | POST | `/api/settings/providers/:providerId/api-key` | 保存指定 Provider 的 API key |
 | DELETE | `/api/settings/providers/:providerId/credential` | 删除指定 Provider 的保存 credential |
 | GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |

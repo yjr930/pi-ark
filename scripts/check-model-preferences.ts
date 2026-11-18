@@ -7,6 +7,8 @@ function model(provider: string, id: string, reasoning = false) {
 
 const available = [model("alpha", "one"), model("alpha", "two", true), model("beta", "three")];
 let activeAvailable = available;
+let pendingModels: ReturnType<typeof model>[] = [];
+let refreshErrors = new Map<string, Error>();
 let enabledModels: string[] | undefined = ["alpha/two", "beta/three"];
 let defaultProvider = "alpha";
 let defaultModel = "one";
@@ -33,6 +35,13 @@ const models = {
   getModel: (providerId: string, modelId: string) => available.find((candidate) => candidate.provider === providerId && candidate.id === modelId),
   isUsingSubscription: () => false,
   logout: async (providerId: string) => { loggedOutProvider = providerId; activeAvailable = activeAvailable.filter((candidate) => candidate.provider !== providerId); },
+  refresh: async () => {
+    activeAvailable = [...activeAvailable, ...pendingModels];
+    pendingModels = [];
+    const errors = refreshErrors;
+    refreshErrors = new Map();
+    return { aborted: false, errors };
+  },
 };
 const settings = Object.assign(Object.create(SettingsService.prototype), { manager, models }) as SettingsService;
 
@@ -53,6 +62,18 @@ assert.equal(defaultModel, "three");
 assert.equal(saved.defaultModel, "three");
 await assert.rejects(() => settings.saveModelPreferences({ enabledModels: [], defaultProvider: "beta", defaultModel: "three", thinkingLevel: "off" }), /at least one model/);
 await assert.rejects(() => settings.saveModelPreferences({ enabledModels: ["alpha/one"], defaultProvider: "beta", defaultModel: "three", thinkingLevel: "off" }), /must be enabled/);
+
+pendingModels = [model("alpha", "four")];
+const refreshed = await settings.refreshModels();
+assert.deepEqual(refreshed.added, ["alpha/four"]);
+assert.deepEqual(refreshed.errors, []);
+assert.ok(refreshed.preferences.models.some((candidate) => candidate.provider === "alpha" && candidate.id === "four" && !candidate.enabled));
+assert.deepEqual(refreshed.preferences.models.filter((candidate) => candidate.enabled).map((candidate) => `${candidate.provider}/${candidate.id}`), ["alpha/one", "beta/three"]);
+
+refreshErrors = new Map([["beta", new Error("catalog unavailable")]]);
+const failedRefresh = await settings.refreshModels();
+assert.deepEqual(failedRefresh.added, []);
+assert.deepEqual(failedRefresh.errors, [{ provider: "beta", message: "catalog unavailable" }]);
 
 (settings as unknown as { getGlobal: () => Promise<unknown> }).getGlobal = async () => ({ ok: true });
 await settings.disconnectProvider("alpha");
