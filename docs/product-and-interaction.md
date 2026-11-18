@@ -183,7 +183,11 @@ Agent 可以通过 `subagent` 委派独立任务。新建的子 Session 继承�
 
 Composer 的最大宽度固定为 Compact 宽度。Compact、Wide 和 Full 只改变 conversation message 区域的宽度。Composer 作为 Agent 页面 Grid 的底部行参与布局，queue 增高时 conversation 使用剩余高度。
 
-Composer 支持三种召唤方式：输入 `/` 打开内置命令、skill 与扩展命令列表、`$` 打开 MCP server 列表、`@` 打开当前 Workspace 的文件列表。候选按关键词匹配，`$server/` 继续列出该 server 的工具。弹层显示在 composer 上方，ArrowUp 与 ArrowDown 移动选择，Enter 或 Tab 插入，Esc 关闭，鼠标点击也可以插入。内置命令 `compact` 位于列表首项，插入 `/compact`；输入 `/compact` 并按 Enter 会立即压缩当前 Session 的上下文，后面可以附带一段文字作为摘要的补充要求。skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。文件候选在停止输入 120 毫秒后请求 Server，列表超过上限时弹层底部提示细化关键词。MCP 候选先读取配置文件，直接列出已启用的 server，同时在后台连接 server 补齐工具列表；输入 `server/` 时如果工具列表尚未就绪，弹层显示 Searching。
+Composer 支持三种召唤方式：输入 `/` 打开内置命令、skill 与扩展命令列表、`$` 打开 MCP server 列表、`@` 打开当前 Workspace 的文件列表。候选按关键词匹配，`$server/` 继续列出该 server 的工具。弹层显示在 composer 上方，ArrowUp 与 ArrowDown 移动选择，Enter 或 Tab 插入，Esc 关闭，鼠标点击也可以插入。列表开头依次显示内置命令 `/compact` 和 `/reload`。输入 `/compact` 并按 Enter 会立即压缩当前 Session 的上下文，命令后面可以附带一段文字来补充摘要要求。Skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。文件候选在停止输入 120 毫秒后请求 Server，列表超过上限时弹层底部提示细化关键词。MCP 候选先读取配置文件，直接列出已启用的 server，同时在后台连接 server 补齐工具列表；输入 `server/` 时如果工具列表尚未就绪，弹层显示 Searching。
+
+`/reload` 用于当前空闲的主 Session。选中候选并插入后，再按 Enter 提交，命令不接受参数。这项会话操作不产生模型回合。请求期间，标题旁显示 `Reloading session resources…`；完成后短暂显示 `Session resources reloaded` 或失败原因。Session 还有待处理事项（活动回合、队列消息或待答问题）时，页面提示处理后重试。
+
+发出请求时，Composer 清除命令并保留待发送的附件。请求期间可以继续编辑草稿。成功后，Composer 使 `/` 和 `$` 的候选缓存失效，下次使用对应的候选列表时重新读取资源。
 
 输入框为空时显示 `Send message here`。输入框会随内容增长，最多显示十行，之后使用内部滚动。Enter 发送，Shift+Enter 换行；输入法正在组合文字时，Enter 交给输入法处理。Send 与 Stop 始终显示；Agent active 时 Send 提交 Follow-up，Session idle 时 Send 提交普通 prompt，Stop 在 Session idle 时为 disabled。
 
@@ -298,13 +302,17 @@ Refresh 重新执行列表读取并更新连接状态、注册动作数量和诊
 
 Extensions 类别显示用户扩展目录、已加载扩展数量、注册工具数量和扩展列表。列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、加载状态（Loaded 或 Failed）、注册工具数量、扩展路径、工具标记、命令和诊断。工具标记显示工具名，带 ` · on demand` 表示工具已注册但没有自动激活；不带该后缀表示模型可以直接调用。扩展命令同时进入 Composer 的 `/` 列表，选中后插入 `/命令名`。加载失败的行显示错误原因，没有注册工具的扩展显示 No tools registered。
 
-Refresh 重新读取扩展目录与加载结果，然后重载空闲 Session，并在通知中显示使用新集合的 Session 数量。页面首次进入 Extensions 类别时读取一次，停留在该类别期间不自动刷新。页面不提供启用开关、安装与删除按钮；用户把 `.ts` 或 `.js` 文件放入 Install directory 显示的目录，或放入包含 `index.ts` 或 `index.js` 的目录、包含 `pi.extensions` 声明的 `package.json` 目录，然后新建 Session。列表为空时显示添加文件的提示。
+Refresh 重新读取扩展目录与加载结果，然后批量刷新符合条件的空闲 Session。通知会显示完成刷新的 Session 数量；没有 Session 完成刷新时，通知提示新建 Session 可使用更新后的扩展。页面首次进入 Extensions 类别时读取一次，停留在该类别期间不自动刷新。页面不提供启用开关、安装与删除按钮；用户把 `.ts` 或 `.js` 文件放入 Install directory 显示的目录，或放入包含 `index.ts` 或 `index.js` 的目录、包含 `pi.extensions` 声明的 `package.json` 目录，然后新建 Session。列表为空时显示添加文件的提示。
 
 扩展的交互式 UI 调用在 Pi-Ark 中返回空结果。扩展可以通过事件钩子、注册工具、命令与会话状态写入工作。
 
 ### 配置的生效方式
 
-Global system prompt append 在 pi 加载 Global prompt 资源后追加，并在新建或重新打开 Session 时进入 runtime。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。Skill 启用状态或 MCP server 启用状态保存后，Server 对空闲 Session 执行 reload；正在运行的 Session 保持当前资源集合，新建 Session 使用最新集合。扩展文件变化后，新建 Session 使用最新内容，Extensions 的 Refresh 同时重载空闲 Session。`playwright` 的浏览器运行时安装在 Playwright 的浏览器缓存目录：设置 `PLAYWRIGHT_BROWSERS_PATH` 时取该变量的值，否则 Linux 使用服务账号 home 下的 `.cache/ms-playwright`，macOS 使用 `Library/Caches/ms-playwright`，Windows 使用 `%LOCALAPPDATA%` 下的 `ms-playwright`。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
+pi 加载 Global prompt 资源后加入 Global system prompt append。Pi-Ark 在创建 Session runtime 或执行 [`/reload`](#composer) 时重新读取这项设置。文件工具（`read`、`bash`、`edit` 和 `write`）在父子 Session 新建和恢复时统一启用，effective prompt preview 使用相同的文件工具。父子 Session 自带 `read_pi_ark_link`，父 Session 还自带 `subagent`，子 Session 的后续委派由父 Session 组织。
+
+保存 Skill 选择、修改 MCP server 的启用状态或点击 Extensions 的 Refresh 后，Server 批量更新符合条件的空闲 Session。正在运行的 Session 继续使用当前资源。新建 Session 使用最新资源。
+
+`playwright` 的浏览器运行时安装在 Playwright 的浏览器缓存目录：设置 `PLAYWRIGHT_BROWSERS_PATH` 时取该变量的值，否则 Linux 使用服务账号 home 下的 `.cache/ms-playwright`，macOS 使用 `Library/Caches/ms-playwright`，Windows 使用 `%LOCALAPPDATA%` 下的 `ms-playwright`。Files 的设置保存后立即用于所有 Workspace 的后续文件请求。Terminal 的 Server shell 设置在新建 Tab 时生效，已有 Tab 继续使用各自启动时的配置。浏览器的 Font family 和 Font size 在修改后立即应用到该浏览器已打开的 Tab，Reset font defaults 恢复默认字体列表和 13 px 的字号；字号范围为 10–30 px。
 
 ## 桌面与移动布局
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { createAgentSession, DefaultResourceLoader, SessionManager, type AgentSession, type AgentSessionEvent, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, SessionManager, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { WebSocket } from "ws";
 import type { WorkspaceDefinition } from "./config.js";
 import { ensureWorkspaceState, loadGlobalPreferences, piArkAgentDir } from "./config.js";
@@ -56,6 +56,9 @@ interface AgentHandle {
   queueVersion: number;
   queueRevision: number;
   queueRebuildPromise?: Promise<void>;
+  activeOperations: number;
+  resourceReload?: Promise<void>;
+  closing?: boolean;
   displayMessages?: ReturnType<typeof buildSessionDisplayMessages>;
   runtimeState: SessionRuntimeState;
   runtimeId: string;
@@ -126,7 +129,12 @@ export class AgentService {
         const handle = this.handles.get(this.key(workspace, sessionId));
         if (handle) this.broadcast(handle, { type: "subagent-state", subagents: this.subagents.store.state(workspace, sessionId) });
       }
-    }, async (workspace, sessionId) => (await this.getOrOpen(workspace, sessionId)).session);
+    }, async (workspace, sessionId) => {
+      const handle = await this.getOrOpen(workspace, sessionId);
+      await handle.resourceReload?.catch(() => undefined);
+      this.assertRuntimeAvailable(handle);
+      return handle.session;
+    });
   }
 
   private key(workspace: WorkspaceDefinition, sessionId: string): string {
@@ -171,6 +179,7 @@ export class AgentService {
       const name = patch.name.trim();
       if (!name) throw Object.assign(new Error("Session title is required"), { statusCode: 400 });
       handle ||= await this.getOrOpen(workspace, sessionId);
+      this.assertRuntimeAvailable(handle);
       handle.session.setSessionName(name);
     }
     if (patch.groups !== undefined) {
@@ -187,7 +196,8 @@ export class AgentService {
   async setModel(workspace: WorkspaceDefinition, sessionId: string, provider: string, modelId: string): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
     this.assertInteractive(workspace, sessionId);
-    await handle.session.setModel(await this.settings.resolveModel(provider, modelId));
+    const model = await this.settings.resolveModel(provider, modelId);
+    await this.withRuntimeOperation(handle, () => handle.session.setModel(model));
     this.sendSnapshot(handle);
   }
 
@@ -195,6 +205,7 @@ export class AgentService {
     if (!THINKING_LEVELS.includes(level as ThinkingLevel)) throw Object.assign(new Error("Invalid thinking level"), { statusCode: 400 });
     const handle = await this.getOrOpen(workspace, sessionId);
     this.assertInteractive(workspace, sessionId);
+    this.assertRuntimeAvailable(handle);
     handle.session.setThinkingLevel(level as ThinkingLevel);
     this.sendSnapshot(handle);
   }
@@ -218,6 +229,10 @@ export class AgentService {
   async rollbackLatest(workspace: WorkspaceDefinition, sessionId: string, requestedEntryId?: string): Promise<RollbackMarkerData & { id: string }> {
     const handle = await this.getOrOpen(workspace, sessionId);
     this.assertInteractive(workspace, sessionId);
+    return this.withRuntimeOperation(handle, () => this.rollback(handle, requestedEntryId));
+  }
+
+  private async rollback(handle: AgentHandle, requestedEntryId?: string): Promise<RollbackMarkerData & { id: string }> {
     if (handle.pendingQuestions.size > 0) {
       await this.settleQuestions(handle, "rollback");
       if (!handle.session.isIdle) await handle.session.abort();
@@ -250,15 +265,17 @@ export class AgentService {
   async restoreRollback(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
     this.assertInteractive(workspace, sessionId);
-    if (!handle.session.isIdle || handle.session.pendingMessageCount > 0) throw Object.assign(new Error("Wait for the session and queue to finish before restoring"), { statusCode: 409 });
-    const rollback = this.rollbackState(handle);
-    if (!rollback) throw Object.assign(new Error("Rolled back message is no longer available to restore"), { statusCode: 409 });
-    const result = await handle.session.navigateTree(rollback.restoreEntryId, { summarize: false });
-    if (result.cancelled) throw Object.assign(new Error("Restore was cancelled"), { statusCode: 409 });
-    handle.session.sessionManager.appendCustomEntry("pi-ark.rollback-restored", { rollbackId: rollback.id });
-    handle.session.refreshContext();
-    handle.displayMessages = undefined;
-    this.sendSnapshot(handle);
+    await this.withRuntimeOperation(handle, async () => {
+      if (!handle.session.isIdle || handle.session.pendingMessageCount > 0) throw Object.assign(new Error("Wait for the session and queue to finish before restoring"), { statusCode: 409 });
+      const rollback = this.rollbackState(handle);
+      if (!rollback) throw Object.assign(new Error("Rolled back message is no longer available to restore"), { statusCode: 409 });
+      const result = await handle.session.navigateTree(rollback.restoreEntryId, { summarize: false });
+      if (result.cancelled) throw Object.assign(new Error("Restore was cancelled"), { statusCode: 409 });
+      handle.session.sessionManager.appendCustomEntry("pi-ark.rollback-restored", { rollbackId: rollback.id });
+      handle.session.refreshContext();
+      handle.displayMessages = undefined;
+      this.sendSnapshot(handle);
+    });
   }
 
   async updateQueue(workspace: WorkspaceDefinition, sessionId: string, itemId: string, update: { direction?: "up" | "down"; mode?: QueueItemMode }, operationId?: string) {
@@ -316,6 +333,7 @@ export class AgentService {
   async delete(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
     await this.subagents.store.load(workspace);
     const running = this.handles.get(this.key(workspace, sessionId));
+    if (running) this.assertRuntimeAvailable(running);
     running?.session.clearQueue();
     await Promise.all([this.subagents.stop(workspace, sessionId), running && !running.session.isIdle ? running.session.abort() : Promise.resolve()]);
     await this.opening.get(this.key(workspace, sessionId));
@@ -325,6 +343,8 @@ export class AgentService {
     const handle = this.handles.get(key);
     if (!info && !handle && !this.subagents.store.findTask(workspace, sessionId)) throw Object.assign(new Error("Unknown agent session"), { statusCode: 404 });
     if (handle) {
+      handle.closing = true;
+      await handle.resourceReload?.catch(() => undefined);
       this.broadcast(handle, { type: "session-deleted" });
       handle.session.clearQueue();
       await this.settleQuestions(handle, "deleted");
@@ -374,9 +394,13 @@ export class AgentService {
     const handle = await this.getOrOpen(workspace, sessionId);
     if (this.subagents.store.state(workspace, sessionId).origin) throw Object.assign(new Error("This subagent is managed by its parent. Send further tasks from the parent Session."), { statusCode: 409 });
     this.assertInteractive(workspace, sessionId);
+    await this.withRuntimeOperation(handle, () => this.submitPrompt(handle, text, attachments));
+  }
+
+  private async submitPrompt(handle: AgentHandle, text: string, attachments: IncomingAttachment[]): Promise<void> {
     if (handle.session.sessionManager.getEntries().length >= MAX_SESSION_MESSAGES) throw Object.assign(new Error(`Session message limit is ${MAX_SESSION_MESSAGES}`), { statusCode: 409 });
     await this.settleQuestions(handle, "user_prompt");
-    const saved = attachments.length ? await saveAttachments(workspace, sessionId, attachments) : [];
+    const saved = attachments.length ? await saveAttachments(handle.workspace, handle.session.sessionId, attachments) : [];
     const attachmentNote = saved.length ? `\n\nAttached files:\n${saved.map((attachment) => `- ${attachment.name}: ${attachment.path}`).join("\n")}` : "";
     const promptText = `${text.trim() || (saved.length ? "Review the attached files." : "")}${attachmentNote}`;
     const images = saved.flatMap((attachment) => attachment.image ? [attachment.image] : []);
@@ -418,7 +442,7 @@ export class AgentService {
     this.assertInteractive(workspace, sessionId);
     const pending = handle.pendingQuestions.get(toolCallId);
     if (!pending) throw Object.assign(new Error("This question is no longer open"), { statusCode: 409 });
-    await this.closeQuestion(handle, pending, answeredOutcome(pending.questions, answers), true);
+    await this.withRuntimeOperation(handle, () => this.closeQuestion(handle, pending, answeredOutcome(pending.questions, answers), true));
   }
 
   async dismissQuestion(workspace: WorkspaceDefinition, sessionId: string, toolCallId: string): Promise<void> {
@@ -426,7 +450,7 @@ export class AgentService {
     this.assertInteractive(workspace, sessionId);
     const pending = handle.pendingQuestions.get(toolCallId);
     if (!pending) throw Object.assign(new Error("This question is no longer open"), { statusCode: 409 });
-    await this.closeQuestion(handle, pending, unansweredOutcome("dismissed"), true);
+    await this.withRuntimeOperation(handle, () => this.closeQuestion(handle, pending, unansweredOutcome("dismissed"), true));
   }
 
   private async closeQuestion(handle: AgentHandle, pending: PendingQuestion, outcome: QuestionOutcome, triggerTurn: boolean): Promise<void> {
@@ -510,20 +534,78 @@ export class AgentService {
     if (this.subagents.store.findTask(workspace, sessionId) && !this.handles.has(this.key(workspace, sessionId))) { await stopping; return; }
     try {
       const handle = await this.getOrOpen(workspace, sessionId);
-      handle.session.clearQueue();
-      await this.settleQuestions(handle, "aborted");
-      await Promise.all([stopping, handle.session.isIdle ? Promise.resolve() : handle.session.abort()]);
+      await this.withRuntimeOperation(handle, async () => {
+        handle.session.clearQueue();
+        await this.settleQuestions(handle, "aborted");
+        await Promise.all([stopping, handle.session.isIdle ? Promise.resolve() : handle.session.abort()]);
+      });
     } finally { await stopping; }
   }
 
   async compact(workspace: WorkspaceDefinition, sessionId: string, instructions?: string): Promise<void> {
     const handle = await this.getOrOpen(workspace, sessionId);
     this.assertInteractive(workspace, sessionId);
-    if (!handle.session.isIdle) throw Object.assign(new Error("Stop the running task before compacting the context."), { statusCode: 409 });
-    if (handle.session.isCompacting) throw Object.assign(new Error("This Session is already compacting."), { statusCode: 409 });
-    await handle.session.compact(instructions?.trim() || undefined);
-    handle.updateRevision += 1;
-    this.scheduleSnapshot(handle);
+    await this.withRuntimeOperation(handle, async () => {
+      if (!handle.session.isIdle) throw Object.assign(new Error("Stop the running task before compacting the context."), { statusCode: 409 });
+      if (handle.session.isCompacting) throw Object.assign(new Error("This Session is already compacting."), { statusCode: 409 });
+      await handle.session.compact(instructions?.trim() || undefined);
+      handle.updateRevision += 1;
+      this.scheduleSnapshot(handle);
+    });
+  }
+
+  private assertRuntimeAvailable(handle: AgentHandle): void {
+    if (handle.closing) throw Object.assign(new Error("The Session is closing"), { statusCode: 409 });
+    if (handle.resourceReload) throw Object.assign(new Error("Wait for the Session resources to finish reloading"), { statusCode: 409 });
+  }
+
+  private async withRuntimeOperation<T>(handle: AgentHandle, run: () => Promise<T>): Promise<T> {
+    this.assertRuntimeAvailable(handle);
+    handle.activeOperations += 1;
+    try { return await run(); }
+    finally { handle.activeOperations -= 1; }
+  }
+
+  private canReloadResources(handle: AgentHandle): boolean {
+    return !handle.closing && !handle.resourceReload && handle.activeOperations === 0 && !handle.rebuildingQueue
+      && handle.runtimeState !== "running" && handle.session.isIdle && !handle.session.isBashRunning
+      && handle.session.pendingMessageCount === 0 && handle.queue.length === 0 && handle.pendingQuestions.size === 0
+      && !this.subagents.managesSession(handle.workspace, handle.session.sessionId);
+  }
+
+  async reloadSessionResources(workspace: WorkspaceDefinition, sessionId: string): Promise<void> {
+    const handle = await this.getOrOpen(workspace, sessionId);
+    if (this.subagents.store.state(workspace, sessionId).origin) throw Object.assign(new Error("Reload resources from the parent Session"), { statusCode: 409 });
+    this.assertRuntimeAvailable(handle);
+    if (!this.canReloadResources(handle)) throw Object.assign(new Error("Wait for the session and queue to finish, and resolve pending questions before reloading"), { statusCode: 409 });
+    await this.reloadRuntime(handle);
+  }
+
+  private async reloadRuntime(handle: AgentHandle): Promise<void> {
+    const reload = this.replaceSessionRuntime(handle);
+    handle.resourceReload = reload;
+    try { await reload; }
+    finally { handle.resourceReload = undefined; }
+  }
+
+  private async replaceSessionRuntime(handle: AgentHandle): Promise<void> {
+    const previous = handle.session;
+    const replacement = await this.buildSessionRuntime(handle.workspace, previous.sessionManager, undefined, previous);
+    handle.unsubscribe();
+    await this.shutdownSession(previous, "reload");
+    previous.dispose();
+    handle.session = replacement.session;
+    handle.systemPromptAppend = replacement.systemPromptAppend;
+    // A shutdown handler may have saved state to the shared SessionManager.
+    replacement.session.refreshContext();
+    handle.unsubscribe = replacement.session.subscribe((event) => this.onEvent(handle, event));
+    try {
+      await replacement.session.bindExtensions({});
+      if (replacement.modelFallbackMessage) this.broadcast(handle, { type: "notice", message: replacement.modelFallbackMessage });
+    } finally {
+      handle.displayMessages = undefined;
+      this.sendSnapshot(handle);
+    }
   }
 
   private assertInteractive(workspace: WorkspaceDefinition, sessionId: string): void {
@@ -573,7 +655,7 @@ export class AgentService {
     const systemPromptPath = join(piArkAgentDir, "SYSTEM.md");
     const appendSystemPromptPath = join(piArkAgentDir, "APPEND_SYSTEM.md");
     const settingsManager = createGlobalSettingsManager(workspace.path);
-    const resourceLoader = await this.createResourceLoader(workspace, preferences.agent.systemPrompt.append, settingsManager);
+    const resourceLoader = await createWorkspaceResourceLoader({ workspace, globalAppend: preferences.agent.systemPrompt.append, settingsManager });
     const extensionTools = extensionToolNames(resourceLoader);
     const tools = [...new Set([...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, SUBAGENT, ...QUESTION_TOOLS, ...extensionTools])];
     const { session } = await createAgentSession({ cwd: workspace.path, settingsManager, sessionManager: SessionManager.inMemory(), tools, customTools: [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), this.subagentTool(workspace, "preview"), ...createQuestionTools(() => Promise.reject(new Error("Questions are unavailable in the system prompt preview")), () => Promise.reject(new Error("Questions are unavailable in the system prompt preview")))], resourceLoader });
@@ -581,15 +663,11 @@ export class AgentService {
     finally { session.dispose(); }
   }
 
-  private createResourceLoader(workspace: WorkspaceDefinition, globalAppend: string, settingsManager = createGlobalSettingsManager(workspace.path), extensionFactories?: ExtensionFactory[]): Promise<DefaultResourceLoader> {
-    return createWorkspaceResourceLoader({ workspace, globalAppend, settingsManager, extensionFactories });
-  }
-
   private instantiate(workspace: WorkspaceDefinition, manager: SessionManager, configuration?: SubagentConfiguration): Promise<AgentHandle> {
     return this.openOnce(workspace, manager.getSessionId(), () => this.instantiateSession(workspace, manager, configuration));
   }
 
-  private async instantiateSession(workspace: WorkspaceDefinition, manager: SessionManager, configuration?: SubagentConfiguration): Promise<AgentHandle> {
+  private async buildSessionRuntime(workspace: WorkspaceDefinition, manager: SessionManager, configuration?: SubagentConfiguration, previous?: AgentSession) {
     await this.subagents.store.load(workspace);
     const origin = this.subagents.store.findTask(workspace, manager.getSessionId());
     const preferences = await loadGlobalPreferences();
@@ -598,10 +676,20 @@ export class AgentService {
     const systemPromptAppend = configuration?.systemPromptAppend ?? childConfiguration?.systemPromptAppend ?? preferences.agent.systemPrompt.append;
     const memory = origin ? undefined : this.memory;
     const memoryStoreId = () => this.workspaces.currentRegistration ? this.workspaces.currentRegistration(workspace)?.memoryStoreId : workspace.memoryStoreId;
-    const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager, memory ? [createMemoryExtension(memory, memoryStoreId)] : undefined);
+    const resourceLoader = await createWorkspaceResourceLoader({
+      workspace, globalAppend: origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend,
+      settingsManager, extensionFactories: memory ? [createMemoryExtension(memory, memoryStoreId)] : undefined,
+      refreshExtensions: Boolean(previous),
+    });
+    if (previous) {
+      const { errors, runtime } = resourceLoader.getExtensions();
+      if (errors.length > 0) {
+        runtime.invalidate();
+        throw Object.assign(new Error(`Could not load extension: ${errors[0].error}`.slice(0, 1000)), { statusCode: 422 });
+      }
+    } else this.healDanglingQuestions(manager);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;
-    this.healDanglingQuestions(manager);
     const askQuestion = (toolCallId: string, questions: QuestionItem[], signal?: AbortSignal) => {
       const handle = this.handles.get(this.key(workspace, manager.getSessionId()));
       if (!handle) throw new Error("The Session is not available for questions");
@@ -618,9 +706,20 @@ export class AgentService {
     const activeTools = [...new Set([...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT, ...QUESTION_TOOLS] : []), ...extensionTools, ...(memoryEnabled ? MEMORY_TOOLS : [])])];
     const tools = [...new Set([...activeTools, "codemode", ...(memory ? MEMORY_TOOLS : [])])];
     const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : []), ...questionTools, ...(memory ? createMemoryTools(workspace, memory, memoryStoreId) : [])];
-    const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader, model: configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model), thinkingLevel: configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels });
+    const { session, modelFallbackMessage } = await createAgentSession({
+      cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader,
+      model: previous?.model ?? configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model),
+      thinkingLevel: previous?.thinkingLevel ?? configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels,
+      ...(previous ? { sessionStartEvent: { type: "session_start", reason: "reload" } } : {}),
+    });
     session.setActiveToolsByName(activeTools);
-    await session.bindExtensions({});
+    return { session, systemPromptAppend, modelFallbackMessage };
+  }
+
+  private async instantiateSession(workspace: WorkspaceDefinition, manager: SessionManager, configuration?: SubagentConfiguration): Promise<AgentHandle> {
+    const { session, systemPromptAppend, modelFallbackMessage } = await this.buildSessionRuntime(workspace, manager, configuration);
+    try { await session.bindExtensions({}); }
+    catch (error) { await this.shutdownSession(session); session.dispose(); throw error; }
     const handle: AgentHandle = {
       workspace,
       systemPromptAppend,
@@ -632,6 +731,7 @@ export class AgentService {
       rebuildingQueue: false,
       queueVersion: 0,
       queueRevision: 0,
+      activeOperations: 0,
       runtimeState: "ready",
       runtimeId: randomUUID(),
       statusRevision: 0,
@@ -747,7 +847,10 @@ export class AgentService {
   }
 
   private rollbackState(handle: AgentHandle): (RollbackMarkerData & { id: string }) | undefined {
-    const leaf = handle.session.sessionManager.getLeafEntry();
+    const manager = handle.session.sessionManager;
+    let leaf = manager.getLeafEntry();
+    // Pi can record initial model metadata again when reloading a branch with no messages.
+    while (leaf?.type === "model_change" || leaf?.type === "thinking_level_change") leaf = leaf.parentId ? manager.getEntry(leaf.parentId) : undefined;
     return leaf?.type === "custom" && leaf.customType === "pi-ark.rollback" && isRollbackMarkerData(leaf.data) ? { id: leaf.id, ...leaf.data } : undefined;
   }
 
@@ -816,6 +919,8 @@ export class AgentService {
     const prefix = `${workspace.id}:`;
     await Promise.allSettled([...this.opening].filter(([key]) => key.startsWith(prefix)).map(([, promise]) => promise));
     await Promise.allSettled([...this.handles].filter(([key]) => key.startsWith(prefix)).map(async ([key, handle]) => {
+      handle.closing = true;
+      await handle.resourceReload?.catch(() => undefined);
       handle.session.clearQueue();
       await this.subagents.stop(workspace, handle.session.sessionId);
       if (!handle.session.isIdle) await handle.session.abort();
@@ -828,24 +933,19 @@ export class AgentService {
   }
 
   async reloadIdleSessions(): Promise<number> {
-    const idle = [...this.handles.values()].filter((handle) => handle.runtimeState !== "running");
-    const results = await Promise.allSettled(idle.map((handle) => handle.session.reload()));
-    let reloaded = 0;
-    results.forEach((result, index) => {
-      const handle = idle[index];
-      if (result.status === "fulfilled") {
-        reloaded += 1;
-        handle.displayMessages = undefined;
-        this.sendSnapshot(handle);
-      } else {
-        this.setRuntimeStatus(handle, "error", result.reason instanceof Error ? result.reason.message : "Session reload failed");
+    const idle = [...this.handles.values()].filter((handle) => this.canReloadResources(handle));
+    const results = await Promise.allSettled(idle.map(async (handle) => {
+      try { await this.reloadRuntime(handle); }
+      catch (reason) {
+        this.broadcast(handle, { type: "notice", message: reason instanceof Error ? reason.message : "Session reload failed" });
+        throw reason;
       }
-    });
-    return reloaded;
+    }));
+    return results.filter((result) => result.status === "fulfilled").length;
   }
 
-  private async shutdownSession(session: AgentSession): Promise<void> {
-    try { await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); }
+  private async shutdownSession(session: AgentSession, reason: "quit" | "reload" = "quit"): Promise<void> {
+    try { await session.extensionRunner.emit({ type: "session_shutdown", reason }); }
     catch { /* Extension cleanup is best effort. */ }
   }
 
@@ -853,6 +953,8 @@ export class AgentService {
     await this.subagents.dispose();
     await Promise.allSettled([...this.opening.values()]);
     await Promise.all([...this.handles.values()].map(async (handle) => {
+      handle.closing = true;
+      await handle.resourceReload?.catch(() => undefined);
       handle.unsubscribe();
       if (!handle.session.isIdle) await handle.session.abort();
       await this.shutdownSession(handle.session);

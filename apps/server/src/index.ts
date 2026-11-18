@@ -282,6 +282,10 @@ app.get<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspaces
   await agents.subagents.store.load(workspace);
   return agents.subagents.store.state(workspace, request.params.sessionId);
 });
+app.post<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/reload", async (request, reply) => {
+  await agents.reloadSessionResources(workspaces.get(request.params.workspaceId), request.params.sessionId);
+  return reply.code(204).send();
+});
 app.post<{ Params: { workspaceId: string; sessionId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/abort", async (request, reply) => {
   await agents.abort(workspaces.get(request.params.workspaceId), request.params.sessionId);
   return reply.code(204).send();

@@ -354,7 +354,11 @@ pi-ark://workspace/<workspace-id>/session/<session-id>/message/<message-id>
 
 Composer 为空时显示 `Send message here`。在 composer 中输入内容并按 Enter。使用 Shift+Enter 添加换行。输入法候选状态中的 Enter 交给输入法处理。发送后，user message 会立即显示在 conversation 中。
 
-输入 `/` 会打开内置命令、skill 与扩展命令列表，输入 `$` 打开 MCP server 列表，输入 `@` 打开当前 Workspace 的文件列表。继续输入关键词收窄候选；`$` 后面写 `server/` 可以列出该 server 的工具。用 ArrowUp 和 ArrowDown 选择，Enter 或 Tab 插入，Esc 关闭。内置 `compact` 插入 `/compact`；skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。
+输入 `/` 会打开内置命令、skill 与扩展命令列表，输入 `$` 打开 MCP server 列表，输入 `@` 打开当前 Workspace 的文件列表。继续输入关键词收窄候选；`$` 后面写 `server/` 可以列出该 server 的工具。用 ArrowUp 和 ArrowDown 选择，Enter 或 Tab 插入，Esc 关闭。内置命令包括 `/compact` 和 `/reload`。Skill 插入 `/skill:name`，扩展命令插入 `/name`，MCP 候选插入 `$server` 或 `$server/tool`，文件候选插入 `@relative/path`。
+
+要刷新当前主 Session 的工具，请从 `/` 候选中选中 `/reload`，插入后再按 Enter 执行。命令不接受参数。Pi-Ark 会重新加载会话资源（扩展、MCP 配置、Skills 和项目上下文文件，例如 `AGENTS.md`）。Session 有未完成的工作或队列消息时，请等待处理完成后重试；还有待答问题时，请先回答或选择 Unanswered（后台提问也需要处理）。
+
+刷新结果显示在标题旁，成功时显示 `Session resources reloaded`。Pi-Ark 保留会话状态（历史记录、活动分支、模型和 thinking level）。输入框在请求发出时清除命令，保留已有附件和刷新期间新输入的草稿。下一次模型请求使用最新的指令和可用工具。Pi-Ark 在后台连接已启用的 MCP server。你可以在 Settings → MCP 查看连接状态和诊断。
 
 输入框最多展开到十行，之后在输入框内部滚动。Composer 在 Compact、Wide 和 Full 模式下保持相同宽度；这些模式调整 conversation message 区域。Conversation 在页面位于底部附近时跟随新输出；向上滚动后，页面保留当前阅读位置。当前 turn 的 user message 越过顶部后会固定显示在 conversation 顶部；向上滚动到原 message 时，顶部 bar 会立即切换到前一个 user message。点击顶部 User bar 的任意位置可以返回原 message；定位后的 User message 位于顶部 bar 下方，并保留 8 px 间距。
 
@@ -594,7 +598,7 @@ Refresh models 重新读取 `models.json` 并从 Provider 目录拉取最新模�
 
 ### Agent behavior → System prompt
 
-在 Global append content 中编辑共享的说明，并点击 Save system prompt。Cancel 恢复已保存的内容。保存空文本可以清除全局追加内容。该设置在新建或重新打开 Session 时生效。
+在 Global append content 中编辑共享的说明，并点击 Save system prompt。Cancel 恢复已保存的内容。保存空文本可以清除全局追加内容。新建 Session 或从磁盘恢复 Session 时会读取已保存的设置。对于已在使用的主 Session，请在空闲时执行 [`/reload`](#发送-message) 应用这项设置。
 
 展开 Preview effective prompt，可以查看 pi 生成的 complete effective prompt，以及可选的 replacement file 和 append file 路径。
 
@@ -605,7 +609,7 @@ PI_ARK_AGENT_DIR/SYSTEM.md
 PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 ```
 
-在服务器编辑文件后点击 Refresh。Preview 还包含 pi 内置说明、tools、context files、skills 和当前 Workspace path，其中的文件工具与 Session 一致（`read`、`bash`、`edit` 和 `write`）。
+在服务器编辑文件后点击 Refresh 更新预览。Preview 还包含 pi 内置说明、tools、context files、skills 和当前 Workspace path，其中的文件工具与 Session 一致（`read`、`bash`、`edit` 和 `write`）。
 
 ### Agent behavior → Agent defaults
 
@@ -651,7 +655,7 @@ description: 说明这个 skill 的用途和适用场景。
 ---
 ```
 
-`name` 只使用小写字母、数字与连字符，最长 64 个字符；`description` 最长 1024 个字符。加上 `disable-model-invocation: true` 后，skill 不进入模型可见的 skill 描述，只进入列表和显式调用。新建目录后点击 Skills 页面的 Refresh。
+`name` 只使用小写字母、数字与连字符，最长 64 个字符；`description` 最长 1024 个字符。加上 `disable-model-invocation: true` 后，skill 不进入模型可见的 skill 描述，只进入列表和显式调用。新建目录后点击 Skills 页面的 Refresh 更新列表。要让当前主 Session 使用新增的 skill，请执行 [`/reload`](#发送-message)。
 
 Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户维护。Skill 名称相同时，扫描顺序中先发现的 skill 生效，后续同名项进入 Diagnostics。扫描顺序为 `.pi/skills`、各级 `.agents/skills`、`PI_ARK_AGENT_DIR/skills`、`~/.agents/skills`、安装根目录 `skills/`、`.pi-ark/skills`。
 
@@ -659,7 +663,7 @@ Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户�
 
 1. 打开 Settings → MCP。页面使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace，并显示 server 列表。
 2. 查看每行的 Source、Transport、Exposure、Registered actions 和连接状态。Source 取 Built-in、User 或 Project (.pi/mcp.json)，Project 表示 server 定义在工作区 `.pi/mcp.json`。连接状态取 Starting、Connected、Needs sign-in、Failed 或 Disabled。
-3. 使用行右侧开关启用或停用 server。修改立即保存，Server 重新加载空闲 Session。
+3. 使用行右侧开关启用或停用 server。Pi-Ark 保存修改后，批量刷新符合条件的空闲 Session。
 4. 需要 OAuth 登录时，行内显示 `pi-ark mcp login <server>`；在服务器终端执行该命令，完成登录后点击 Refresh。
 5. 点击 Refresh 重新读取 server 列表、连接状态、注册动作数量和诊断。
 6. 需要添加、删除或修改 server 时，在服务器终端使用 `pi-ark mcp` 命令，或编辑 `PI_ARK_AGENT_DIR/mcp.json`。工作区里已有 `.pi/mcp.json` 时，其中的 server 以 Project 来源显示，开关写回该文件。登记进 Pi-Ark 的工作区按已信任项目处理，Pi 会读取它的 `.pi` 配置。
@@ -677,7 +681,7 @@ Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户�
 1. 打开 Settings → Extensions。页面显示已安装扩展、加载状态、注册工具数量与扩展目录。
 2. 把扩展文件放入页面 Install directory 显示的目录。单文件直接放在该目录，多文件扩展放一个子目录并按下面三种布局之一组织。
 3. 在列表中确认扩展状态变为 Loaded。注册的工具显示在 Tools 一行，注册的命令显示在 Commands 一行；带 ` · on demand` 的工具不会自动加入模型工具列表。扩展命令同时出现在 Composer 的 `/` 列表中，选中后插入 `/命令名`。
-4. 新建 Session 使用新扩展。已经打开的 Session 保持加载时的扩展集合；需要让空闲 Session 使用新集合时点击 Refresh。
+4. 新建 Session 使用新扩展。要为符合条件的空闲 Session 批量应用新扩展，请点击 Refresh。要刷新当前主 Session，请执行 [`/reload`](#发送-message)。
 5. 加载失败时，行内显示错误原因。修正文件后再次点击 Refresh。
 6. 需要卸载时，从扩展目录移走对应文件或目录，然后点击 Refresh。
 
@@ -802,9 +806,9 @@ pi-ark mcp login <server-name>
 pi-ark mcp logout <server-name>
 ```
 
-`login` 在服务器上打开浏览器，默认等待 300 秒，`--timeout <seconds>` 可以调整等待时间。登录或修改配置后，在 Settings → MCP 点击 Refresh 查看最新状态。新 Session 使用最新配置。
+`login` 在服务器上打开浏览器，默认等待 300 秒，`--timeout <seconds>` 可以调整等待时间。登录或修改 MCP 配置（包括连接密钥）后，新 Session 使用最新配置。在当前主 Session 执行 [`/reload`](#发送-message) 也可应用更新。在 Settings → MCP 点击 Refresh 查看连接状态。
 
-密钥可以放在 `PI_ARK_AGENT_DIR/secrets` 目录，`mcp.json` 的 `env` 或 `headers` 用 `!command` 引用该文件，例如 `"Authorization": "!echo Bearer $(cat /var/lib/pi-ark-dev/pi-agent/secrets/tavily)"`。安装器创建该目录并保持 0700，密钥文件使用 0600。改动密钥文件后新 Session 生效，不需要重启服务。
+密钥可以放在 `PI_ARK_AGENT_DIR/secrets` 目录，`mcp.json` 的 `env` 或 `headers` 用 `!command` 引用该文件，例如 `"Authorization": "!echo Bearer $(cat /var/lib/pi-ark-dev/pi-agent/secrets/tavily)"`。安装器创建该目录并保持 0700，密钥文件使用 0600。
 
 Agent 自带 `mcp-servers` skill，可以直接让它读取 `PI_ARK_AGENT_DIR/mcp.json`、执行 `pi-ark mcp add` 并验证连接。不希望把密钥发给 Agent 时，让它先写好配置，再由你在 Terminal 里把密钥写入 `secrets` 目录下的文件。
 
@@ -983,4 +987,4 @@ Loading conversation 等待首个 WebSocket snapshot。检查浏览器到 `/ws/a
 
 ### System prompt preview 未更新
 
-确认编辑的是页面显示的 `PI_ARK_AGENT_DIR` 文件路径，然后点击 Refresh。已经打开的 agent runtime 需要重新打开，才能使用新的 Global append。
+确认编辑的是页面显示的 `PI_ARK_AGENT_DIR` 文件路径，然后点击 Refresh。对于已在使用的主 Session，请在空闲时执行 [`/reload`](#发送-message) 应用新的 Global append。

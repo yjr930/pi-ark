@@ -13,7 +13,7 @@ import { NameDialog } from "./NameDialog";
 import { Select } from "./Select";
 import { ComposerSuggest } from "./ComposerSuggest";
 import { applySuggestion, detectTrigger, filterSuggestItems, splitMcpQuery, type SuggestItem, type Trigger } from "../composer-suggest";
-import { builtinCommandItems, compactCommandInstructions } from "../slash-commands";
+import { compactCommandInstructions, reloadCommandArguments, withBuiltinCommands } from "../slash-commands";
 import { SubagentBadge, SubagentList, SessionReference } from "./SubagentRun";
 import { QuestionCard } from "./QuestionCard";
 import { subagentListItems } from "../subagent-view";
@@ -47,6 +47,7 @@ type ChatWidth = "compact" | "wide" | "full";
 type PendingAttachment = CachedSessionAttachment;
 type DisclosureChange = (key: string, open: boolean) => void;
 interface ComposerSuggestState { trigger: Trigger; items: SuggestItem[]; selected: number; loading: boolean; truncated: boolean }
+interface ReloadNotice { kind: "working" | "success" | "error"; message: string }
 interface PendingQueuedMessage { id: string; text: string; matchText: string; expectedMatchCount: number; status: "scheduling" | "failed"; error?: string }
 type OptimisticQueueOperation =
   | { id: string; type: "update"; itemId: string; update: { direction?: "up" | "down"; mode?: "steering" | "followUp" } }
@@ -395,6 +396,8 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const [disclosures, setDisclosures] = useState<Record<string, boolean>>(cachedUiState?.disclosures || {});
   const [preparingAttachments, setPreparingAttachments] = useState(false);
   const [status, setStatus] = useState(cachedSnapshot ? "Refreshing conversation" : "Connecting session");
+  const [reloadNotice, setReloadNotice] = useState<ReloadNotice | null>(null);
+  const reloadRequestRef = useRef<symbol | null>(null);
   const [chatWidth, setChatWidth] = useState<ChatWidth>(() => (localStorage.getItem("pi-ark-chat-width") as ChatWidth) || "wide");
   const [infoOpen, setInfoOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -427,6 +430,14 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const scrolledPermalinkRef = useRef("");
   const sessionListedRef = useRef(sessions.some((item) => item.id === session.id));
   const changeDisclosure = useCallback<DisclosureChange>((key, open) => setDisclosures((current) => current[key] === open ? current : { ...current, [key]: open }), []);
+
+  // The parent keys Chat by the current view. Ignore reload responses after leaving it.
+  useLayoutEffect(() => () => { reloadRequestRef.current = null; }, []);
+  useEffect(() => {
+    if (!reloadNotice || reloadNotice.kind === "working") return;
+    const timer = window.setTimeout(() => setReloadNotice((current) => current === reloadNotice ? null : current), 5000);
+    return () => window.clearTimeout(timer);
+  }, [reloadNotice]);
 
   useEffect(() => { sessionListedRef.current = sessions.some((item) => item.id === session.id); }, [session.id, sessions]);
 
@@ -493,6 +504,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       if (payload.type === "queue-state") applyAuthoritativeQueueState(payload as QueueState);
       if (payload.type === "agent-event") {
         const agentEvent = payload.event;
+        if (agentEvent.type === "compaction_start") setStatus("Compacting context");
         if (agentEvent.type === "agent_start") { setLiveNestedTools(new Map()); setRetryNotice(null); setStatus("AI is working"); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
         if (agentEvent.type === "auto_retry_start") { setRetryNotice({ attempt: agentEvent.attempt, maxAttempts: agentEvent.maxAttempts, errorMessage: agentEvent.errorMessage || "Unknown error" }); setStatus(`Retrying (${agentEvent.attempt}/${agentEvent.maxAttempts})`); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
         if (agentEvent.type === "auto_retry_end") { setRetryNotice(null); if (!agentEvent.success) setStatus(`Retry failed: ${agentEvent.finalError || "Unknown error"}`); }
@@ -617,8 +629,9 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const parentSession = origin ? sessions.find((item) => item.id === origin.parentSessionId) : undefined;
   const parentStatus = origin ? sessionStatuses[origin.parentSessionId] : undefined;
   const runtimeStatus = sessionStatuses[session.id];
-  const runtimeError = status === "Ready" && runtimeStatus?.state === "error" ? runtimeStatus.errorMessage || "Session error" : undefined;
-  const displayStatus = runtimeError ? "Error" : Boolean(snapshot?.waitingForAnswer) ? "Waiting for answer" : status === "AI is working" && isSubagent ? "SubAgent is working" : status;
+  const reloading = reloadNotice?.kind === "working";
+  const runtimeError = !reloadNotice && status === "Ready" && runtimeStatus?.state === "error" ? runtimeStatus.errorMessage || "Session error" : undefined;
+  const displayStatus = reloadNotice?.message ?? (runtimeError ? "Error" : Boolean(snapshot?.waitingForAnswer) ? "Waiting for answer" : status === "AI is working" && isSubagent ? "SubAgent is working" : status);
   const allMessages = useMemo(() => snapshot?.messages.filter((message) => message.role !== "system") || [], [snapshot]);
   const messageNumberOffset = snapshot?.messageNumberOffset || 0;
   const stickyUserMessage = stickyUserMessageId ? allMessages.find((message) => message.messageId === stickyUserMessageId) : undefined;
@@ -636,7 +649,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     onAnswer: (toolCallId, answers) => { if (!send({ type: "answer-question", toolCallId, answers })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
     onDismiss: (toolCallId) => { if (!send({ type: "dismiss-question", toolCallId })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
   }), [snapshot?.questions, questionBusyId]);
-  const statusIsError = Boolean(runtimeError) || !["Connecting session", "Loading conversation", "Refreshing conversation", "Reconnecting…", "Compacting context", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
+  const statusIsError = reloadNotice ? reloadNotice.kind === "error" : Boolean(runtimeError) || !["Connecting session", "Loading conversation", "Refreshing conversation", "Reconnecting…", "Compacting context", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
 
   function applyAuthoritativeQueueState(state: QueueState) {
     if (state.confirmedOperationId) setOptimisticQueueOperations((current) => current.filter((operation) => operation.id !== state.confirmedOperationId));
@@ -781,12 +794,10 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   function prefetchMcpTools() {
     const cache = suggestCache();
     if (cache.servers || cache.prefetching) return;
-    const workspaceId = workspace.id;
     cache.prefetching = true;
-    void api.mcpServers(workspaceId).then((response) => {
-      if (suggestCacheRef.current.workspaceId !== workspaceId) return;
-      suggestCacheRef.current.servers = response.servers.filter((server) => server.enabled);
-    }).catch(() => undefined).finally(() => { suggestCacheRef.current.prefetching = false; });
+    void api.mcpServers(workspace.id).then((response) => {
+      cache.servers = response.servers.filter((server) => server.enabled);
+    }).catch(() => undefined).finally(() => { cache.prefetching = false; });
   }
   function closeSuggest() {
     suggestSequenceRef.current += 1;
@@ -822,7 +833,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     }
     const cache = suggestCache();
     if (trigger.kind === "skill") {
-      if (cache.skills && cache.commands) { setSuggest({ trigger, items: filterSuggestItems([...builtinCommandItems, ...cache.skills, ...cache.commands], trigger.query), selected: 0, loading: false, truncated: false }); return; }
+      if (cache.skills && cache.commands) { setSuggest({ trigger, items: filterSuggestItems(withBuiltinCommands([...cache.skills, ...cache.commands]), trigger.query), selected: 0, loading: false, truncated: false }); return; }
       setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
       const skillsPromise = cache.skills ? Promise.resolve(cache.skills) : api.skills(workspace.id).then((response) => [...response.builtin, ...response.global, ...response.workspace].filter((skill) => skill.enabled).map((skill) => ({ id: `skill:${skill.name}`, kind: "skill" as const, label: skill.name, detail: skill.description, status: skill.source, insert: `/skill:${skill.name}` }))).catch(() => null);
       const commandsPromise = cache.commands ? Promise.resolve(cache.commands) : api.extensions(workspace.id).then((response) => {
@@ -831,11 +842,11 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
         return [...commands.values()];
       }).catch(() => null);
       void Promise.all([skillsPromise, commandsPromise]).then(([skills, commands]) => {
-        if (suggestCacheRef.current.workspaceId !== workspace.id) return;
-        if (skills) suggestCacheRef.current.skills = skills;
-        if (commands) suggestCacheRef.current.commands = commands;
+        if (suggestCacheRef.current !== cache) return;
+        if (skills) cache.skills = skills;
+        if (commands) cache.commands = commands;
         if (suggestSequenceRef.current !== sequence) return;
-        const items = [...builtinCommandItems, ...(skills ?? cache.skills ?? []), ...(commands ?? cache.commands ?? [])];
+        const items = withBuiltinCommands([...(cache.skills ?? []), ...(cache.commands ?? [])]);
         setSuggest({ trigger, items: filterSuggestItems(items, trigger.query), selected: 0, loading: false, truncated: false });
       });
       return;
@@ -844,11 +855,12 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       if (cache.servers) { setSuggest({ trigger, items: mcpItemsFor(cache.configured || [], cache.servers, trigger.query), selected: 0, loading: false, truncated: false }); return; }
       setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
       void api.mcpServers(workspace.id).then((response) => {
+        if (suggestCacheRef.current !== cache) return;
         const servers = response.servers.filter((server) => server.enabled);
-        suggestCacheRef.current.servers = servers;
+        cache.servers = servers;
         if (suggestSequenceRef.current !== sequence) return;
         setSuggest({ trigger, items: mcpItemsFor(cache.configured || [], servers, trigger.query), selected: 0, loading: false, truncated: false });
-      }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest(null); });
+      }).catch(() => { if (suggestCacheRef.current === cache && suggestSequenceRef.current === sequence) setSuggest(null); });
       return;
     }
     if (cache.configured) {
@@ -858,13 +870,13 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     }
     setSuggest({ trigger, items: [], selected: 0, loading: true, truncated: false });
     void api.mcpConfigured().then((response) => {
+      if (suggestCacheRef.current !== cache) return;
       const configured = response.servers.filter((server) => server.enabled);
-      if (suggestCacheRef.current.workspaceId !== workspace.id) return;
-      suggestCacheRef.current.configured = configured;
+      cache.configured = configured;
       if (suggestSequenceRef.current !== sequence) return;
       setSuggest({ trigger, items: mcpItemsFor(configured, cache.servers, trigger.query), selected: 0, loading: false, truncated: false });
       prefetchMcpTools();
-    }).catch(() => { if (suggestSequenceRef.current === sequence) setSuggest(null); });
+    }).catch(() => { if (suggestCacheRef.current === cache && suggestSequenceRef.current === sequence) setSuggest(null); });
   }
   function moveSuggestion(direction: number) {
     if (!suggest) return;
@@ -872,11 +884,37 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     if (count === 0) return;
     setSuggest({ ...suggest, selected: (suggest.selected + direction + count) % count });
   }
+  async function reloadResources(args: string) {
+    if (args) { setReloadNotice({ kind: "error", message: "Usage: /reload" }); return; }
+    const hasQueuedWork = snapshot?.queue.length || optimisticQueueOperations.length || pendingQueuedMessages.some((item) => item.status === "scheduling");
+    if (active || status === "Compacting context" || hasQueuedWork || preparingAttachments || queueBusy || actionBusy) {
+      setReloadNotice({ kind: "error", message: "Wait for the session and queue to finish before reloading" });
+      return;
+    }
+    const request = Symbol();
+    reloadRequestRef.current = request;
+    setReloadNotice({ kind: "working", message: "Reloading session resources…" });
+    setDraft("");
+    try {
+      await api.reloadSession(workspace.id, session.id);
+      if (reloadRequestRef.current !== request) return;
+      suggestCacheRef.current = { workspaceId: workspace.id };
+      setSuggest((current) => current?.trigger.kind === "file" ? current : null);
+      setReloadNotice({ kind: "success", message: "Session resources reloaded" });
+    } catch (reason) {
+      if (reloadRequestRef.current === request) setReloadNotice({ kind: "error", message: `Reload failed: ${reason instanceof Error ? reason.message : "Unknown error"}` });
+    } finally {
+      if (reloadRequestRef.current === request) reloadRequestRef.current = null;
+    }
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (leafEntryId || isSubagent || reloadRequestRef.current !== null) return;
     closeSuggest();
     const text = draft.trim();
-    if (leafEntryId || isSubagent) return;
+    const reloadArgs = reloadCommandArguments(text);
+    if (reloadArgs !== null) { await reloadResources(reloadArgs); return; }
+    setReloadNotice(null);
     const compactInstructions = compactCommandInstructions(text);
     if (compactInstructions !== null) {
       if (!send({ type: "compact", instructions: compactInstructions || undefined })) { setStatus("Connection is not ready"); return; }
@@ -910,7 +948,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
 
   return <RoleLabels.Provider value={roles}><SubagentRunsContext.Provider value={subagentRuns}><LiveNestedToolsContext.Provider value={liveNestedTools}><QuestionUiContext.Provider value={questionUi}><OpenMemoryContext.Provider value={onOpenMemory}><section className={`chat-page ${leafEntryId ? "historical-branch" : ""} chat-width-${chatWidth}`} aria-busy={isLoading}>
     <div className="chat-top">{origin && <div className="parent-agent-bar" aria-label="Parent Agent status"><Sparkles size={14} /><span>Parent Agent</span>{origin.parentDeleted ? <strong>Session deleted</strong> : <SessionReference className="parent-agent-title" link={internalSessionLink(workspace.id, origin.parentSessionId)}>{parentSession?.name || parentSession?.firstMessage || "Parent Agent"}</SessionReference>}<SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} /><span className={`status-dot ${parentStatus?.state === "error" ? "error" : ""}`} title={parentStatus?.errorMessage}><i className={parentStatus?.state === "running" ? "working" : parentStatus?.state === "error" ? "error" : ""} /><span>{parentStatus?.state || "ready"}</span></span>{!origin.parentDeleted && <SessionReference className="parent-request-link" link={origin.parentLink} leafEntryId={origin.parentLeafEntryId}>Open parent request</SessionReference>}</div>}<header className="page-header chat-header">
-      <div className="chat-title"><h2>{title}</h2><button className="subtle-icon-button" title="Rename session" disabled={isLoading || Boolean(leafEntryId)} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button>{!isSubagent && <SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} />}<span className={`status-dot ${statusIsError ? "error" : ""}`} title={runtimeError || (statusIsError ? displayStatus : undefined)}><i className={statusIsError ? "error" : active || isLoading ? "working" : ""} /><span>{displayStatus}</span></span></div>
+      <div className="chat-title"><h2>{title}</h2><button className="subtle-icon-button" title="Rename session" disabled={isLoading || Boolean(leafEntryId)} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button>{!isSubagent && <SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} />}<span className={`status-dot ${statusIsError ? "error" : ""}`} role="status" title={runtimeError || (statusIsError || reloadNotice ? displayStatus : undefined)}><i className={statusIsError ? "error" : active || isLoading || reloading ? "working" : ""} /><span>{displayStatus}</span></span></div>
       <div className="chat-header-actions"><span className="chat-context-usage" aria-label={sessionContextPercent == null ? "Context usage unavailable" : `Context usage ${sessionContextPercent.toFixed(1)}%`}>{sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.totalDisplayMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id, undefined, leafEntryId)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
     </header>
     {leafEntryId && <div className="historical-branch-banner"><span>Historical conversation branch</span><SessionReference link={`pi-ark://workspace/${encodeURIComponent(workspace.id)}/session/${encodeURIComponent(session.id)}`}>Open current conversation</SessionReference></div>}
@@ -925,7 +963,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       {(displayedQueue.length + pendingQueuedMessages.length > 0) && <div className="message-queue"><div className="message-queue-title"><div><strong>Queue</strong><span>Steering runs before follow-up</span></div><button type="button" className="queue-merge-button" disabled={queueBusy || queuedFollowUpCount < 2} onClick={() => void mergeQueuedFollowUps()}>Merge follow-ups</button></div>{displayedQueue.map((item) => { const sameMode = displayedQueue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Edit queued message" aria-label="Edit queued message" disabled={queueBusy} onClick={() => editQueuedMessage(item)}><Pencil size={12} /></button><button type="button" title="Move queued message up" disabled={queueBusy || position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={queueBusy || position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" disabled={queueBusy} onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}{pendingQueuedMessages.map((item) => <div className={`queued-message pending ${item.status}`} key={item.id}><span className="queue-mode followUp">Follow-up</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div className="queue-pending-state" title={item.error}><span>{item.status === "scheduling" ? <LoaderCircle className="queue-pending-spinner" size={12} /> : <TriangleAlert size={12} />}{item.status === "scheduling" ? "Scheduling" : "Failed"}</span>{item.status === "failed" && <button type="button" title="Dismiss failed queued message" aria-label="Dismiss failed queued message" onClick={() => setPendingQueuedMessages((current) => current.filter((pending) => pending.id !== item.id))}><X size={12} /></button>}</div></div>)}</div>}
       {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <div className={`attachment-preview ${attachment.preview ? "image" : "file"}`} key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt={attachment.file.name} /> : <FileIcon size={18} />}<span><strong>{attachment.file.name}</strong><small>{number(attachment.file.size / 1024)} KB</small></span><button type="button" title={`Remove ${attachment.file.name}`} onClick={() => removeAttachment(attachment.id)}><Trash2 size={13} /></button></div>)}</div>}
       <textarea ref={composerTextareaRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); updateSuggest(value, event.currentTarget.selectionStart); }} onPaste={pasteAttachments} onClick={(event) => updateSuggest(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (suggest) { if (event.key === "ArrowDown") { event.preventDefault(); moveSuggestion(1); return; } if (event.key === "ArrowUp") { event.preventDefault(); moveSuggestion(-1); return; } if (event.key === "Escape") { event.preventDefault(); closeSuggest(); return; } if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) { const item = suggest.items[suggest.selected]; if (item) { event.preventDefault(); applySuggestItem(item); return; } } } if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Send message here" rows={1} />
-      <div className="composer-toolbar"><button type="button" className="attach-button" title="Add attachments or images" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(event.target.files)} /><div className="composer-runtime composer-model"><Select ariaLabel="Session model" value={modelValue} placeholder={snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "Select…"} options={models.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name || model.id, description: model.id, status: model.provider }))} onChange={(value) => { const model = models.find((item) => `${item.provider}/${item.id}` === value); if (model) { setStatus("Changing model"); send({ type: "set-model", provider: model.provider, model: model.id }); } }} /></div><div className="composer-runtime composer-thinking"><Select ariaLabel="Session thinking level" value={snapshot?.thinkingLevel || ""} options={thinkingLevels.map((level) => ({ value: level, label: level }))} onChange={(level) => { setStatus("Changing thinking level"); send({ type: "set-thinking-level", level }); }} /></div><span className="composer-hint">Enter to send · Shift Enter for a new line</span><button className="send-button" title={active ? "Send follow-up" : "Send"} disabled={preparingAttachments || (!draft.trim() && attachments.length === 0)}><ArrowUp size={18} /></button><button type="button" className="stop-button" title="Stop" disabled={!active} onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>
+      <div className="composer-toolbar"><button type="button" className="attach-button" title="Add attachments or images" onClick={() => fileInputRef.current?.click()}><Paperclip size={16} /></button><input ref={fileInputRef} type="file" multiple hidden onChange={(event) => addFiles(event.target.files)} /><div className="composer-runtime composer-model"><Select ariaLabel="Session model" value={modelValue} placeholder={snapshot?.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "Select…"} options={models.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name || model.id, description: model.id, status: model.provider }))} onChange={(value) => { const model = models.find((item) => `${item.provider}/${item.id}` === value); if (model) { setStatus("Changing model"); send({ type: "set-model", provider: model.provider, model: model.id }); } }} /></div><div className="composer-runtime composer-thinking"><Select ariaLabel="Session thinking level" value={snapshot?.thinkingLevel || ""} options={thinkingLevels.map((level) => ({ value: level, label: level }))} onChange={(level) => { setStatus("Changing thinking level"); send({ type: "set-thinking-level", level }); }} /></div><span className="composer-hint">Enter to send · Shift Enter for a new line</span><button className="send-button" title={active ? "Send follow-up" : "Send"} disabled={reloading || preparingAttachments || (!draft.trim() && attachments.length === 0)}><ArrowUp size={18} /></button><button type="button" className="stop-button" title="Stop" disabled={!active} onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>
     </form>}
     {!isLoading && renameOpen && <NameDialog title="Rename session" description="Set a title that is easy to find in the session list." label="Session title" initialValue={title} submitLabel="Rename session" icon={<Pencil size={18} />} onClose={() => setRenameOpen(false)} onSubmit={async (name) => { send({ type: "rename-session", name }); setSnapshot((current) => current ? { ...current, name } : current); window.setTimeout(onSessionChanged, 150); setRenameOpen(false); }} />}
     {!isLoading && forkDialog && <NameDialog title="Fork session" description="Choose a name for the new session branch." label="Fork session title" initialValue={forkDialog.defaultName} submitLabel="Fork session" icon={<GitFork size={18} />} onClose={() => setForkDialog(null)} onSubmit={forkSession} />}

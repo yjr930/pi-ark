@@ -303,11 +303,16 @@ try {
   assert.equal(await compactedSessionRow.locator(".session-state.error").getAttribute("title"), "Fixture agent error");
 
   const delayedSessionIds = [sessionFixture.getSessionId(), compactedSessionFixture.getSessionId()];
+  let reloadPrompts = null;
   await page.routeWebSocket(/\/ws\/agent\//, (webSocket) => {
     const delayInitialSnapshot = delayedSessionIds.some((id) => new URL(webSocket.url()).pathname.endsWith(`/${id}`));
     let initialSnapshot = true;
     const server = webSocket.connectToServer();
-    webSocket.onMessage((message) => server.send(message));
+    webSocket.onMessage((message) => {
+      // Record a misrouted reload without invoking a model.
+      if (reloadPrompts && JSON.parse(String(message)).type === "prompt") { reloadPrompts.push(String(message)); return; }
+      server.send(message);
+    });
     server.onMessage((message) => {
       let isSnapshot = false;
       try { isSnapshot = JSON.parse(String(message)).type === "snapshot"; } catch { /* forward non-JSON messages */ }
@@ -364,9 +369,67 @@ try {
   assert.equal(await compactSuggestion.locator(".suggest-status").textContent(), "Built-in");
   await compactSuggestion.click();
   assert.equal(await restoredComposer.inputValue(), "/compact ");
-  await restoredComposer.fill("Session-specific draft");
   await page.locator('.composer input[type="file"]').setInputFiles(join(filesFixtureDirectory, "preview.png"));
-  await page.locator(".attachment-preview").filter({ hasText: "preview.png" }).waitFor();
+  const reloadAttachment = page.getByRole("img", { name: "preview.png", exact: true });
+  await reloadAttachment.waitFor();
+
+  // The /compact lookup has warmed the slash cache. Add a workspace skill that it cannot see yet.
+  const reloadSkillName = "browser-check-reload-resource";
+  const skillRoot = join(workspacePath, ".pi-ark", "skills");
+  const reloadSkillDirectory = join(skillRoot, reloadSkillName);
+  await mkdir(skillRoot, { recursive: true });
+  await mkdir(reloadSkillDirectory);
+  reloadPrompts = [];
+  try {
+    await writeFile(join(reloadSkillDirectory, "SKILL.md"), `---\nname: ${reloadSkillName}\ndescription: Browser reload fixture.\n---\n\nBrowser reload fixture.\n`);
+    const slashSuggestions = page.getByRole("listbox", { name: "Skills and commands suggestions" });
+    await restoredComposer.fill(`/${reloadSkillName}`);
+    await slashSuggestions.getByText("No matches", { exact: true }).waitFor();
+    await restoredComposer.fill("/relo");
+    await slashSuggestions.getByRole("option", { name: /^reload\b.*\bBuilt-in$/ }).waitFor();
+    await restoredComposer.press("Enter");
+    assert.equal(await restoredComposer.inputValue(), "/reload ");
+
+    const sessionUrl = new URL(page.url());
+    const workspaceId = sessionUrl.searchParams.get("workspace");
+    const sessionId = sessionFixture.getSessionId();
+    assert.ok(workspaceId);
+    assert.equal(sessionUrl.searchParams.get("session"), sessionId);
+    const reloadUrl = new URL(`api/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/reload`, sessionUrl).href;
+    const submitReload = () => Promise.all([
+      page.waitForResponse((response) => response.url() === reloadUrl && response.request().method() === "POST", { timeout: 10000 }),
+      restoredComposer.press("Enter"),
+    ]).then(([response]) => response);
+    const reloaded = await submitReload();
+    assert.equal(reloaded.status(), 204, `Session reload returned HTTP ${reloaded.status()}`);
+    await page.getByRole("status").getByText("Session resources reloaded", { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await restoredComposer.inputValue(), "");
+    assert.equal(new URL(page.url()).searchParams.get("session"), sessionId);
+    await page.locator(".session-list-item.active").getByText("Browser UI fixture", { exact: true }).waitFor();
+    const conversation = page.locator(".conversation");
+    await conversation.getByText("Final browser answer", { exact: true }).waitFor();
+    const userMessages = conversation.locator('[data-message-role="user"]');
+    await userMessages.getByText("Browser folding check", { exact: true }).waitFor();
+    assert.equal(await userMessages.count(), 1, "reload must not add a user message");
+    await reloadAttachment.waitFor();
+
+    await restoredComposer.fill(`/${reloadSkillName}`);
+    await slashSuggestions.getByRole("option").getByText(reloadSkillName, { exact: true }).waitFor();
+
+    const busyError = "Wait for the session and queue to finish before reloading";
+    await page.route(reloadUrl, (route) => route.fulfill({ status: 409, json: { error: busyError } }), { times: 1 });
+    await restoredComposer.fill("/reload ");
+    assert.equal((await submitReload()).status(), 409);
+    await page.getByRole("status").getByText(`Reload failed: ${busyError}`, { exact: true }).waitFor({ timeout: 5000 });
+    await reloadAttachment.waitFor();
+    assert.deepEqual(reloadPrompts, [], "reload must not send a model prompt");
+  } finally {
+    reloadPrompts = null;
+    await rm(reloadSkillDirectory, { recursive: true, force: true });
+  }
+  console.log("browser /reload checks passed");
+
+  await restoredComposer.fill("Session-specific draft");
   await compactedSessionRow.locator(".session-open").click();
   await page.getByText("Answer after compact", { exact: true }).waitFor();
   assert.notEqual(await compactMessage.locator(".feed-tool-details").getAttribute("open"), null);

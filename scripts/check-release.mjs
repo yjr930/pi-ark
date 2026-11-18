@@ -210,6 +210,8 @@ try {
   assert.equal(download.text, fileContent);
   const session = await json(`${api}/sessions`, "POST", {}, 201);
   assert.ok(session.id, "Session API must create a real SDK Session");
+  const reload = await http(`${api}/sessions/${session.id}/reload`, "POST");
+  assert.equal(reload.status, 204, `Session resource reload: ${reload.text}`);
   assert.equal((await json(`${api}/sessions/${session.id}`, "PATCH", { name: "Native release smoke" })).name, "Native release smoke");
   assert.ok(Array.isArray((await json(`${api}/sessions`)).sessions));
   assert.ok((await json(`${api}/session-statuses`)).statuses.some((item) => item.id === session.id && item.state === "ready"));

@@ -12,7 +12,7 @@
 | Skill 服务 | `apps/server/src/skills.ts` | 扫描三段 skill、处理同名冲突、应用停用清单、保存选择并重新加载空闲 Session |
 | MCP 服务 | `apps/server/src/mcp.ts` | 初始化 `mcp.json`、读取 `pi mcp list --json`、保存启用状态、检查并安装浏览器运行时 |
 | 配置 | `apps/server/src/config.ts` | 读取、归一化和保存 `preferences.skills` |
-| HTTP API | `apps/server/src/index.ts` | Skills 与 MCP 的读取、保存、刷新和浏览器安装端点 |
+| HTTP API | `apps/server/src/index.ts` | 管理 Agent 资源，提供单个 Session 的刷新与批量刷新端点 |
 | Skills 页面 | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、Workspace 选择器、启用复选框和 Refresh |
 | MCP 页面 | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断和浏览器运行时 |
 | 扩展服务 | `apps/server/src/extensions.ts` | 扫描 `PI_ARK_AGENT_DIR/extensions`、读取加载结果与诊断、收集扩展工具名 |
@@ -133,9 +133,9 @@ MCP server 的定义与启用状态主要写在 `PI_ARK_AGENT_DIR/mcp.json`，pi
 - 用户扩展由 `DefaultResourceLoader` 从 `PI_ARK_AGENT_DIR/extensions` 自动发现，与 MCP、codemode 的 inline 扩展共用同一个 loader。
 - `extensionToolNames()` 只收集 `exposure` 为 `direct` 或 `model-only`、且 `defaultActive` 不为 `false` 的用户扩展工具，并加入 Session 的工具允许名单与初始活动工具。
 - `codemode` 注册为默认停用；Session 把 codemode 加入可用工具，再用初始活动工具集合将其排除。MCP extension 在 Session 启动时根据启用且 `exposure` 为 `codemode` 的 server 配置把 `codemode` 加入活动工具。
-- MCP server 的连接在 `session_start` 建立，在 `session_shutdown` 关闭。
-- Settings 的启用开关修改后，Server 保存配置并对空闲 Session 调用 `session.reload()`。
-- 运行中的 Session 保持当前资源集合；新建 Session 与重启后打开的 Session 使用最新集合。
+- MCP 扩展在 `session_start` 启动后台连接，在 `session_shutdown` 关闭旧连接。Settings → MCP 提供连接状态和诊断。
+- Composer 的 `/reload` 为当前空闲主 Session 重新读取资源，并按最新资源重建工具允许名单与初始活动工具。替换流程见[程序实现架构](architecture.md#session-创建与恢复)。
+- 保存 MCP 启用状态或 Skill 选择，以及显式请求 Extensions 或 Skills 重载时，服务端通过 `reloadIdleSessions()` 批量更新符合条件的空闲 Session。正在运行的 Session 继续使用原有资源。新建 Session 或从磁盘恢复 Session 时加载最新资源。
 - Global system prompt 预览使用与目标 Workspace 相同的停用集合，保证预览与运行时一致。
 
 ## 7. 内置 skill
@@ -282,7 +282,7 @@ Workspace 下的 `.pi/extensions` 不加载，因为 `SettingsManager` 以 `proj
 - `extensionToolNames()` 只收集 `exposure` 为 `direct` 或 `model-only`、且 `defaultActive` 不为 `false` 的用户扩展工具。`<inline:...>` 与 `builtin:` 扩展不参与收集，MCP 工具继续由 `codemode` 暴露机制管理。
 - `AgentService` 在创建 Session 前把收集到的工具名加入 `createAgentSession` 的 `tools` 参数与初始活动工具；Global system prompt 预览使用同一套工具名。
 - 扩展注册与内置工具同名的工具时，同名工具覆盖内置实现，因为 SDK 在建立工具表时先写入内置工具、再写入扩展工具。
-- 扩展文件变化后，新建 Session 使用最新内容；Extensions 页面的 Refresh 对空闲 Session 执行 `session.reload()`，正在运行的 Session 保持当前集合。
+- 改动扩展文件后，可以在当前主 Session 执行 `/reload` 应用更新，或通过 Settings → Extensions 批量[刷新空闲 Session](#6-加载与生效)。
 - 扩展运行在 Session 的 extension runtime 中。pi-ark 调用 `session.bindExtensions({})`，SDK 使用空操作 UI 上下文与 `print` 模式；事件钩子、工具、命令与会话状态写入可用，确认、选择与输入返回空结果。
 
 ### 9.3 状态与诊断
@@ -330,14 +330,14 @@ Workspace 下的 `.pi/extensions` 不加载，因为 `SettingsManager` 以 `proj
 - 需要登录的行显示 `Needs sign-in` 与命令 `pi-ark mcp login <server>`。
 - 浏览器未安装或上次安装失败时，打开启用开关触发自动安装，行内显示安装状态、目标目录与失败日志。
 - 连接状态取 `Starting`、`Connected`、`Needs sign-in`、`Failed`、`Disabled`。
-- 页面提供 `Refresh` 按钮，重新执行 `pi-ark mcp list --json` 更新列表与状态。
+- `Refresh` 重新执行 `pi-ark mcp list --json`，更新列表和连接状态。要将手动修改的 MCP 配置应用到当前主 Session，请在 Composer 中执行 `/reload`。
 - 页面首次进入 MCP 类别时读取一次，停留在该类别期间不自动刷新。
 - 列表为空时显示 `pi-ark mcp add <name>` 提示。
 - `browser` 的启用状态由 `playwright` MCP server 控制；Skills 页面不为该行提供开关，未启用时显示 Disabled 与到 MCP 打开的提示。
 
 ### 10.3 Extensions
 
-Extensions 类别显示已加载扩展数量、注册工具数量与扩展列表。每行包含名称、加载状态、注册工具数量、扩展路径、工具标记、命令和诊断。列表上方提供 Refresh，刷新后对空闲 Session 执行 reload。页面底部显示 Install directory 路径与文件布局说明；列表为空时显示添加文件的提示。
+Extensions 类别显示已加载扩展数量、注册工具数量与扩展列表。每行包含名称、加载状态、注册工具数量、扩展路径、工具标记、命令和诊断。列表上方的 Refresh 会读取最新加载结果，并请求刷新符合条件的空闲 Session。页面底部显示 Install directory 路径与文件布局说明；列表为空时显示添加文件的提示。
 
 扩展命令同时进入 Composer 的 `/` 列表：skill 插入 `/skill:名称`，扩展命令插入 `/名称`，两者不再共用裸 `/名称` 命名空间。
 
@@ -355,6 +355,7 @@ Extensions 类别显示已加载扩展数量、注册工具数量与扩展列表
 | `POST /api/mcp/install-browser` | 启动浏览器运行时安装并返回当前状态 |
 | `GET /api/extensions?workspaceId=` | 返回扩展目录、扩展列表、注册工具与命令、加载状态与诊断 |
 | `POST /api/extensions/reload` | 重新加载空闲 Session |
+| `POST /api/workspaces/:workspaceId/sessions/:sessionId/reload` | 刷新指定的空闲主 Session，见 [Session API](architecture.md#session) |
 
 ## 12. 诊断与升级
 

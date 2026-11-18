@@ -24,6 +24,7 @@ try {
 
   const config = await import("../apps/server/src/config.ts");
   const { AgentService } = await import("../apps/server/src/agents.ts");
+  const { createResourceLoader } = await import("../apps/server/src/resource-loader.ts");
   const { createGlobalSettingsManager } = await import("../apps/server/src/settings.ts");
   const { WorkspaceService } = await import("../apps/server/src/workspaces.ts");
   const { PiCoreService } = await import("../apps/server/src/pi-core.ts");
@@ -73,9 +74,8 @@ try {
   }
   await writeFile(join(agentDir, "SYSTEM.md"), "Global replacement");
   await writeFile(join(agentDir, "APPEND_SYSTEM.md"), "Global append");
-  const internal = service as unknown as { createResourceLoader(workspace: typeof workspace, append: string): Promise<{ getSystemPrompt(): string | undefined; getAppendSystemPrompt(): string[] }> };
   for (const target of [workspace, otherWorkspace]) {
-    const loader = await internal.createResourceLoader(target, saved.preferences.agent.systemPrompt.append);
+    const loader = await createResourceLoader({ workspace: target, globalAppend: saved.preferences.agent.systemPrompt.append });
     assert.equal(loader.getSystemPrompt(), "Global replacement");
     const appended = loader.getAppendSystemPrompt();
     assert.equal(appended.length, 3);

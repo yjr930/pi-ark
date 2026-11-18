@@ -74,6 +74,10 @@ export class SubagentService {
 
   private key(workspace: WorkspaceDefinition, sessionId: string): string { return `${workspace.path}:${sessionId}`; }
 
+  managesSession(workspace: WorkspaceDefinition, sessionId: string): boolean {
+    return this.controls.has(this.key(workspace, sessionId));
+  }
+
   run(workspace: WorkspaceDefinition, parent: AgentSession, configuration: SubagentConfiguration, toolCallId: string, inputs: SubagentTaskInput[], signal?: AbortSignal, onUpdate?: (run: SubagentRun) => void): Promise<SubagentRun> {
     if (this.closing) return Promise.reject(new Error("The server is shutting down"));
     if (!inputs.length || inputs.length > 8) return Promise.reject(new Error("Delegate between 1 and 8 tasks"));

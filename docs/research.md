@@ -59,6 +59,12 @@ Pi-Ark 使用 `DefaultResourceLoader` 组合以下内容：
 
 Global preview 与实际 runtime 共用 ResourceLoader 创建流程，并使用统一启用的文件工具（`read`、`bash`、`edit` 和 `write`），通过临时 AgentSession 的 `systemPrompt` 读取 complete effective prompt。Loader 显式选择 Global `SYSTEM.md` 与 `APPEND_SYSTEM.md`，并使用 `appendSystemPromptOverride` 在 Global append resources 后面追加共享内容。Workspace 的 AGENTS.md 保持为项目上下文。
 
+pi SDK 的 `session.systemPrompt` 提供 runtime 根据会话资源生成的有效指令。模型请求还携带当前活动工具的定义，工具注册和 MCP 连接由 runtime 管理。修改提示词文本会更新指令。刷新工具还需要重新读取资源，并按当前扩展重新计算创建 `AgentSession` 时的工具允许名单。
+
+SDK 的原地重载会重新加载既有 loader。Pi-Ark 在创建 loader 时读取全局追加指令和资源目录，并在创建 Session 时传入 `tools` 允许名单。为更新这些输入，Pi-Ark 的 `/reload` 创建新的 loader 和 `AgentSession`，并复用原 `SessionManager`。
+
+pi SDK 的 `examples/sdk/13-session-runtime.ts` 展示了替换 runtime 后重新订阅事件和绑定扩展的方式。`examples/sdk/14-codemode-mcp.ts` 展示了如何通过绑定扩展来启动 MCP 后台连接。`docs/extensions.md` 说明了重载使用的生命周期事件（`session_shutdown` 和 `session_start`）。Pi-Ark 的替换顺序见[程序实现架构](architecture.md#session-创建与恢复)。
+
 ## Workspace Memory 的 SDK 接入
 
 主 Session 通过 `customTools` 注册 Memory 工具，并使用 `DefaultResourceLoader` 的 `extensionFactories` 注册宿主扩展。`before_agent_start` 在每次启动回合时更新所选工具；`context_with_system` 在模型请求副本中附上可选的目录。目录不加入 system prompt 或 JSONL；普通的 Memory 工具结果随 Session 记录。子 Session 和 Global system prompt 预览不安装这套扩展。
@@ -140,6 +146,7 @@ GitHub Releases 为 Linux x64 和 arm64 分别提供包含 native node-pty 的 a
 
 - pi `README.md`
 - pi `docs/sdk.md`
+- pi `docs/extensions.md`
 - pi `docs/sessions.md`
 - pi `docs/session-format.md`
 - pi `docs/message-types.md`
@@ -150,3 +157,4 @@ GitHub Releases 为 Linux x64 和 arm64 分别提供包含 native node-pty 的 a
 - pi `examples/sdk/09-api-keys-and-oauth.ts`
 - pi `examples/sdk/11-sessions.ts`
 - pi `examples/sdk/13-session-runtime.ts`
+- pi `examples/sdk/14-codemode-mcp.ts`

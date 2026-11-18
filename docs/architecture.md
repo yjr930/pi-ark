@@ -73,7 +73,7 @@ docs/               产品、架构、使用和集成文档
 | Global config | `apps/server/src/config.ts` | 配置解析、data directory、共享 preferences 和串行原子写入 |
 | Authentication | `apps/server/src/auth.ts` | scrypt password、持久化 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
-| Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期、snapshot、snapshot-only client、queue、fork、rollback、attachments、自带工具注册、问题挂起与广播 |
+| Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期（含资源刷新）、snapshot、snapshot-only client、queue、fork、rollback、attachments、自带工具注册、问题挂起与广播 |
 | Agent resources | `apps/server/src/resource-loader.ts` | skill 来源表、`skillsOverride`、工作区信任、资源安装提示、MCP 与 codemode extension 和 Session resource loader |
 | Skills | `apps/server/src/skills.ts` | skill 来源扫描、同名冲突、停用过滤、选择保存和空闲 Session 重载 |
 | MCP | `apps/server/src/mcp.ts` | `mcp.json` 初始化、server 列表（含工作区 `.pi/mcp.json`）、启用状态、浏览器运行时状态与安装 |
@@ -105,7 +105,7 @@ docs/               产品、架构、使用和集成文档
 | 模块 | 文件 | 职责 |
 |---|---|---|
 | Application shell | `apps/web/src/App.tsx` | Auth 状态、Workspace/Session 选择、页面导航、URL 和响应式侧栏 |
-| Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、自动重连与心跳超时、手动 compact、message renderer、composer、queue、fork 和 rollback |
+| Agent page | `apps/web/src/components/Chat.tsx` | WebSocket snapshot、自动重连与心跳超时、内置 slash 命令（`/compact` 和 `/reload`）、message renderer、composer、queue、fork 和 rollback |
 | Connection retry | `apps/web/src/connection-retry.ts` | 重连等待时间、心跳超时判定与 watchdog 间隔 |
 | Subagent list | `apps/web/src/components/SubagentRun.tsx`、`apps/web/src/subagent-view.ts` | 按子 Session 合并最新任务、状态栏数量、活动列表、Completed 分组与父子导航 |
 | Session browser cache | `apps/web/src/session-cache.ts` | IndexedDB 中最近 50 个 Session 的 snapshot、UI state、每个 Workspace 的 Session 列表与文件路径确认结果，统计存储占用并提供清理入口 |
@@ -256,6 +256,14 @@ Server 每 15 秒向 WebSocket 发送协议 ping 和 `ping` 消息；一个心�
 - `enabledModels` 解析出的 scoped models。
 
 新 Session 使用已勾选模型中的 Global default；Global default 不在当前 scope 中时，使用 scope 中的第一个模型。恢复已有 Session 时，pi SDK 优先恢复 Session JSONL 记录的当前模型，scoped models 用于后续模型选择。
+
+Composer 将 `/reload` 作为会话操作提交给 [Session HTTP API](#session)。`AgentService.reloadSessionResources()` 要求目标为主 Session，并检查进行中的工作（Agent 回合、上下文压缩、prompt 提交和队列重建）。Session 需要完成这些工作，且队列为空、所有提问已处理，才能接受刷新请求。同一个 handle 同时处理一个资源刷新请求。
+
+刷新时，AgentService 清除 Pi SDK 的扩展工厂缓存，并使用新的 `DefaultResourceLoader` 读取最新设置与资源。服务端重新计算工具允许名单（`createAgentSession()` 的 `tools` 参数）和初始活动工具（`setActiveToolsByName()`）。新的 `AgentSession` 使用原 `SessionManager`，沿用会话状态（历史记录、活动分支、所选模型和 thinking level）。若 loader 报告扩展加载错误，服务端会在替换前返回诊断并保留原 runtime。
+
+服务端向旧 runtime 发送 `session_shutdown`（`reason: "reload"`），使 MCP 扩展关闭旧连接，然后释放旧的 `AgentSession`。原 `AgentHandle` 保留现有 WebSocket clients，改为订阅新 `AgentSession` 的事件。`bindExtensions({})` 触发 `session_start`（`reason: "reload"`），MCP 开始在后台连接。服务端清除会话的 display projection 缓存，并向现有 clients 发送 snapshot。后续模型请求从新的 runtime 获取最新的指令和按暴露规则可用的工具。
+
+设置页的批量刷新使用 `AgentService.reloadIdleSessions()`。它遍历已加载的 Session，并为符合空闲条件的 Session 执行相同的替换流程。正在执行的工作继续使用原有 runtime。
 
 ### Workspace Memory
 
@@ -524,7 +532,7 @@ Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同
 
 `appendSystemPromptOverride` 在用户 append 之前插入 `Pi-Ark resource locations` 段，写明全局与工作区 skill 目录、`mcp.json` 位置，以及兼容目录的用途。
 
-`SkillService` 每次请求调用 `loadSkillsFromDir()` 扫描来源表。扫描顺序与 Pi 一致：`.pi/skills`、各级 `.agents/skills`、`PI_ARK_AGENT_DIR/skills`、`~/.agents/skills`、安装根目录 `skills/`、`.pi-ark/skills`。同名 skill 保留先发现的项，后续同名项写入诊断。`SkillService` 保存选择时校验 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace`，对已注册的 Workspace 丢弃扫描结果中不存在的名称，去重后写入 `config.json`。保存完成后 `SkillService` 调用 `AgentService.reloadIdleSessions()`，对非 running 的 Session 执行 `session.reload()`；正在运行的 Session 保持当前资源集合。
+`SkillService` 每次请求调用 `loadSkillsFromDir()` 扫描来源表。扫描顺序与 Pi 一致：`.pi/skills`、各级 `.agents/skills`、`PI_ARK_AGENT_DIR/skills`、`~/.agents/skills`、安装根目录 `skills/`、`.pi-ark/skills`。同名 skill 保留先发现的项，后续同名项写入诊断。`SkillService` 保存选择时校验 `disabledBuiltin`、`disabledGlobal` 与 `disabledWorkspace`，对已注册的 Workspace 丢弃扫描结果中不存在的名称，去重后写入 `config.json`。保存完成后，`SkillService` 通过 `AgentService.reloadIdleSessions()` 批量刷新符合条件的空闲 Session。`POST /api/skills/reload` 也使用该路径。
 
 `preferences.skills` 的读取、归一化与保存位于 `config.ts`。字段默认值为空数组与空对象；`disabledWorkspace` 以 Workspace ID 为键，保存时保留其他 Workspace 的停用记录。
 
@@ -550,7 +558,7 @@ Settings 的 MCP 类别分两阶段读取：先调用 `/api/mcp/configured` 渲�
 
 `AgentService` 在创建 Session 前调用 `extensionToolNames()` 收集用户扩展注册的工具名。只有 `exposure` 为 `direct` 或 `model-only`、且 `defaultActive` 不为 `false` 的工具加入 Session 的工具允许名单与初始活动工具。`<inline:...>` 与 `builtin:` 扩展的工具不参与收集，MCP 工具继续由 MCP extension 的 `codemode` 暴露机制管理。Global system prompt 预览使用同一套工具名，保证预览与运行时一致。
 
-扩展运行在 Session 的 extension runtime 中。pi-ark 调用 `session.bindExtensions({})`，SDK 使用空操作 UI 上下文与 `print` 模式，扩展的事件钩子、工具、命令与会话状态写入可用，需要用户确认或输入的 UI 调用返回空结果。扩展文件变化后，新建 Session 使用最新内容，Extensions 页面的 Refresh 对空闲 Session 执行 `session.reload()`。
+扩展运行在 Session 的 extension runtime 中。pi-ark 调用 `session.bindExtensions({})`，SDK 使用空操作 UI 上下文与 `print` 模式，扩展的事件钩子、工具、命令与会话状态写入可用，需要用户确认或输入的 UI 调用返回空结果。扩展文件变化后，新建 Session 使用最新内容。Extensions 页面的 Refresh 读取列表后调用 `POST /api/extensions/reload`，通过 `AgentService.reloadIdleSessions()` 批量刷新符合条件的空闲 Session。
 
 `scripts/pi-ark.mjs` 的 `mcp` 子命令查找项目或安装包内的 pi core CLI，以 `PI_ARK_AGENT_DIR` 作为 `PI_CODING_AGENT_DIR`，把 `list`、`add`、`remove`、`login` 与 `logout` 参数透传给 `pi mcp`，并沿用子进程退出码。
 
@@ -786,6 +794,7 @@ Skills、MCP 与 Extensions 的列表端点要求 `workspaceId`。MCP server 名
 | PATCH/DELETE | `/api/workspaces/:workspaceId/sessions/:sessionId` | Metadata/name update 或 delete |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/fork` | Fork |
 | GET | `/api/workspaces/:workspaceId/sessions/:sessionId/subagents` | 父子关系与任务状态 |
+| POST | `/api/workspaces/:workspaceId/sessions/:sessionId/reload` | 刷新指定的空闲主 Session 的资源，无需请求 body |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/abort` | 停止 Session 及其当前等待的子任务 |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback` | Rollback |
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/rollback/restore` | Restore rollback |
@@ -794,6 +803,8 @@ Skills、MCP 与 Extensions 的列表端点要求 `workspaceId`。MCP server 名
 | POST | `/api/workspaces/:workspaceId/sessions/:sessionId/queue/merge-follow-ups` | 按顺序合并全部 Follow-up，并返回权威 Queue state |
 | GET/POST | `/api/workspaces/:workspaceId/session-groups` | List 或 create group |
 | PATCH/DELETE | `/api/workspaces/:workspaceId/session-groups/:groupId` | Rename 或 delete group |
+
+Session 资源刷新返回 `204` 表示成功。目标 Session 忙碌或属于子 Session 时，返回 `409`。同一 Session 的并发刷新请求也返回 `409`。扩展加载出错时，在替换 runtime 之前返回 `422`，响应的 `error` 字段包含加载诊断。
 
 ## WebSocket
 
@@ -982,6 +993,8 @@ npm run release:build
 ```
 
 `check:release-process` 使用隔离 Git repository、bare remote 和受控的 GitHub API 响应，检查构建来源、候选准备、源码修正、中断恢复、tag 冲突、候选安装包复用和正式交付清单；该命令包含在 `check:behavior` 中。
+
+`check:behavior` 里的 Session 资源刷新检查使用真实 SDK、模拟的模型响应和本地 stdio MCP server，覆盖资源变更后的工具调用、会话状态保留与并发请求。
 
 `check:setup` 检查 setup 的参数与环境变量、TLS certificate、密码摘要与 HTTPS。`check:platform` 检查平台默认路径、release state、staging 与路径迁移。`check:release -- <artifact-dir>` 使用解压后的原生 artifact 执行 portable 安装 smoke，并确认服务重启后已有 auth cookie 仍有效；设置 `PI_ARK_SMOKE_ROLLBACK=1` 后还会覆盖版本切换与 rollback 的数据保留，Release workflow 使用该设置。
 

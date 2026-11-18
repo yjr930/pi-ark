@@ -116,6 +116,7 @@ export interface CreateResourceLoaderOptions {
   settingsManager?: ReturnType<typeof createGlobalSettingsManager>;
   selection?: SkillSelectionSource;
   extensionFactories?: ExtensionFactory[];
+  refreshExtensions?: boolean;
 }
 
 export async function createResourceLoader(options: CreateResourceLoaderOptions): Promise<DefaultResourceLoader> {
@@ -149,6 +150,13 @@ export async function createResourceLoader(options: CreateResourceLoaderOptions)
     skillsOverride: ({ skills, diagnostics }) => ({ skills: skills.filter((skill) => !isDisabled(skill)), diagnostics }),
   });
   ensureWorkspaceTrust(workspace.path);
+  if (options.refreshExtensions) {
+    // Pi 1.5 clears its shared factory cache only on the second load of a loader.
+    // Clear it once here so a replacement can validate fresh code before retiring the old runtime.
+    const loaderUrl = new URL("./core/extensions/loader.js", import.meta.resolve("@earendil-works/pi-coding-agent"));
+    const { clearExtensionCache } = await import(loaderUrl.href) as { clearExtensionCache(): void };
+    clearExtensionCache();
+  }
   await resourceLoader.reload({ resolveProjectTrust: async () => true });
   return resourceLoader;
 }
