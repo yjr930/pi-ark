@@ -289,7 +289,7 @@ Workspace 行右侧的带圈数字表示该 Workspace 中正在运行的 Session
 
 选择 Close 并确认后，Workspace 从侧栏和 Global registry 中移除。Pi-Ark 会停止该 Workspace 的 Agent 和 Terminal；服务器目录、项目文件、附件和 Session 继续保留。要保留可阅读的 Memory 副本，请在关闭前从 Memory 页面导出。勾选 **Also delete this Workspace’s Memory** 会同时删除这份 Memory；默认保留原数据文件供管理员备份。
 
-再次通过 Add workspace 添加相同目录后，原有 Session 和项目设置会重新出现。Memory 按新的 Workspace 注册记录独立启用。
+再次通过 Add workspace 添加相同目录后，原有 Session 和项目设置会重新出现。新注册的 Workspace 从全局默认值开始使用 Memory，原来的 Memory 条目和覆盖选项跟随原注册记录。
 
 ## Session 操作
 
@@ -324,8 +324,8 @@ Session row 会显示当前状态：旋转图标表示 Agent 正在运行；绿�
 
 ### 使用 Memory
 
-1. 点击 Session 列表上方的 **Memory**，勾选 **Enable Memory**。Memory 仅供当前 Workspace 的主 Session 查阅。**Include short index** 默认关闭；打开后，模型请求会附带置顶和相关条目的短索引，正文仍按需读取。
-2. 点击 **New entry** 手动保存，或在 Notebook 选中文本后点击 **Save to Memory**，补充标题、摘要与条目类型后保存。Notebook 继续独立自动保存。
+1. 点击 Session 列表上方的 **Memory**，再点击页头的 **Memory settings**。在 [Settings → Memory](#memory) 的 **Workspace overrides** 中将当前 Workspace 的 **Enable Memory** 设为 **On**。主 Session 会在下一轮采用新的设置。
+2. 返回 Memory 条目页后，可点击 **New entry** 手动保存。也可以在 Notebook 选中文本并点击 **Save to Memory**，补充条目信息（标题、摘要与类型）后保存。Notebook 继续独立自动保存。
 3. 在聊天中说「请记住：以后月报按到账日统计，因为要与银行流水对账」。Agent 提出建议后，点击聊天里的 **Review memory**，也可以从 Memory 页的 **Pending suggestions** 打开。检查内容和来源后，选择新建条目或更新已有条目，再确认保存。来自历史分支的建议需要额外确认来源。
 4. 可以新建 Session 并请 Agent 查阅 Workspace 的经验，例如「按我们记下的口径整理月报」。Memory 页可搜索、编辑、归档、恢复或删除条目，也可通过 **Open source message** 查看原消息。通过 **Export Markdown** 可以下载条目副本。
 
@@ -543,17 +543,19 @@ Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧�
 
 ## Settings
 
-Settings 的 Server 设置对所有 Workspace 使用统一的配置，Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端从左侧选择类别，移动端从顶部横向导航选择类别。类别按以下顺序显示：
+Settings 的 Server 设置保存在实例中，Memory 可以按 Workspace 覆盖全局默认值。Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端从左侧选择类别，移动端从顶部横向导航选择类别。类别按以下顺序显示：
 
 1. Appearance
 2. Models & providers
 3. Agent behavior
-4. Skills
-5. MCP
-6. Files
-7. Terminal
-8. Maintenance
-9. Account
+4. Memory
+5. Skills
+6. MCP
+7. Extensions
+8. Files
+9. Terminal
+10. Maintenance
+11. Account
 
 普通选择、开关和完成输入的数值会立即保存。需要确认的内容（API key、Global system prompt append 与 Terminal 的复杂 shell 字段）使用对应区域内的 Save 与 Cancel。
 
@@ -619,6 +621,20 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 - Automatic retry：按 pi 默认行为重试临时 provider failure。
 
 以上选择和开关会立即保存。
+
+### Memory
+
+在 **Global defaults** 设置以下选项的全局默认值。初始时，各选项均为关闭。
+
+| 选项 | 开启后的行为 |
+|---|---|
+| **Enable Memory** | Workspace 的主 Session 可以查阅 Memory 并提出保存建议。 |
+| **Include short index** | 模型请求会附带置顶和相关条目的短索引，正文仍按需读取。 |
+| **Proactive suggestions** | 在主 Session 中加入内置提示词，请 Agent 在本轮结束前检查是否有值得保存的长期经验。建议仍需用户确认。关闭此选项时，也可以请 Agent 提出建议。 |
+
+在 **Workspace overrides** 选择要配置的 Workspace。每个选项可以选择 **Use global default**（继承）、**On**（开启）或 **Off**（关闭）。旧版已保存的启用和短索引选项继续覆盖全局默认值，缺失的选项继承全局默认值。
+
+展开 **Proactive suggestion prompt** 可以阅读 Pi-Ark 内置的提示词。预览下方显示所选 Workspace 的生效状态。短索引和主动提议均以启用 Memory 为前提。选择会立即保存，主 Session 在下一轮采用新的工具和主动提议设置。
 
 ### Skills
 
@@ -934,6 +950,8 @@ Global data：
 PI_ARK_HOME/
   config.json
   auth-sessions.json
+  memory/
+    <store-id>.json
   tls/
   pi-agent/
     auth.json

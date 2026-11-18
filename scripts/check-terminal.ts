@@ -18,7 +18,7 @@ if (scriptPath.endsWith(".ts")) {
   const compiled = await mkdtemp(join(temporary, "terminal-compiled-"));
   try {
     const ts = await import("typescript");
-    for (const source of ["scripts/check-terminal.ts", "apps/server/src/terminal.ts", "apps/server/src/terminal-shells.ts", "apps/server/src/config.ts", "apps/server/src/workspaces.ts"]) {
+    for (const source of ["scripts/check-terminal.ts", "apps/server/src/terminal.ts", "apps/server/src/terminal-shells.ts", "apps/server/src/config.ts", "apps/server/src/memory-settings.ts", "apps/server/src/workspaces.ts"]) {
       const destination = join(compiled, source.replace(/\.ts$/, ".js"));
       const result = ts.transpileModule(await readFile(join(root, source), "utf8"), { fileName: source, compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ES2022, rewriteRelativeImportExtensions: true } });
       await mkdir(dirname(destination), { recursive: true });

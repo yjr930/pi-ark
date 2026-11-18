@@ -40,6 +40,7 @@ try {
   const defaults = await config.loadGlobalPreferences();
   assert.deepEqual(defaults.agent, { systemPrompt: { append: "" } });
   assert.deepEqual(defaults.files, { showHiddenFiles: true, maxPreviewSizeMb: 10 });
+  assert.deepEqual(defaults.memory, { enabled: false, autoIndex: false, proactive: false });
   await Promise.all([
     config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }, otherWorkspace]),
     config.saveGlobalSystemPrompt({ append: "Shared instructions" }),
@@ -49,16 +50,16 @@ try {
   assert.deepEqual(saved.auth, { username: "check", passwordHash: "check" });
   assert.deepEqual(saved.tls, { keyPath: "/tmp/key", certPath: "/tmp/cert" });
   assert.equal(saved.workspaces[0].name, "Queued workspace");
-  assert.deepEqual(saved.preferences, { agent: { systemPrompt: { append: "Shared instructions" } }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 }, terminal: { shell: "auto", executable: "", args: [], env: {} }, skills: { disabledBuiltin: [], disabledGlobal: [], disabledWorkspace: {} } });
+  assert.deepEqual(saved.preferences, { agent: { systemPrompt: { append: "Shared instructions" } }, files: { showHiddenFiles: false, maxPreviewSizeMb: 20 }, terminal: { shell: "auto", executable: "", args: [], env: {} }, skills: { disabledBuiltin: [], disabledGlobal: [], disabledWorkspace: {} }, memory: defaults.memory });
   assert.deepEqual(JSON.parse(await readFile(config.configPath, "utf8")).preferences, saved.preferences);
   await Promise.all([
     config.saveGlobalPreferences({ files: { showHiddenFiles: true, maxPreviewSizeMb: 24 } }),
     config.saveGlobalSystemPrompt({ append: "Latest shared instructions" }),
   ]);
-  assert.deepEqual(await config.loadGlobalPreferences(), { agent: { systemPrompt: { append: "Latest shared instructions" } }, files: { showHiddenFiles: true, maxPreviewSizeMb: 24 }, terminal: { shell: "auto", executable: "", args: [], env: {} }, skills: { disabledBuiltin: [], disabledGlobal: [], disabledWorkspace: {} } });
+  assert.deepEqual(await config.loadGlobalPreferences(), { agent: { systemPrompt: { append: "Latest shared instructions" } }, files: { showHiddenFiles: true, maxPreviewSizeMb: 24 }, terminal: { shell: "auto", executable: "", args: [], env: {} }, skills: { disabledBuiltin: [], disabledGlobal: [], disabledWorkspace: {} }, memory: defaults.memory });
   await config.saveGlobalSystemPrompt({ append: "Shared instructions" });
   const legacyInput = { agent: { tools: [], systemPrompt: { append: "Stale client append" } }, files: { showHiddenFiles: false, maxPreviewSizeMb: 30 } };
-  assert.deepEqual(await config.saveGlobalPreferences(legacyInput), { agent: { systemPrompt: { append: "Shared instructions" } }, files: legacyInput.files, terminal: { shell: "auto", executable: "", args: [], env: {} }, skills: { disabledBuiltin: [], disabledGlobal: [], disabledWorkspace: {} } });
+  assert.deepEqual(await config.saveGlobalPreferences(legacyInput), { agent: { systemPrompt: { append: "Shared instructions" } }, files: legacyInput.files, terminal: { shell: "auto", executable: "", args: [], env: {} }, skills: { disabledBuiltin: [], disabledGlobal: [], disabledWorkspace: {} }, memory: defaults.memory });
   await assert.rejects(config.saveGlobalSystemPrompt({ append: "x".repeat(100001) }), /100000 characters/);
   const service = new AgentService({} as never, new WorkspaceService([workspace, otherWorkspace]));
   for (const tools of [["read"], [], ["obsolete-tool"]]) {

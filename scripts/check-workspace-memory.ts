@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { access, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import Fastify from "fastify";
+import { MEMORY_PROACTIVE_PROMPT } from "../apps/server/src/agent-tools/memory-prompt.ts";
+import type { WorkspaceDefinition } from "../apps/server/src/config.ts";
 import { internalMessageLink, pinnedPiArkLink } from "../apps/server/src/internal-links.ts";
+import { registerMemoryRoutes } from "../apps/server/src/memory-routes.ts";
 import { WorkspaceMemory, type MemoryDraft, type MemoryMessageSource } from "../apps/server/src/workspace-memory.ts";
+import { WorkspaceService } from "../apps/server/src/workspaces.ts";
 
 const temporary = resolve(".tmp");
 await mkdir(temporary, { recursive: true });
@@ -28,6 +33,134 @@ const origin: MemoryMessageSource = {
 const settings = { enabled: true, autoIndex: true };
 const draft = (overrides: Partial<MemoryDraft> = {}): MemoryDraft => ({ ...base, ...overrides });
 const status = (statusCode: number) => ({ statusCode });
+
+async function checkMemorySettings() {
+  const home = join(directory, "home");
+  process.env.PI_ARK_HOME = home;
+  process.env.PI_ARK_AGENT_DIR = join(home, "pi-agent");
+  process.env.PI_CODING_AGENT_DIR = process.env.PI_ARK_AGENT_DIR;
+  const config = await import("../apps/server/src/config.ts");
+  const inherited: WorkspaceDefinition = { id: "inherited", name: "Inherited", path: join(directory, "inherited") };
+  const overridden: WorkspaceDefinition = { id: "overridden", name: "Overridden", path: join(directory, "overridden") };
+  const legacyId = randomUUID();
+  const legacy: WorkspaceDefinition = { id: "legacy", name: "Legacy", path: join(directory, "legacy"), memoryStoreId: legacyId };
+  const workspaces = new WorkspaceService([inherited, overridden, legacy]);
+  const root = join(home, "memory");
+  const scoped = new WorkspaceMemory(root, undefined, config.loadMemoryDefaults);
+  const originalConfig = JSON.stringify({ auth: { username: "check", passwordHash: "check" }, tls: { keyPath: "key", certPath: "cert" }, workspaces: workspaces.list() });
+  await mkdir(home);
+  await writeFile(config.configPath, originalConfig);
+
+  const app = Fastify();
+  registerMemoryRoutes(app, {
+    memory: scoped, workspaces,
+    ensureStore: (workspace) => workspaces.ensureMemoryStore(workspace.id, () => config.saveWorkspaceDefinitions(workspaces.list())),
+    loadDefaults: config.loadMemoryDefaults, saveDefaults: config.saveMemoryDefaults, sourceStatus: async () => "active",
+  });
+  const global = "/api/settings/memory";
+  const path = (workspace: WorkspaceDefinition) => `/api/workspaces/${workspace.id}/memory`;
+  const settingsPath = (workspace: WorkspaceDefinition) => `${path(workspace)}/settings`;
+  const write = (url: string, payload: unknown, method: "PATCH" | "PUT" | "POST" = "PATCH") =>
+    app.inject({ method, url, headers: { "content-type": "application/json" }, payload: JSON.stringify(payload) });
+  const json = async (url: string) => {
+    const response = await app.inject(url);
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json();
+  };
+  const off = { enabled: false, autoIndex: false, proactive: false };
+  const on = { enabled: true, autoIndex: true, proactive: true };
+  const inheritedOff = { defaults: off, overrides: {}, effective: off };
+
+  try {
+    assert.deepEqual(await json(global), { defaults: off, prompt: MEMORY_PROACTIVE_PROMPT });
+    assert.deepEqual(await json(settingsPath(inherited)), inheritedOff);
+    assert.deepEqual(await json(path(inherited)), disabled);
+    assert.equal((await app.inject(`${path(inherited)}/export`)).statusCode, 200);
+    assert.deepEqual((await write(settingsPath(inherited), {})).json(), inheritedOff);
+    assert.deepEqual((await write(settingsPath(inherited), { enabled: null })).json(), inheritedOff);
+    assert.equal((await write(`${path(inherited)}/entries`, base, "POST")).statusCode, 409);
+    for (const invalid of [[], null, { enabled: "true" }, { autoIndex: 1 }, { proactive: {} }, { entries: [] }, JSON.parse('{"__proto__":false}')]) {
+      assert.equal((await write(global, invalid)).statusCode, 400);
+      assert.equal((await write(settingsPath(inherited), invalid)).statusCode, 400);
+    }
+    assert.equal((await write(global, { enabled: null })).statusCode, 400);
+    assert.equal(inherited.memoryStoreId, undefined);
+    assert.equal(await readFile(config.configPath, "utf8"), originalConfig);
+    await assert.rejects(access(root), { code: "ENOENT" });
+
+    const files = { showHiddenFiles: false, maxPreviewSizeMb: 20 };
+    const append = { append: "Unrelated preference" };
+    const [index, proactive] = await Promise.all([
+      write(global, { autoIndex: true }), write(global, { proactive: true }),
+      config.saveGlobalPreferences({ files }), config.saveGlobalSystemPrompt(append),
+    ]);
+    assert.equal(index.statusCode, 200, index.body);
+    assert.equal(proactive.statusCode, 200, proactive.body);
+    const desired = { ...on, enabled: false };
+    assert.deepEqual(await json(global), { defaults: desired, prompt: MEMORY_PROACTIVE_PROMPT });
+    assert.deepEqual(await json(settingsPath(inherited)), { ...inheritedOff, defaults: desired });
+    const pinnedOff = await write(settingsPath(overridden), { enabled: false });
+    assert.equal(pinnedOff.statusCode, 200, pinnedOff.body);
+    assert.ok(overridden.memoryStoreId, "An explicit false override needs a store");
+    assert.deepEqual(pinnedOff.json(), { defaults: desired, overrides: { enabled: false }, effective: off });
+    const choices = await Promise.all([write(settingsPath(overridden), { autoIndex: false }), write(settingsPath(overridden), { proactive: false })]);
+    for (const choice of choices) assert.equal(choice.statusCode, 200, choice.body);
+    assert.deepEqual((await write(global, { enabled: true })).json(), { defaults: on, prompt: MEMORY_PROACTIVE_PROMPT });
+    const preferences = (await config.loadConfig()).preferences;
+    assert.deepEqual(preferences.files, files);
+    assert.deepEqual(preferences.agent.systemPrompt, append);
+    assert.deepEqual(preferences.memory, on);
+    assert.deepEqual(JSON.parse(await readFile(config.configPath, "utf8")).preferences.memory, on);
+    assert.deepEqual(await json(settingsPath(overridden)), { defaults: on, overrides: off, effective: off });
+    assert.deepEqual((await write(settingsPath(overridden), { enabled: null, proactive: null })).json(), {
+      defaults: on, overrides: { autoIndex: false }, effective: { ...on, autoIndex: false },
+    });
+
+    const inheritedOn = { defaults: on, overrides: {}, effective: on };
+    assert.deepEqual(await json(settingsPath(inherited)), inheritedOn);
+    assert.deepEqual(await json(path(inherited)), enabled);
+    assert.equal(await scoped.isEnabled(undefined), true);
+    assert.deepEqual(await scoped.recall(undefined, "reporting"), []);
+    assert.equal(await scoped.directory(undefined, "reporting"), undefined);
+    assert.equal((await write(`${path(inherited)}/entries`, { ...base, title: "" }, "POST")).statusCode, 400);
+    assert.equal(inherited.memoryStoreId, undefined);
+    const created = await write(`${path(inherited)}/entries`, base, "POST");
+    assert.equal(created.statusCode, 201, created.body);
+    const { id: entryId } = created.json();
+    const inheritedId = workspaces.get(inherited.id).memoryStoreId!;
+    const pending = await scoped.propose(inheritedId, base, origin);
+    assert.deepEqual(await json(settingsPath(inherited)), inheritedOn);
+
+    const legacyPath = join(root, `${legacyId}.json`);
+    const legacyFile = JSON.stringify({ version: 1, ...disabled, autoIndex: true });
+    await writeFile(legacyPath, legacyFile);
+    assert.deepEqual(await scoped.getSettings(legacyId), { defaults: on, overrides: { enabled: false, autoIndex: true }, effective: off });
+    assert.equal(await readFile(legacyPath, "utf8"), legacyFile);
+    assert.deepEqual((await write(settingsPath(legacy), { enabled: null })).json(), { ...inheritedOn, overrides: { autoIndex: true } });
+    assert.deepEqual((await write(settingsPath(legacy), { autoIndex: null })).json(), inheritedOn);
+    assert.deepEqual(JSON.parse(await readFile(legacyPath, "utf8")), { version: 1, ...enabled, overrides: {} });
+
+    await config.saveMemoryDefaults({ enabled: false });
+    assert.deepEqual(await scoped.getSettings(legacyId), { ...inheritedOff, defaults: desired });
+    assert.equal((await scoped.snapshot(inheritedId)).autoIndex, false);
+    assert.equal((await scoped.snapshot(inheritedId)).entries[0].id, entryId);
+    assert.equal(await scoped.directory(inheritedId, "reporting"), undefined);
+    assert.deepEqual(await scoped.recall(inheritedId, "reporting"), []);
+    await assert.rejects(scoped.create(inheritedId, base), status(409));
+    await assert.rejects(scoped.propose(inheritedId, base, origin), status(409));
+    await assert.rejects(scoped.read(inheritedId, entryId), status(409));
+    await assert.rejects(scoped.confirm(inheritedId, pending.id, { draft: base }), status(409));
+
+    const set = await write(settingsPath(inherited), { enabled: true, autoIndex: true }, "PUT");
+    assert.equal(set.statusCode, 200, set.body);
+    assert.equal(set.json().entries[0].id, entryId);
+    assert.deepEqual(await json(settingsPath(inherited)), { defaults: desired, overrides: settings, effective: on });
+    assert.equal((await scoped.confirm(inheritedId, pending.id, { draft: base })).status, "confirmed");
+    assert.equal((await scoped.read(inheritedId, entryId)).body, base.body);
+  } finally {
+    await app.close();
+  }
+}
 
 try {
   assert.deepEqual(await memory.snapshot(undefined), disabled);
@@ -203,6 +336,10 @@ try {
   assert.equal(await memory.directory(catalog, "reports"), undefined);
   assert.equal((await memory.recall(catalog, "reports"))[0]?.id, top.id);
   await memory.setSettings(catalog, { enabled: false, autoIndex: true });
+  const rollbackFlags = JSON.parse(await readFile(join(storage, `${catalog}.json`), "utf8"));
+  assert.equal(rollbackFlags.enabled, false);
+  assert.equal(rollbackFlags.autoIndex, true);
+  assert.equal((await memory.snapshot(catalog)).autoIndex, false);
   assert.equal(await memory.directory(catalog, "reports"), undefined);
   assert.deepEqual(await memory.recall(catalog, "reports"), []);
   await assert.rejects(memory.read(catalog, pinned.id), status(409));
@@ -222,7 +359,8 @@ try {
   await memory.purge(store);
   assert.deepEqual(await memory.snapshot(store), disabled);
   assert.deepEqual(await memory.read(isolated, external.id), external);
-  console.log("workspace memory checks passed");
+  await checkMemorySettings();
+  console.log("workspace memory storage and settings checks passed");
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

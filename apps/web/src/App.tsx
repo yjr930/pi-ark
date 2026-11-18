@@ -31,6 +31,7 @@ type MemoryTarget = { workspaceId?: string; proposalId?: string; notebookText?: 
 export default function App() {
   const initialPermalink = useRef(readPermalink());
   const pendingInternalTarget = useRef<InternalSessionTarget | undefined>(undefined);
+  const notebookMemoryDraft = useRef<{ id: string; text: string } | undefined>(undefined);
   const lastSessionByWorkspace = useRef<Record<string, string>>({});
   const pendingNewSessionByWorkspace = useRef<Record<string, string>>({});
   const openSessionIdsRef = useRef<Record<string, string[]>>({});
@@ -61,6 +62,7 @@ export default function App() {
   const [historyRevision, setHistoryRevision] = useState(0);
   const [fileTarget, setFileTarget] = useState(() => ({ workspaceId: initialPermalink.current.workspaceId, path: initialPermalink.current.filePath || "", type: initialPermalink.current.fileType || "directory" as "file" | "directory", revision: 0 }));
   const [settingsVisited, setSettingsVisited] = useState(initialPermalink.current.page === "settings");
+  const [settingsCategory, setSettingsCategory] = useState(initialPermalink.current.settingsCategory);
   const [terminalWorkspaces, setTerminalWorkspaces] = useState<string[]>([]);
   const [sidebar, setSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("pi-ark-sidebar-collapsed") === "true");
@@ -106,7 +108,7 @@ export default function App() {
     const applySelection = (available: SessionInfo[], fromServer = false): boolean => {
       if (selectionRevision.current !== requestRevision) return false;
       const location = readPermalink();
-      const allowFallback = fromServer && location.page === "memory" && !pendingTarget;
+      const allowFallback = fromServer && (location.page === "memory" || location.settingsCategory === "memory") && !pendingTarget;
       if (!allowFallback && linkedSessionId && !available.some((session) => session.id === linkedSessionId)) return false;
       const rememberedSessionId = lastSessionByWorkspace.current[workspaceId];
       const selectedId = available.find((session) => session.id === linkedSessionId)?.id || available.find((session) => session.id === rememberedSessionId)?.id || available.find((session) => !session.archived && !session.subagentOrigin)?.id || "";
@@ -119,7 +121,7 @@ export default function App() {
           const sameSession = selectedId === location.sessionId;
           window.history.replaceState(window.history.state, "", memoryLocation(workspaceId, selectedId, location.workspaceId === workspaceId ? location.proposalId : undefined, sameSession ? location.messageId : undefined, sameSession ? location.leafEntryId : undefined));
         } else if ((!location.messageId && !location.leafEntryId) || selectedId !== linkedSessionId) {
-          window.history.replaceState(null, "", location.page === "files" && location.filePath !== undefined ? fileLocation(workspaceId, location.filePath, location.fileType || "file", selectedId) : appLocation(location.page, workspaceId, selectedId));
+          window.history.replaceState(null, "", location.page === "files" && location.filePath !== undefined ? fileLocation(workspaceId, location.filePath, location.fileType || "file", selectedId) : appLocation(location.page, workspaceId, selectedId, location.settingsCategory));
         }
       }
       pendingInternalTarget.current = undefined; initialPermalink.current = { page: "agent" };
@@ -176,16 +178,20 @@ export default function App() {
     if (auth !== "in") return;
     const restoreHistory = () => {
       const target = readPermalink();
-      const targetWorkspace = target.workspaceId || workspaceId;
-      if (!workspaces.some((item) => item.id === targetWorkspace)) { setError("The linked workspace is not open"); return; }
+      const targetWorkspace = target.page === "settings"
+        ? (workspaces.find((item) => item.id === target.workspaceId) ?? workspaces[0])?.id || ""
+        : target.workspaceId || workspaceId;
+      if (target.page !== "settings" && !workspaces.some((item) => item.id === targetWorkspace)) { setError("The linked workspace is not open"); return; }
       selectionRevision.current += 1;
       pendingInternalTarget.current = undefined;
       setRestorePosition(readAgentReturnPosition(window.history.state, target));
       setHistoryRevision((revision) => revision + 1);
       setPage(target.page); setSidebar(false); setError("");
-      setMemoryTarget(target.page === "memory" ? { workspaceId: targetWorkspace, proposalId: target.workspaceId ? target.proposalId : undefined } : undefined);
+      const draft = notebookMemoryDraft.current;
+      const notebookText = draft && window.history.state?.piArkNotebookMemoryDraft === draft.id ? draft.text : undefined;
+      setMemoryTarget(target.page === "memory" ? { workspaceId: targetWorkspace, proposalId: target.workspaceId ? target.proposalId : undefined, notebookText } : undefined);
       setTargetMessageId(target.messageId); setLeafEntryId(target.leafEntryId);
-      if (target.page === "settings") setSettingsVisited(true);
+      if (target.page === "settings") { setSettingsVisited(true); setSettingsCategory(target.settingsCategory); }
       if (target.page === "files") setFileTarget((current) => ({ workspaceId: targetWorkspace, path: target.filePath || "", type: target.fileType || "directory", revision: current.revision + 1 }));
       if (targetWorkspace === workspaceId) {
         setSessionId(target.sessionId || lastSessionByWorkspace.current[targetWorkspace] || "");
@@ -268,7 +274,7 @@ export default function App() {
         const next = resolveActiveSessionId({ currentSessionId: current, sessions: result.sessions, removedFromActiveId, liveSessionIds: openSessionIdsRef.current[workspaceId] || [], pendingSessionId: pendingNewSessionByWorkspace.current[workspaceId] });
         if (next !== current) {
           const location = readPermalink();
-          window.history.replaceState(null, "", location.page === "memory" ? memoryLocation(workspaceId, next, location.proposalId) : appLocation(location.page, workspaceId, next));
+          window.history.replaceState(location.page === "memory" ? window.history.state : null, "", location.page === "memory" ? memoryLocation(workspaceId, next, location.proposalId) : appLocation(location.page, workspaceId, next, location.settingsCategory));
         }
         return next;
       });
@@ -346,7 +352,20 @@ export default function App() {
     setRestorePosition(undefined);
     setMemoryTarget(undefined);
     if (nextPage === "settings") setSettingsVisited(true);
-    setPage(nextPage); setSidebar(false); window.history.replaceState(null, "", nextPage === "agent" && workspaceId && sessionId ? sessionPermalink(workspaceId, sessionId, targetMessageId, leafEntryId) : nextPage === "files" && fileTarget.workspaceId === workspaceId ? fileLocation(workspaceId, fileTarget.path, fileTarget.type, sessionId) : appLocation(nextPage, workspaceId, sessionId));
+    setPage(nextPage); setSidebar(false); window.history.replaceState(null, "", nextPage === "agent" && workspaceId && sessionId ? sessionPermalink(workspaceId, sessionId, targetMessageId, leafEntryId) : nextPage === "files" && fileTarget.workspaceId === workspaceId ? fileLocation(workspaceId, fileTarget.path, fileTarget.type, sessionId) : appLocation(nextPage, workspaceId, sessionId, settingsCategory));
+  }
+
+  function selectMemoryCategory(selected: boolean) {
+    const category = selected ? "memory" : undefined;
+    setSettingsCategory(category);
+    window.history.replaceState(window.history.state, "", appLocation("settings", workspaceId, sessionId, category));
+  }
+
+  function openMemorySettings() {
+    if (!workspaceId) return;
+    setRestorePosition(undefined); setSettingsVisited(true); setSettingsCategory("memory");
+    setError(""); setPage("settings"); setSidebar(false);
+    window.history.pushState(null, "", appLocation("settings", workspaceId, sessionId, "memory"));
   }
 
   function rememberAgentPosition() {
@@ -383,7 +402,14 @@ export default function App() {
   function openMemory(proposalId?: string, notebookText?: string) {
     if (!workspaceId) return;
     const destination = memoryLocation(workspaceId, sessionId, proposalId, targetMessageId, leafEntryId);
-    if (rememberAgentPosition() || notebookText !== undefined) window.history.pushState(null, "", destination);
+    // Keep the Notebook selection in memory so Back from Settings can restore the draft.
+    let state: { piArkNotebookMemoryDraft: string } | null = null;
+    if (notebookText !== undefined) {
+      const id = crypto.randomUUID();
+      notebookMemoryDraft.current = { id, text: notebookText };
+      state = { piArkNotebookMemoryDraft: id };
+    }
+    if (rememberAgentPosition() || state) window.history.pushState(state, "", destination);
     else window.history.replaceState(null, "", destination);
     setMemoryTarget({ workspaceId, proposalId, notebookText });
     setRestorePosition(undefined); setError(""); setPage("memory"); setSidebar(false);
@@ -429,7 +455,8 @@ export default function App() {
   }
 
   function workspaceClosed(closed: Workspace) {
-    if (currentWorkspaceId.current === closed.id && readPermalink().page === "memory") {
+    const location = readPermalink();
+    if (currentWorkspaceId.current === closed.id && location.page === "memory") {
       setMemoryTarget(undefined); setPage("agent");
     }
     setTerminalWorkspaces((current) => current.filter((id) => id !== closed.id));
@@ -437,7 +464,7 @@ export default function App() {
       const remaining = current.filter((item) => item.id !== closed.id);
       setWorkspaceId((selected) => {
         const next = selected === closed.id ? remaining[0]?.id || "" : selected;
-        if (next !== selected) window.history.replaceState(null, "", appLocation("agent", next));
+        if (next !== selected) window.history.replaceState(null, "", appLocation(location.page === "settings" ? "settings" : "agent", next, undefined, location.settingsCategory));
         return next;
       });
       return remaining;
@@ -490,11 +517,11 @@ export default function App() {
       {workspace && page === "agent" && (selectedSession ? <Chat key={`${workspace.id}:${selectedSession.id}:${targetMessageId || "latest"}:${leafEntryId || "active"}:${historyRevision}`} restorePosition={restorePosition?.workspaceId === workspace.id && restorePosition.sessionId === selectedSession.id && restorePosition.messageId === targetMessageId && restorePosition.leafEntryId === leafEntryId ? restorePosition : undefined} workspace={workspace} session={selectedSession} sessions={workspaceSessions} sessionStatuses={sessionStatuses} targetMessageId={targetMessageId} leafEntryId={leafEntryId} hideReasoning={appearance.hideReasoning} onSessionChanged={refreshSessions} onOpenMemory={openMemory} onSessionForked={(createdSessionId) => void openCreatedSession(createdSessionId)} /> : loadingSessions ? <div className="page-loading"><LoaderCircle size={20} />Loading sessions</div> : <div className="no-session"><MessageSquare size={30} /><h2>Start a new session</h2><p>Each session stays inside {workspace.name}.</p><button className="primary-button" onClick={() => void createSession()}><Plus size={16} />New session</button></div>)}
       <Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading page</div>}>
         {workspace && page === "notebook" && <Notebook key={workspace.id} workspace={workspace} onSaveToMemory={(text) => openMemory(undefined, text)} />}
-        {workspace && page === "memory" && <Memory key={workspace.id} workspace={workspace} proposalId={activeMemoryTarget?.proposalId} notebookText={activeMemoryTarget?.notebookText} onReview={openMemory} onOpenNotebook={openNotebook} />}
+        {workspace && page === "memory" && <Memory key={workspace.id} workspace={workspace} proposalId={activeMemoryTarget?.proposalId} notebookText={activeMemoryTarget?.notebookText} onReview={openMemory} onOpenNotebook={openNotebook} onOpenSettings={openMemorySettings} />}
         {workspace && page === "files" && <Files key={workspace.id} workspace={workspace} target={fileTarget.workspaceId === workspaceId ? fileTarget : undefined} onNavigate={openFileTarget} />}
       </Suspense>
       {workspaces.filter((item) => terminalWorkspaces.includes(item.id) || (page === "terminal" && workspaceId === item.id)).map((item) => <div className="terminal-page-host" key={item.id} hidden={page !== "terminal" || workspaceId !== item.id} data-terminal-workspace={item.id}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading terminal</div>}><Terminal workspace={item} active={page === "terminal" && workspaceId === item.id} /></Suspense></div>)}
-      {(settingsVisited || page === "settings") && <div className="settings-page-host" hidden={page !== "settings"}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading settings</div>}><Settings active={page === "settings"} appearance={appearance} onAppearanceChange={changeAppearance} /></Suspense></div>}
+      {(settingsVisited || page === "settings") && <div className="settings-page-host" hidden={page !== "settings"}><Suspense fallback={<div className="page-loading"><LoaderCircle size={20} />Loading settings</div>}><Settings active={page === "settings"} appearance={appearance} onAppearanceChange={changeAppearance} memoryCategory={settingsCategory === "memory"} onMemoryCategoryChange={selectMemoryCategory} workspaces={workspaces} workspacesLoading={workspacesLoading} workspaceId={workspaceId} /></Suspense></div>}
     </main>
     {addWorkspaceOpen && <AddWorkspaceDialog onClose={() => setAddWorkspaceOpen(false)} onAdded={workspaceAdded} />}
     {sessionLinkOpen && <NameDialog title="Open session link" description="Paste a Pi-Ark internal session or message link." label="Pi-Ark session link" submitLabel="Open session" icon={<Link2 size={18} />} onClose={() => setSessionLinkOpen(false)} onSubmit={openInternalSessionLink} />}

@@ -121,7 +121,7 @@ export class AgentService {
 
   private readonly sessionReader: SessionReader;
 
-  constructor(private readonly settings: SettingsService, private readonly workspaces: Pick<WorkspaceService, "get"> & Partial<Pick<WorkspaceService, "currentRegistration">>, private readonly memory?: WorkspaceMemory) {
+  constructor(private readonly settings: SettingsService, private readonly workspaces: Pick<WorkspaceService, "get"> & Partial<Pick<WorkspaceService, "currentRegistration">>, private readonly memory?: WorkspaceMemory, private readonly ensureMemoryStore?: (workspace: WorkspaceDefinition) => Promise<string>) {
     this.sessionReader = new SessionReader(workspaces, (workspace, sessionId) => this.handles.get(this.key(workspace, sessionId))?.session.sessionManager);
     this.subagents = new SubagentService(this.sessionReader, async (workspace, manager, configuration) => (await this.instantiate(workspace, manager, configuration)).session, (workspace, run) => {
       const runs = this.subagents.store.state(workspace, run.parentSessionId).runs;
@@ -675,7 +675,12 @@ export class AgentService {
     const childConfiguration = origin?.task.configuration ?? origin?.run;
     const systemPromptAppend = configuration?.systemPromptAppend ?? childConfiguration?.systemPromptAppend ?? preferences.agent.systemPrompt.append;
     const memory = origin ? undefined : this.memory;
-    const memoryStoreId = () => this.workspaces.currentRegistration ? this.workspaces.currentRegistration(workspace)?.memoryStoreId : workspace.memoryStoreId;
+    const memoryStoreId = () => {
+      const current = this.workspaces.currentRegistration ? this.workspaces.currentRegistration(workspace) : workspace;
+      if (!current) throw new Error("The Workspace is no longer registered");
+      return current.memoryStoreId;
+    };
+    const ensureMemoryStore = this.ensureMemoryStore?.bind(this, workspace);
     const resourceLoader = await createWorkspaceResourceLoader({
       workspace, globalAppend: origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend,
       settingsManager, extensionFactories: memory ? [createMemoryExtension(memory, memoryStoreId)] : undefined,
@@ -702,10 +707,10 @@ export class AgentService {
     };
     const questionTools = origin ? [] : createQuestionTools(askQuestion, askBackgroundQuestion);
     const extensionTools = extensionToolNames(resourceLoader);
-    const memoryEnabled = memory && await memory.isEnabled(memoryStoreId()).catch(() => false);
+    const memoryEnabled = memory && await Promise.resolve().then(() => memory.isEnabled(memoryStoreId())).catch(() => false);
     const activeTools = [...new Set([...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT, ...QUESTION_TOOLS] : []), ...extensionTools, ...(memoryEnabled ? MEMORY_TOOLS : [])])];
     const tools = [...new Set([...activeTools, "codemode", ...(memory ? MEMORY_TOOLS : [])])];
-    const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : []), ...questionTools, ...(memory ? createMemoryTools(workspace, memory, memoryStoreId) : [])];
+    const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : []), ...questionTools, ...(memory ? createMemoryTools(workspace, memory, memoryStoreId, ensureMemoryStore) : [])];
     const { session, modelFallbackMessage } = await createAgentSession({
       cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader,
       model: previous?.model ?? configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model),

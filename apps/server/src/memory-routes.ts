@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import { MEMORY_PROACTIVE_PROMPT } from "./agent-tools/memory-prompt.js";
 import type { WorkspaceDefinition } from "./config.js";
+import { validateLegacyMemorySettings, validateMemorySettingsPatch, type MemorySettings } from "./memory-settings.js";
 import type { MemoryMessageSource, WorkspaceMemory } from "./workspace-memory.js";
 import type { WorkspaceService } from "./workspaces.js";
 
@@ -9,20 +11,37 @@ type ProposalParams = WorkspaceParams & { proposalId: string };
 interface MemoryRoutesOptions {
   memory: WorkspaceMemory;
   workspaces: Pick<WorkspaceService, "get">;
-  saveSettings: (workspaceId: string, input: { enabled: boolean; autoIndex: boolean }) => ReturnType<WorkspaceMemory["setSettings"]>;
+  ensureStore: (workspace: WorkspaceDefinition) => Promise<string>;
+  loadDefaults: () => Promise<MemorySettings>;
+  saveDefaults: (input: unknown) => Promise<MemorySettings>;
   sourceStatus: (workspace: WorkspaceDefinition, source: MemoryMessageSource) => Promise<"active" | "historical" | "missing">;
 }
 
-export function registerMemoryRoutes(app: FastifyInstance, { memory, workspaces, saveSettings, sourceStatus }: MemoryRoutesOptions): void {
+export function registerMemoryRoutes(app: FastifyInstance, { memory, workspaces, ensureStore, loadDefaults, saveDefaults, sourceStatus }: MemoryRoutesOptions): void {
+  const globalPath = "/api/settings/memory";
+  app.get(globalPath, async () => ({ defaults: await loadDefaults(), prompt: MEMORY_PROACTIVE_PROMPT }));
+  app.patch<{ Body: unknown }>(globalPath, async (request) => ({ defaults: await saveDefaults(validateMemorySettingsPatch(request.body)), prompt: MEMORY_PROACTIVE_PROMPT }));
+
   const path = "/api/workspaces/:workspaceId/memory";
   const store = (id: string) => workspaces.get(id).memoryStoreId;
   app.get<{ Params: WorkspaceParams }>(path, async (request) => memory.snapshot(store(request.params.workspaceId)));
-  app.put<{ Params: WorkspaceParams; Body: unknown }>(`${path}/settings`, async (request, reply) => {
-    const body = request.body as { enabled?: unknown; autoIndex?: unknown } | null;
-    if (typeof body?.enabled !== "boolean" || typeof body.autoIndex !== "boolean") return reply.code(400).send({ error: "Memory settings require enabled and autoIndex flags" });
-    return saveSettings(request.params.workspaceId, { enabled: body.enabled, autoIndex: body.autoIndex });
+  app.get<{ Params: WorkspaceParams }>(`${path}/settings`, async (request) => memory.getSettings(store(request.params.workspaceId)));
+  app.patch<{ Params: WorkspaceParams; Body: unknown }>(`${path}/settings`, async (request) => {
+    const patch = validateMemorySettingsPatch(request.body, true);
+    const workspace = workspaces.get(request.params.workspaceId);
+    const storeId = Object.values(patch).some((value) => typeof value === "boolean") ? await ensureStore(workspace) : workspace.memoryStoreId;
+    return memory.patchSettings(storeId, patch);
   });
-  app.post<{ Params: WorkspaceParams; Body: unknown }>(`${path}/entries`, async (request, reply) => reply.code(201).send(await memory.create(store(request.params.workspaceId), request.body)));
+  app.put<{ Params: WorkspaceParams; Body: unknown }>(`${path}/settings`, async (request) => {
+    const input = validateLegacyMemorySettings(request.body);
+    const workspace = workspaces.get(request.params.workspaceId);
+    return memory.setSettings(await ensureStore(workspace), input);
+  });
+  app.post<{ Params: WorkspaceParams; Body: unknown }>(`${path}/entries`, async (request, reply) => {
+    const workspace = workspaces.get(request.params.workspaceId);
+    const entry = await memory.create(workspace.memoryStoreId, request.body, undefined, () => ensureStore(workspace));
+    return reply.code(201).send(entry);
+  });
   app.patch<{ Params: EntryParams; Body: unknown }>(`${path}/entries/:entryId`, async (request) => memory.update(store(request.params.workspaceId), request.params.entryId, request.body));
   app.delete<{ Params: EntryParams; Querystring: { revision?: string } }>(`${path}/entries/:entryId`, async (request, reply) => {
     const revision = request.query.revision;

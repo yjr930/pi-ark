@@ -1,7 +1,7 @@
-import { Archive, ArchiveRestore, BookOpen, Download, LoaderCircle, Pencil, Pin, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, BookOpen, Download, LoaderCircle, Pencil, Pin, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../api";
-import type { MemoryDraft, MemoryEntry, MemoryEntryPatch, MemoryProposal, MemorySettings, MemorySnapshot, MemoryStatus, MemoryType, Workspace } from "../types";
+import type { MemoryDraft, MemoryEntry, MemoryEntryPatch, MemoryProposal, MemorySnapshot, MemoryStatus, MemoryType, Workspace } from "../types";
 import { cleanMemoryDraft, draftFromMemoryEntry, emptyMemoryDraft, memoryError, MemoryDraftFields, MemorySourceLink, memoryStatuses, memoryTypes } from "./MemoryDraftFields";
 import { MemoryProposalReview } from "./MemoryProposalReview";
 
@@ -29,7 +29,7 @@ function EntryEditor({ editor, enabled, busy, failure, onSave, onClose, onReload
   return <form className="memory-panel memory-editor memory-form" onSubmit={submit}>
     <h3>{entry ? "Edit memory" : fromNotebook ? "Save selection to Memory" : "New memory entry"}</h3>
     {fromNotebook && <p>The draft contains the text you selected in Notebook. Review it and save when ready.</p>}
-    {!enabled && !entry && <p>Enable Memory for this Workspace to save the draft.</p>}
+    {!enabled && !entry && <p>Open Memory settings to enable Memory before saving this draft.</p>}
     <fieldset disabled={busy}>
       <MemoryDraftFields draft={draft} onChange={setDraft} showSourceUrl={!fromNotebook} source={entry?.source} />
       {entry && <>
@@ -49,8 +49,8 @@ function EntryCard({ entry, busy, sourceAvailable, onEdit, onDelete, onCheck, on
   onChangeStatus: (status: MemoryStatus) => void; onOpenNotebook: () => void;
 }) {
   return <article className="memory-panel memory-entry">
-    <div className="memory-panel-heading"><h4>{entry.pinned && <Pin size={14} aria-label="Pinned" />}{entry.title}</h4><span className={`memory-badge status-${entry.status}`}>{memoryStatuses[entry.status]}</span></div>
-    <p>{entry.summary}</p>
+    <div className="memory-panel-heading"><h4>{entry.pinned && <Pin size={14} role="img" aria-label="Pinned" />}<span>{entry.title}</span></h4><span className={`memory-badge memory-status status-${entry.status}`}>{memoryStatuses[entry.status]}</span></div>
+    <p className="memory-entry-summary">{entry.summary}</p>
     <div className="memory-meta"><span>{memoryTypes[entry.type]}</span>{entry.tags.map((tag) => <span className="memory-badge" key={tag}>{tag}</span>)}</div>
     <details className="memory-body" onToggle={(event) => { if (event.currentTarget.open && !busy && sourceAvailable === undefined && entry.source.kind === "message") onCheck(); }}>
       <summary>View body and details</summary>
@@ -61,18 +61,20 @@ function EntryCard({ entry, busy, sourceAvailable, onEdit, onDelete, onCheck, on
         {entry.changeReason && <span>Last change: {entry.changeReason}</span>}
       </div>
     </details>
-    <div className="memory-source"><MemorySourceLink source={entry.source} unavailable={sourceAvailable === false} onOpenNotebook={onOpenNotebook} />{entry.source.kind === "message" && <button type="button" disabled={busy} onClick={onCheck}>Check source</button>}{entry.reviewAfter && <span>Review after <time dateTime={entry.reviewAfter}>{entry.reviewAfter.slice(0, 10)}</time></span>}</div>
-    <div className="memory-actions">
-      <button type="button" className="secondary-button" disabled={busy} onClick={onEdit}><Pencil size={14} />Edit</button>
-      {entry.status === "archived" ? <button type="button" className="secondary-button" disabled={busy} onClick={() => onChangeStatus("active")}><ArchiveRestore size={14} />Restore</button> : <button type="button" className="secondary-button" disabled={busy} onClick={() => onChangeStatus("archived")}><Archive size={14} />Archive</button>}
-      <button type="button" className="secondary-button" disabled={busy} onClick={onDelete}><Trash2 size={14} />Delete</button>
+    <div className="memory-entry-footer">
+      <div className="memory-source"><MemorySourceLink source={entry.source} unavailable={sourceAvailable === false} onOpenNotebook={onOpenNotebook} />{entry.source.kind === "message" && <button type="button" disabled={busy} onClick={onCheck}>Check source</button>}{entry.reviewAfter && <span>Review after <time dateTime={entry.reviewAfter}>{entry.reviewAfter.slice(0, 10)}</time></span>}</div>
+      <div className="memory-actions">
+        <button type="button" className="secondary-button" disabled={busy} onClick={onEdit}><Pencil size={14} />Edit</button>
+        {entry.status === "archived" ? <button type="button" className="secondary-button" disabled={busy} onClick={() => onChangeStatus("active")}><ArchiveRestore size={14} />Restore</button> : <button type="button" className="secondary-button" disabled={busy} onClick={() => onChangeStatus("archived")}><Archive size={14} />Archive</button>}
+        <button type="button" className="secondary-button" disabled={busy} onClick={onDelete}><Trash2 size={14} />Delete</button>
+      </div>
     </div>
   </article>;
 }
 
-export function Memory({ workspace, proposalId, notebookText, onReview, onOpenNotebook }: {
+export function Memory({ workspace, proposalId, notebookText, onReview, onOpenNotebook, onOpenSettings }: {
   workspace: Workspace; proposalId?: string; notebookText?: string;
-  onReview: (proposalId?: string) => void; onOpenNotebook: () => void;
+  onReview: (proposalId?: string) => void; onOpenNotebook: () => void; onOpenSettings: () => void;
 }) {
   const workspaceId = workspace.id;
   const [snapshot, setSnapshot] = useState<MemorySnapshot>();
@@ -118,14 +120,6 @@ export function Memory({ workspace, proposalId, notebookText, onReview, onOpenNo
     setSnapshot(result);
     setSourceChecks({});
     return result;
-  }
-
-  function updateSettings(settings: MemorySettings) {
-    void run(async () => {
-      const result = await api.saveMemorySettings(workspaceId, settings);
-      setSnapshot(result);
-      setNotice(result.autoIndex === settings.autoIndex ? "Memory settings saved." : "Enable Memory for this Workspace before changing the short index setting.");
-    });
   }
 
   function updateEntry(entry: MemoryEntry) {
@@ -183,21 +177,20 @@ export function Memory({ workspace, proposalId, notebookText, onReview, onOpenNo
   const editorError = error?.scope === "editor" ? error : undefined;
 
   return <section className="memory-page">
-    <header className="page-header memory-header"><div><h2><BookOpen size={18} />Memory</h2><p title={workspace.path}>{workspace.name}</p></div><div className="memory-actions">
-      <button type="button" className="secondary-button" disabled={loading || busy} onClick={() => void run(async () => { await reloadSnapshot(); })}><RefreshCw size={15} />Refresh</button>
-      {snapshot && <a className="secondary-button" href={api.memoryExportUrl(workspaceId)} download><Download size={15} />Export Markdown</a>}
-    </div></header>
+    <header className="page-header memory-header">
+      <div className="memory-header-title"><h2><BookOpen size={18} aria-hidden="true" />Memory</h2><p title={workspace.path}>{workspace.name}</p></div>
+      <div className="memory-actions memory-header-actions">
+        <button type="button" className="secondary-button memory-refresh" aria-label="Refresh" title="Refresh Memory" disabled={loading || busy} onClick={() => void run(async () => { await reloadSnapshot(); })}><RefreshCw size={15} aria-hidden="true" /><span>Refresh</span></button>
+        {snapshot && <a className="secondary-button" href={api.memoryExportUrl(workspaceId)} download><Download size={15} aria-hidden="true" />Export Markdown</a>}
+        <button type="button" className="secondary-button" onClick={onOpenSettings}><Settings2 size={15} aria-hidden="true" />Memory settings</button>
+      </div>
+    </header>
     <div className="memory-scroll">
       <div className="memory-content">
         {loading && <p className="memory-message" role="status"><LoaderCircle size={16} className="memory-spinner" />Loading Memory…</p>}
         {error?.scope === "page" && <div className="memory-message memory-warning" role="alert">{error.text}</div>}
         {notice && <p className="memory-message" role="status">{notice}</p>}
-        {snapshot && <section className="memory-panel memory-settings">
-          <h3>Workspace settings</h3>
-          <label className="memory-check"><input type="checkbox" checked={snapshot.enabled} disabled={busy} onChange={(event) => updateSettings({ enabled: event.target.checked, autoIndex: snapshot.autoIndex })} /><span>Enable Memory<small>Share confirmed entries across Sessions in this Workspace.</small></span></label>
-          <label className="memory-check"><input type="checkbox" checked={snapshot.autoIndex} disabled={busy} onChange={(event) => updateSettings({ enabled: snapshot.enabled, autoIndex: event.target.checked })} /><span>Include short index<small>When Memory is enabled, include an index of selected entries in model requests.</small></span></label>
-        </section>}
-        <div ref={editorRef}>
+        <div className="memory-editor-slot" ref={editorRef}>
           {proposalId ? <MemoryProposalReview key={proposalId} workspaceId={workspaceId} proposalId={proposalId} enabled={Boolean(snapshot?.enabled)} entries={snapshot?.entries ?? []} busy={busy || loading} run={(task) => { void run(task, "proposal"); }} onChanged={onProposalChanged} onRefreshEntries={() => { void run(async () => { await reloadSnapshot(); }); }} onClose={() => showProposal()} onOpenNotebook={onOpenNotebook} failure={error?.scope === "proposal" ? error : undefined} /> : editor && editor.kind !== "delete" && <EntryEditor key={editor.kind === "edit" ? `${editor.entry.id}:${editor.entry.revision}` : "create"} editor={editor} enabled={Boolean(snapshot?.enabled)} busy={busy || loading} failure={editorError} onSave={saveEntry} onClose={() => beginEdit()} onReload={() => {
             if (editor.kind !== "edit") return;
             void run(async () => {
@@ -208,23 +201,31 @@ export function Memory({ workspace, proposalId, notebookText, onReview, onOpenNo
           }} />}
         </div>
         {snapshot && !proposalId && <>
-          <section className="memory-panel memory-suggestions"><h3>Pending suggestions <small>{pending.length > 0 ? `(${pending.length})` : ""}</small></h3>
-            {pending.length === 0 ? <p>No suggestions waiting for review.</p> : pending.map((item) => <div className="memory-suggestion" key={item.id}><div><strong>{item.draft.title}</strong><p>{item.draft.summary}</p></div><button type="button" className="secondary-button" disabled={busy} onClick={() => showProposal(item.id)}>Review memory</button></div>)}
+          <section className={`memory-panel memory-suggestions${pending.length === 0 ? " is-empty" : ""}`} aria-labelledby="memory-suggestions-heading">
+            <div className="memory-panel-heading">
+              <h3 id="memory-suggestions-heading">Pending suggestions</h3>
+              {pending.length > 0 ? <span className="memory-suggestion-count">{pending.length} to review</span> : <p>No suggestions waiting for review.</p>}
+            </div>
+            {pending.map((item) => <div className="memory-suggestion" key={item.id}>
+              <div><h4>{item.draft.title}</h4><p>{item.draft.summary}</p></div>
+              <button type="button" className="secondary-button" disabled={busy} onClick={() => showProposal(item.id)}>Review memory</button>
+            </div>)}
           </section>
-          <section className="memory-entries" aria-busy={busy}>
-            <div className="memory-panel-heading"><h3>Entries</h3><button type="button" className="primary-button" disabled={!snapshot.enabled || busy || Boolean(editor)} onClick={() => beginEdit({ kind: "create" })}><Plus size={15} />New entry</button></div>
-            {!snapshot.enabled && <p>Enable Memory to create entries or confirm suggestions.</p>}
+          <section className="memory-entries" aria-labelledby="memory-entries-heading" aria-busy={busy}>
+            <div className="memory-panel-heading"><h3 id="memory-entries-heading">Entries</h3><button type="button" className="primary-button" disabled={!snapshot.enabled || busy || Boolean(editor)} onClick={() => beginEdit({ kind: "create" })}><Plus size={15} aria-hidden="true" />New entry</button></div>
+            {!snapshot.enabled && !editor && <p>Memory is off for this Workspace. Open Memory settings to enable it.</p>}
             <div className="memory-filters">
               <label className="dialog-field"><span>Search entries</span><input type="search" value={query} placeholder="Search Memory…" onChange={(event) => setQuery(event.target.value)} /></label>
               <label className="dialog-field"><span>Type</span><select value={type} onChange={(event) => setType(event.target.value as MemoryType | "")}><option value="">All types</option>{Object.entries(memoryTypes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label className="dialog-field"><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value as MemoryStatus | "")}><option value="">All statuses</option>{Object.entries(memoryStatuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             </div>
-            {entries.length === 0 && <p>{snapshot.entries.length ? "No entries match these filters." : "No Memory entries yet."}</p>}
-            {entries.map((entry) => <EntryCard key={entry.id} entry={entry} busy={busy || Boolean(editor)} sourceAvailable={sourceChecks[entry.id]} onEdit={() => beginEdit({ kind: "edit", entry })} onDelete={() => beginEdit({ kind: "delete", entry })} onCheck={() => checkSource(entry)} onChangeStatus={(nextStatus) => void run(async () => {
-              const updated = await api.updateMemoryEntry(workspaceId, entry.id, { ...draftFromMemoryEntry(entry), revision: entry.revision, status: nextStatus });
-              updateEntry(updated);
-              setNotice(updated.status === "archived" ? "Memory entry archived." : updated.status === "review" ? "Memory entry restored and needs review." : "Memory entry restored.");
-            })} onOpenNotebook={onOpenNotebook} />)}
+            {entries.length === 0 ? <p className="memory-empty">{snapshot.entries.length ? "No entries match these filters." : "No Memory entries yet."}</p> : <div className="memory-entry-list">
+              {entries.map((entry) => <EntryCard key={entry.id} entry={entry} busy={busy || Boolean(editor)} sourceAvailable={sourceChecks[entry.id]} onEdit={() => beginEdit({ kind: "edit", entry })} onDelete={() => beginEdit({ kind: "delete", entry })} onCheck={() => checkSource(entry)} onChangeStatus={(nextStatus) => void run(async () => {
+                const updated = await api.updateMemoryEntry(workspaceId, entry.id, { ...draftFromMemoryEntry(entry), revision: entry.revision, status: nextStatus });
+                updateEntry(updated);
+                setNotice(updated.status === "archived" ? "Memory entry archived." : updated.status === "review" ? "Memory entry restored and needs review." : "Memory entry restored.");
+              })} onOpenNotebook={onOpenNotebook} />)}
+            </div>}
           </section>
         </>}
       </div>

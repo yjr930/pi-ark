@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parsePiArkLink, validLeafEntryId } from "./internal-links.js";
+import { effectiveMemorySettings, MEMORY_SETTING_KEYS, normalizeMemoryDefaults, validateLegacyMemorySettings, validateMemorySettingsPatch, type MemorySettings, type MemorySettingsPatch, type WorkspaceMemorySettings } from "./memory-settings.js";
+
+export type { MemorySettings, WorkspaceMemorySettings } from "./memory-settings.js";
 
 export type MemoryType = "user" | "feedback" | "project" | "reference";
 export type MemoryStatus = "active" | "review" | "archived";
@@ -46,8 +49,8 @@ export interface MemorySnapshot {
 }
 
 type StoredProposal = MemoryProposal & { callId?: string };
-type Store = Omit<MemorySnapshot, "proposals"> & { version: 1; proposals: StoredProposal[] };
-type Mutation<T> = { value: T; unchanged?: true };
+type Store = { overrides: Partial<MemorySettings>; entries: MemoryEntry[]; proposals: StoredProposal[] };
+type Mutation<T> = { value: T; unchanged?: boolean };
 
 const MAX_BODY_BYTES = 8 * 1024;
 const DIRECTORY_BYTES = 2 * 1024;
@@ -182,15 +185,29 @@ function getStoredProposal(data: Store, id: string): StoredProposal {
 function publicProposal({ callId: _callId, ...proposal }: StoredProposal): MemoryProposal {
   return proposal;
 }
-function requireEnabled(data: Store): void {
-  if (!data.enabled) throw error(409, "Workspace Memory is disabled");
+function requireEnabled({ enabled }: MemorySettings): void {
+  if (!enabled) throw error(409, "Workspace Memory is disabled");
 }
 function emptyStore(): Store {
-  return { version: 1, enabled: false, autoIndex: false, entries: [], proposals: [] };
+  return { overrides: {}, entries: [], proposals: [] };
 }
-function asSnapshot(data: Store, now: Date): MemorySnapshot {
+function workspaceSettings(defaults: MemorySettings, overrides: Partial<MemorySettings>): WorkspaceMemorySettings {
+  return { defaults, overrides, effective: effectiveMemorySettings(defaults, overrides) };
+}
+function applySettingsPatch(overrides: Partial<MemorySettings>, patch: MemorySettingsPatch): boolean {
+  let changed = false;
+  for (const key of MEMORY_SETTING_KEYS) {
+    const value = patch[key];
+    if (value === undefined || (value === null ? !Object.hasOwn(overrides, key) : overrides[key] === value)) continue;
+    if (value === null) delete overrides[key];
+    else overrides[key] = value;
+    changed = true;
+  }
+  return changed;
+}
+function asSnapshot(data: Store, now: Date, { enabled, autoIndex }: MemorySettings): MemorySnapshot {
   return {
-    enabled: data.enabled, autoIndex: data.autoIndex,
+    enabled, autoIndex,
     entries: data.entries.map((entry) => effectiveEntry(entry, now)),
     proposals: data.proposals.filter((proposal) => proposal.status === "pending").map(publicProposal),
   };
@@ -200,9 +217,15 @@ function isMissing(error: unknown): boolean {
 }
 function decodeStore(input: unknown): Store {
   const data = object(input);
-  if (data.version !== 1 || typeof data.enabled !== "boolean" || typeof data.autoIndex !== "boolean" || !Array.isArray(data.entries) || !Array.isArray(data.proposals)) {
+  const { version, enabled, autoIndex, entries, proposals } = data;
+  if (version !== 1 || typeof enabled !== "boolean" || typeof autoIndex !== "boolean" || !Array.isArray(entries) || !Array.isArray(proposals)) {
     throw new Error("Invalid Memory store format");
   }
+  // Even an empty overrides object is authoritative. A v1 file without it has two explicit flags.
+  const overrides = Object.hasOwn(data, "overrides") ? validateMemorySettingsPatch(data.overrides) : { enabled, autoIndex };
+  return { overrides, entries, proposals };
+}
+function validateStoreContent(data: Store): void {
   for (const raw of data.entries) {
     const entry = object(raw);
     if (typeof entry.id !== "string" || !UUID.test(entry.id)) throw new Error("Invalid Memory entry id");
@@ -227,9 +250,8 @@ function decodeStore(input: unknown): Store {
     isoDate(proposal.createdAt);
     if (proposal.callId !== undefined) requiredText(proposal.callId, "tool call id", 512);
   }
-  return data as unknown as Store;
 }
-async function load(path: string | undefined): Promise<Store> {
+async function load(path: string | undefined, validateContent = true): Promise<Store> {
   if (!path) return emptyStore();
   let raw: string;
   try { raw = await readFile(path, "utf8"); }
@@ -237,8 +259,11 @@ async function load(path: string | undefined): Promise<Store> {
     if (isMissing(cause)) return emptyStore();
     throw error(500, "Could not read Workspace Memory", cause);
   }
-  try { return decodeStore(JSON.parse(raw)); }
-  catch (cause) { throw error(500, "Workspace Memory data is invalid", cause); }
+  try {
+    const data = decodeStore(JSON.parse(raw));
+    if (validateContent) validateStoreContent(data);
+    return data;
+  } catch (cause) { throw error(500, "Workspace Memory data is invalid", cause); }
 }
 async function serial<T>(path: string, action: () => Promise<T>): Promise<T> {
   const task = (writes.get(path) ?? Promise.resolve()).then(action);
@@ -295,7 +320,11 @@ function escapeMarkdown(value: string): string {
 export class WorkspaceMemory {
   private readonly root: string;
 
-  constructor(directory: string, private readonly clock: () => Date = () => new Date()) {
+  constructor(
+    directory: string,
+    private readonly clock: () => Date = () => new Date(),
+    private readonly loadDefaults: () => MemorySettings | Promise<MemorySettings> = normalizeMemoryDefaults,
+  ) {
     this.root = resolve(directory);
   }
 
@@ -305,13 +334,21 @@ export class WorkspaceMemory {
     return join(this.root, `${storeId.toLowerCase()}.json`);
   }
 
-  private async save(path: string, data: Store): Promise<void> {
+  private async loadWithSettings(path: string | undefined, validateContent = true) {
+    const data = await load(path, validateContent);
+    const defaults = normalizeMemoryDefaults(await this.loadDefaults());
+    return { data, settings: workspaceSettings(defaults, data.overrides) };
+  }
+
+  private async save(path: string, data: Store, defaults: MemorySettings): Promise<void> {
+    const { enabled, autoIndex } = { ...defaults, ...data.overrides };
     const temporary = `${path}.${randomUUID()}.tmp`;
     try {
       await mkdir(this.root, { recursive: true, mode: 0o700 });
       const file = await open(temporary, "wx", 0o600);
       try {
-        try { await file.writeFile(`${JSON.stringify(data, null, 2)}\n`, "utf8"); }
+        // Keep the resolved choices for v1 readers. Current readers use overrides and live defaults.
+        try { await file.writeFile(`${JSON.stringify({ version: 1, enabled, autoIndex, ...data }, null, 2)}\n`, "utf8"); }
         finally { await file.close(); }
         await rename(temporary, path);
       } catch (cause) {
@@ -321,41 +358,60 @@ export class WorkspaceMemory {
     } catch (cause) { throw error(500, "Could not save Workspace Memory", cause); }
   }
 
-  private async mutate<T>(storeId: string | undefined, edit: (data: Store, now: Date) => Mutation<T>): Promise<T> {
+  private async mutate<T>(storeId: string | undefined, edit: (data: Store, now: Date, settings: WorkspaceMemorySettings) => Mutation<T>): Promise<T> {
     const path = this.path(storeId);
     if (!path) throw error(409, "Workspace Memory has no store");
     return serial(path, async () => {
-      const data = await load(path);
-      const result = edit(data, this.clock());
-      if (!result.unchanged) await this.save(path, data);
+      const { data, settings } = await this.loadWithSettings(path);
+      const result = edit(data, this.clock(), settings);
+      if (!result.unchanged) await this.save(path, data, settings.defaults);
       return result.value;
     });
   }
 
   async snapshot(storeId: string | undefined): Promise<MemorySnapshot> {
-    return asSnapshot(await load(this.path(storeId)), this.clock());
+    const { data, settings } = await this.loadWithSettings(this.path(storeId));
+    return asSnapshot(data, this.clock(), settings.effective);
+  }
+
+  async getSettings(storeId: string | undefined): Promise<WorkspaceMemorySettings> {
+    return (await this.loadWithSettings(this.path(storeId), false)).settings;
   }
 
   async isEnabled(storeId: string | undefined): Promise<boolean> {
-    return (await load(this.path(storeId))).enabled;
+    return (await this.getSettings(storeId)).effective.enabled;
   }
 
-  async setSettings(storeId: string | undefined, input: unknown): Promise<MemorySnapshot> {
-    const { enabled, autoIndex } = object(input);
-    if (typeof enabled !== "boolean" || typeof autoIndex !== "boolean") throw error(400, "Memory settings require enabled and autoIndex flags");
-    if (storeId === undefined && !enabled) return this.snapshot(undefined);
-    return this.mutate(storeId, (data, now) => {
-      if (data.enabled === enabled && data.autoIndex === autoIndex) return { value: asSnapshot(data, now), unchanged: true };
-      Object.assign(data, { enabled, autoIndex });
-      return { value: asSnapshot(data, now) };
+  async patchSettings(storeId: string | undefined, input: unknown): Promise<WorkspaceMemorySettings> {
+    const patch = validateMemorySettingsPatch(input, true);
+    const values = Object.values(patch);
+    if (!values.length || (storeId === undefined && values.every((value) => value === null))) return this.getSettings(storeId);
+    return this.mutate(storeId, (data, _now, { defaults }) => {
+      const changed = applySettingsPatch(data.overrides, patch);
+      return { value: workspaceSettings(defaults, data.overrides), unchanged: !changed };
     });
   }
 
-  async create(storeId: string | undefined, input: unknown, origin?: MemorySource): Promise<MemoryEntry> {
-    return this.mutate(storeId, (data, now) => {
-      requireEnabled(data);
-      const value = draft(input);
-      const entry = freshEntry(value, origin === undefined ? draftSource(value) : source(origin), now);
+  async setSettings(storeId: string | undefined, input: unknown): Promise<MemorySnapshot> {
+    const patch = validateLegacyMemorySettings(input);
+    if (storeId === undefined && !patch.enabled) {
+      const current = await this.snapshot(undefined);
+      if (!current.enabled) return current;
+    }
+    return this.mutate(storeId, (data, now, { defaults }) => {
+      const changed = applySettingsPatch(data.overrides, patch);
+      return { value: asSnapshot(data, now, effectiveMemorySettings(defaults, data.overrides)), unchanged: !changed };
+    });
+  }
+
+  async create(storeId: string | undefined, input: unknown, origin?: MemorySource, ensureStore?: () => Promise<string>): Promise<MemoryEntry> {
+    // Check inheritance and validate the draft before asking the registry to persist a store ID.
+    if (storeId === undefined && ensureStore) requireEnabled((await this.getSettings(undefined)).effective);
+    const value = draft(input);
+    const entrySource = origin === undefined ? draftSource(value) : source(origin);
+    return this.mutate(ensureStore ? await ensureStore() : storeId, (data, now, { effective }) => {
+      requireEnabled(effective);
+      const entry = freshEntry(value, entrySource, now);
       data.entries.push(entry);
       return { value: effectiveEntry(entry, now) };
     });
@@ -402,15 +458,17 @@ export class WorkspaceMemory {
     return publicProposal(getStoredProposal(await load(this.path(storeId)), proposalId));
   }
 
-  async propose(storeId: string | undefined, input: unknown, origin: MemoryMessageSource, callId?: string): Promise<MemoryProposal> {
-    return this.mutate(storeId, (data, now) => {
-      requireEnabled(data);
-      const source = messageSource(origin);
-      const key = callId === undefined ? undefined : requiredText(callId, "tool call id", 512);
+  async propose(storeId: string | undefined, input: unknown, origin: MemoryMessageSource, callId?: string, ensureStore?: () => Promise<string>): Promise<MemoryProposal> {
+    if (storeId === undefined) requireEnabled((await this.getSettings(undefined)).effective);
+    const source = messageSource(origin);
+    const key = callId === undefined ? undefined : requiredText(callId, "tool call id", 512);
+    const value = draft(input);
+    return this.mutate(ensureStore ? await ensureStore() : storeId, (data, now, { effective }) => {
+      requireEnabled(effective);
       const existing = key && data.proposals.find((item) => item.callId === key && item.source.sessionId === source.sessionId && item.source.entryId === source.entryId);
       if (existing) return { value: publicProposal(existing), unchanged: true };
       const proposal: StoredProposal = {
-        id: randomUUID(), status: "pending", createdAt: now.toISOString(), draft: draft(input), source,
+        id: randomUUID(), status: "pending", createdAt: now.toISOString(), draft: value, source,
         ...(key ? { callId: key } : {}),
       };
       data.proposals.push(proposal);
@@ -419,11 +477,11 @@ export class WorkspaceMemory {
   }
 
   async confirm(storeId: string | undefined, proposalId: string, input: unknown): Promise<MemoryProposal> {
-    return this.mutate(storeId, (data, now) => {
+    return this.mutate(storeId, (data, now, { effective }) => {
       const proposal = getStoredProposal(data, proposalId);
       if (proposal.status === "confirmed") return { value: publicProposal(proposal), unchanged: true };
       if (proposal.status === "dismissed") throw error(409, "Memory proposal was dismissed");
-      requireEnabled(data);
+      requireEnabled(effective);
       const body = object(input);
       const value = draft(body.draft);
       const reason = body.reason === undefined ? undefined : text(body.reason, "change reason", 500);
@@ -465,23 +523,25 @@ export class WorkspaceMemory {
   }
 
   async recall(storeId: string | undefined, query: string): Promise<MemoryMetadata[]> {
-    const data = await load(this.path(storeId));
-    if (!data.enabled) return [];
+    if (storeId === undefined) return [];
+    const { data, settings } = await this.loadWithSettings(this.path(storeId));
+    if (!settings.effective.enabled) return [];
     return ranked(data, query, this.clock()).filter(({ relevance }) => relevance > 0)
       .sort((a, b) => b.relevance - a.relevance || compareStable(a.entry, b.entry)).slice(0, 5).map(({ entry }) => metadata(entry));
   }
 
   async read(storeId: string | undefined, entryId: string): Promise<MemoryEntry> {
-    const data = await load(this.path(storeId));
-    requireEnabled(data);
+    const { data, settings } = await this.loadWithSettings(this.path(storeId));
+    requireEnabled(settings.effective);
     const entry = effectiveEntry(data.entries[entryIndex(data, entryId)], this.clock());
     if (entry.status !== "active") throw error(404, "Active Memory entry not found");
     return entry;
   }
 
   async directory(storeId: string | undefined, query: string): Promise<string | undefined> {
-    const data = await load(this.path(storeId));
-    if (!data.enabled || !data.autoIndex) return undefined;
+    if (storeId === undefined) return undefined;
+    const { data, settings } = await this.loadWithSettings(this.path(storeId));
+    if (!settings.effective.autoIndex) return undefined;
     const selected = ranked(data, query, this.clock()).filter(({ entry, relevance }) => entry.pinned || relevance > 0)
       .sort((a, b) => Number(b.entry.pinned) - Number(a.entry.pinned) || b.relevance - a.relevance || compareStable(a.entry, b.entry));
     const lines: string[] = [];

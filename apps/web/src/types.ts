@@ -50,9 +50,23 @@ export interface MemoryProposal {
 export interface MemorySettings {
   enabled: boolean;
   autoIndex: boolean;
+  proactive: boolean;
 }
 
-export interface MemorySnapshot extends MemorySettings {
+export interface GlobalMemorySettingsResponse {
+  defaults: MemorySettings;
+  prompt: string;
+}
+
+export interface WorkspaceMemorySettingsResponse {
+  defaults: MemorySettings;
+  overrides: Partial<MemorySettings>;
+  effective: MemorySettings;
+}
+
+export type MemoryOverridesPatch = Partial<Record<keyof MemorySettings, boolean | null>>;
+
+export interface MemorySnapshot extends Pick<MemorySettings, "enabled" | "autoIndex"> {
   entries: MemoryEntry[];
   proposals: MemoryProposal[];
 }

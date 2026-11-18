@@ -28,7 +28,7 @@ Pi-Ark 是面向个人或受控团队环境的 pi coding agent Web UI。服务�
 
 1. Workspaces：选择、添加、重命名和关闭 Workspace。
 2. 页面导航：Agent、Files、Terminal 和 Settings。
-3. Sessions：打开 Notebook、选择 Session，并通过标题栏按钮显示归档 Session、打开内部链接、新增 Session group 和新建 Session。
+3. Sessions：提供 Notebook 和 Memory 快捷入口及 Session 列表。标题栏提供归档 Session 切换、内部链接、新增 Session group 和新建 Session。
 
 主内容区根据当前页面展示对应功能。URL query 保存页面与选择状态；Session 和 message 也可以使用 `pi-ark://` 内部链接定位。
 
@@ -79,11 +79,11 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 ### Workspace Notebook
 
-Session 列表上方并列显示 Notebook 和 Memory。打开 Notebook 后，主内容区显示当前 Workspace 的纯文本 Markdown 笔记编辑器；输入停止约 300 ms 后自动保存，离开输入框或页面时立即提交尚未保存的内容。Header 显示 Loading notes、Saving、Saved 或 Save failed。每个 Workspace 使用独立的 `.pi-ark/notebook.md`，再次打开 Notebook 时恢复保存内容。
+Session 列表上方并列显示 Notebook 和 Memory。两个快捷入口在选中时保留虚线边框，通过背景、文字和边框颜色标识选中状态，省去左侧的绿色描边。打开 Notebook 后，主内容区显示当前 Workspace 的纯文本 Markdown 笔记编辑器；输入停止约 300 ms 后自动保存，离开输入框或页面时立即提交尚未保存的内容。Header 显示 Loading notes、Saving、Saved 或 Save failed。每个 Workspace 使用独立的 `.pi-ark/notebook.md`，再次打开 Notebook 时恢复保存内容。
 
 ### Workspace Memory
 
-**Memory** 打开当前 Workspace 的长期经验列表。页面提供 **Enable Memory** 和 **Include short index**，均默认关闭。列表支持搜索和筛选（类型、状态），条目可以编辑、置顶、复核、归档、删除或导出。Notebook 里选中文本会显示 **Save to Memory**。点击后进入预填正文的草稿，用户保存后才添加条目。
+**Memory** 展示当前 Workspace 的长期经验。页面使用紧凑的页头，条目卡片通过字号和间距区分标题、摘要及元数据，便于查看类型、状态和来源。页头单独提供 **Memory settings** 按钮，点击后进入 [Settings → Memory](#memory) 并选中当前 Workspace。列表保留搜索与筛选（类型、状态），并提供条目编辑、置顶、复核、归档、删除和导出。Notebook 里选中文本会显示 **Save to Memory**。点击后进入预填正文的草稿，用户保存后才添加条目。
 
 主 Session 的 Agent 可以提出保存建议。聊天的工具结果显示 **Review memory**，点击后进入建议审阅。Memory 页也列出仍待确认的建议。用户可查看来源、修改内容、驳回建议，或选择新建条目与更新现有条目。来自历史分支的建议要确认已复核来源。普通工具结果展示读取记录；切换 Workspace 后显示该 Workspace 的独立列表。
 
@@ -253,11 +253,12 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限，并以 Workspace 目�
 
 ### 类别导航与全局配置
 
-Settings 中的 Server 设置对所有 Workspace 使用同一份配置，Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
+Settings 中的 Server 设置由实例保存，其中 Memory 提供全局默认值和 Workspace 覆盖选项。Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
 
 - Appearance：Theme 区域使用紧凑的色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）；Text size 区域用滑杆调整全部界面文字的整体倍率，范围 90% 到 130%，并列出七个字号等级的名称、用途与当前像素值；Sidebar 区域包含 Working session count 开关；Conversation 区域包含 Hide reasoning 和 Keep line breaks。这些设置都保存在当前浏览器，改动立即生效。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型清单刷新、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
+- Memory：全局默认值、Workspace 覆盖选项和主动提议提示词预览。
 - Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。
 - MCP：MCP server 列表、启用开关、连接状态、诊断与浏览器运行时。
 - Extensions：用户安装的扩展、加载状态、注册工具与命令、诊断和安装目录。
@@ -277,6 +278,12 @@ Models shown in Pi-Ark 标题行在搜索框左侧提供 Refresh models 按钮�
 Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；模型 checkbox、default model、default thinking level 和 Agent defaults 在选择后保存。Manage Provider 选择器用于切换当前管理的 Provider；新 Session 的 default 由模型行右侧的星标决定。API key 与 Global system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的配置；选择普通 shell profile 且其他字段保持已保存内容时，选择结果立即保存。pi 保存 API key 和 OAuth credential，浏览器接收 credential 状态与来源。使用保存 credential 的 Provider 显示 Disconnect；确认后，Pi-Ark 删除该 credential，并从仍可用的已勾选模型中保留 default，或选择第一个仍可用模型。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面省略该输入项。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，使新的登录 flow 可以继续。
 
 Update Pi-Ark 根据当前操作系统与 architecture 安装完整的 release artifact，其中包含经过同一版本检查的 Pi-Ark、pi-coding-agent、pi-ai 和 native dependencies。更新过程保留 Global data 与 Workspace data，并将当前 release 记录为 previous release；POSIX 切换 `current` symlink，Windows 更新 `release-state.json`。Roll back 将当前与上一 release 对调。Web 响应返回后，Server 正常关闭，后台管理器或 Linux systemd 下的 supervisor 从当前 release 重新启动并执行 health check；启动检查失败时恢复 previous release。Maintenance 从相同的 release state 显示 previous release，并提供稳定 CLI 的完整 Node 调用命令。Development checkout 和带 `dev` prerelease 的本机安装会显示 development 状态；development build 不显示 stable update 操作。
+
+### Memory
+
+**Settings → Memory** 集中配置三个选项（**Enable Memory**、**Include short index**、**Proactive suggestions**），全局初始值均为关闭。用户可选择 Workspace，为每个选项分别指定继承全局、开启或关闭。选项旁显示全局默认值和所选 Workspace 的生效值。窄屏时，分类栏会滚动到当前类别的标签。
+
+展开 **Proactive suggestion prompt** 可查看 Pi-Ark 内置的主动提议提示词。页面标明该段是否在所选 Workspace 的主 Session 中生效。**Enable Memory** 和 **Proactive suggestions** 均开启时，该段会在主 Session 的下一轮加入。短索引独立配置，建议仍由用户审阅并确认。
 
 ### Skills
 

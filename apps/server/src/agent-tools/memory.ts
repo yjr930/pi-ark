@@ -1,9 +1,11 @@
+import { getCurrentTools } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionFactory, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { WorkspaceDefinition } from "../config.js";
 import { internalMessageLink, pinnedPiArkLink } from "../internal-links.js";
 import { sessionMessageId } from "../session-display.js";
 import type { MemoryMessageSource, WorkspaceMemory } from "../workspace-memory.js";
+import { MEMORY_PROACTIVE_PROMPT, MEMORY_PROMPT_SECTION } from "./memory-prompt.js";
 
 export const MEMORY_TOOLS = ["memory_search", "memory_read", "memory_propose"] as const;
 const memoryNames = new Set<string>(MEMORY_TOOLS);
@@ -15,18 +17,22 @@ type StoreId = () => string | undefined;
 export function createMemoryExtension(memory: WorkspaceMemory, storeId: StoreId): ExtensionFactory {
   return (pi) => {
     pi.on("before_agent_start", async (event) => {
-      const enabled = await memory.isEnabled(storeId()).catch(() => false);
-      const otherTools = event.systemPromptOptions.selectedTools.filter((name) => !memoryNames.has(name));
-      event.systemPromptOptions.selectedTools = enabled ? [...otherTools, ...MEMORY_TOOLS] : otherTools;
+      const settings = await Promise.resolve().then(() => memory.getSettings(storeId())).catch(() => undefined);
+      const prompt = event.systemPromptOptions;
+      const otherTools = prompt.selectedTools.filter((name) => !memoryNames.has(name));
+      prompt.selectedTools = settings?.effective.enabled ? [...otherTools, ...MEMORY_TOOLS] : otherTools;
+      if (settings?.effective.proactive) prompt.sections[MEMORY_PROMPT_SECTION] = MEMORY_PROACTIVE_PROMPT;
+      else delete prompt.sections[MEMORY_PROMPT_SECTION];
     });
     pi.on("context_with_system", async (event) => {
       // Extend the most recent user-message copy, preserving tool/result adjacency and the base prompt.
+      if (!getCurrentTools(event.messages).some((tool) => tool.name === "memory_read")) return;
       const index = event.messages.findLastIndex((message) => message.role === "user");
       const user = event.messages[index];
       if (user?.role !== "user") return;
       const blocks = typeof user.content === "string" ? [{ type: "text" as const, text: user.content }] : user.content;
       const query = blocks.flatMap((block) => block.type === "text" ? [block.text.split("\n\nAttached files:\n", 1)[0]] : []).join("\n");
-      const directory = await memory.directory(storeId(), query).catch(() => undefined);
+      const directory = await Promise.resolve().then(() => memory.directory(storeId(), query)).catch(() => undefined);
       if (!directory) return;
       const text = `\n\n<${directoryTag}>\n${referenceLabel} Use memory_read for the full note.\n${directory}\n</${directoryTag}>`;
       const messages = [...event.messages];
@@ -47,7 +53,7 @@ export function memoryMessageSource(workspace: WorkspaceDefinition, manager: Pic
   return { kind: "message", sessionId, entryId: chosen.id, link: pinnedPiArkLink(internalMessageLink(workspace.id, sessionId, sessionMessageId(sessionId, byId.get(chosen.id)!)), anchor) };
 }
 
-export function createMemoryTools(workspace: WorkspaceDefinition, memory: WorkspaceMemory, storeId: StoreId) {
+export function createMemoryTools(workspace: WorkspaceDefinition, memory: WorkspaceMemory, storeId: StoreId, ensureStore?: () => Promise<string>) {
   const search = defineTool({
     name: "memory_search", label: "Search memory", description: "Find relevant confirmed Workspace Memory notes by keywords in their title, summary or tags. Returns up to five candidates. Use it for prior project decisions, corrections and preferences relevant to the current task.",
     parameters: Type.Object({ query: Type.String({ minLength: 1, maxLength: 2048 }) }),
@@ -55,7 +61,7 @@ export function createMemoryTools(workspace: WorkspaceDefinition, memory: Worksp
     async execute(_callId, input, signal) {
       signal?.throwIfAborted();
       const id = storeId();
-      if (!id || !await memory.isEnabled(id)) throw new Error("Workspace Memory is disabled");
+      if (!await memory.isEnabled(id)) throw new Error("Workspace Memory is disabled");
       const matches = await memory.recall(id, input.query);
       return { content: [{ type: "text", text: `${referenceLabel}\n${JSON.stringify(matches)}` }], details: { matches } };
     },
@@ -83,10 +89,14 @@ export function createMemoryTools(workspace: WorkspaceDefinition, memory: Worksp
     async execute(callId, input, signal, _onUpdate, ctx) {
       signal?.throwIfAborted();
       const id = storeId();
-      if (!id) throw new Error("Workspace Memory is disabled");
       const { sourceMessageId, ...draft } = input;
       const source = memoryMessageSource(workspace, ctx.sessionManager, sourceMessageId);
-      const proposal = await memory.propose(id, { ...draft, tags: draft.tags ?? [], pinned: false }, source, callId);
+      const proposal = await memory.propose(id, { ...draft, tags: draft.tags ?? [], pinned: false }, source, callId, ensureStore && (async () => {
+        signal?.throwIfAborted();
+        const allocated = await ensureStore();
+        signal?.throwIfAborted();
+        return allocated;
+      }));
       const result = { proposalId: proposal.id, status: proposal.status, source: source.link };
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     },

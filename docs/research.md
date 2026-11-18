@@ -67,7 +67,11 @@ pi SDK 的 `examples/sdk/13-session-runtime.ts` 展示了替换 runtime 后重�
 
 ## Workspace Memory 的 SDK 接入
 
-主 Session 通过 `customTools` 注册 Memory 工具，并使用 `DefaultResourceLoader` 的 `extensionFactories` 注册宿主扩展。`before_agent_start` 在每次启动回合时更新所选工具；`context_with_system` 在模型请求副本中附上可选的目录。目录不加入 system prompt 或 JSONL；普通的 Memory 工具结果随 Session 记录。子 Session 和 Global system prompt 预览不安装这套扩展。
+主 Session 通过 `customTools` 注册 Memory 工具，并通过 `DefaultResourceLoader` 的 `extensionFactories` 注册宿主扩展。[`before_agent_start`](https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/docs/extensions.md#before_agent_start) 在每轮开始时读取 Workspace 的生效设置，并在 `event.systemPromptOptions.selectedTools` 内更新 Memory 工具。Memory 和主动提议同时启用时，扩展设置 `event.systemPromptOptions.sections.pi_ark_memory`；否则移除该段。
+
+Pi SDK 按命名段落的变化组装 system prompt。Memory 扩展只管理自身段落和工具，用户的 `SYSTEM.md`、`APPEND_SYSTEM.md` 和全局追加内容仍按原有方式加载。新的设置在主 Session 的下一轮生效。子 Session 和 Global system prompt 预览沿用各自的基础提示词；Settings → Memory 单独预览内置的主动提议段落和选定 Workspace 的生效状态。
+
+短索引沿用 `context_with_system`：扩展在模型请求的副本中向最近一条 user message 附加参考资料。短索引只进入当次模型请求；普通的 Memory 工具结果继续随 Session 记录。
 
 ## Compact 的统计信息
 

@@ -92,7 +92,7 @@ docs/               产品、架构、使用和集成文档
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
 | Session metadata | `apps/server/src/session-metadata.ts` | Pin、Archive、group 和串行原子写入 |
 | Workspace Notebook | `apps/server/src/workspace-notebook.ts` | Workspace 临时笔记的读取与串行原子写入 |
-| Workspace Memory | `apps/server/src/workspace-memory.ts`、`memory-routes.ts`、`agent-tools/memory.ts` | 记忆条目、用户确认、来源检查和请求时召回 |
+| Workspace Memory | `apps/server/src/workspace-memory.ts`、`memory-settings.ts`、`memory-routes.ts`、`agent-tools/memory.ts`、`agent-tools/memory-prompt.ts` | 默认值与覆盖选项、记忆条目、用户确认、来源检查、主动提议提示词和请求时召回 |
 | File search | `apps/server/src/file-search.ts` | Workspace 文件清单缓存、关键词打分与输入框文件补全查询 |
 | Global settings | `apps/server/src/settings.ts` | Provider、model、thinking、queue、compaction、retry 和 credential login |
 | OAuth flow | `apps/server/src/auth-flows.ts` | Subscription login 的事件、prompt、answer 和 cancel 状态 |
@@ -114,8 +114,9 @@ docs/               产品、架构、使用和集成文档
 | Session selection | `apps/web/src/session-selection.ts` | 会话列表刷新后决定保留还是替换当前 Session；尚未写入文件的 Session 依靠 runtime status 识别 |
 | Conversation segmentation | `apps/web/src/conversation.ts` | Turn 分段、tool run collapse 和 interrupted warning |
 | Workspace list | `apps/web/src/components/WorkspaceList.tsx` | 选择、重命名和关闭 Workspace |
-| Session list | `apps/web/src/components/SessionList.tsx` | 单行 Session、更新时间 tooltip、Notebook 入口、groups 和 Archived 区域 |
+| Session list | `apps/web/src/components/SessionList.tsx` | 单行 Session、更新时间 tooltip、Notebook 与 Memory 入口、groups 和 Archived 区域 |
 | Notebook | `apps/web/src/components/Notebook.tsx` | Workspace 笔记加载、debounce 自动保存和保存状态 |
+| Memory | `apps/web/src/components/Memory.tsx` | Workspace 条目与建议、来源核对和进入 Memory 设置的按钮 |
 | Files | `apps/web/src/components/Files.tsx` | 全宽目录导航、可调整的文件列表、path copy、文本阅读和 Markdown image path |
 | Markdown | `apps/web/src/components/Markdown.tsx` | marked、DOMPurify、链接和图片展示，以及全局单次换行的显示设置 |
 | Terminal | `apps/web/src/components/Terminal.tsx` | Workspace 的 Tab 列表、创建与关闭、选中状态、连接状态及工具栏 |
@@ -123,7 +124,8 @@ docs/               产品、架构、使用和集成文档
 | Terminal appearance | `apps/web/src/terminal-preferences.ts` | 浏览器字体偏好、系统等宽字体列表、历史默认字体迁移、localStorage 与偏好变更事件 |
 | Terminal tooltip | `apps/web/src/components/TerminalTooltip.tsx` | Terminal 的 hover、focus 与触屏详情，portal 定位与交互式连接说明 |
 | Terminal settings | `apps/web/src/components/TerminalSettings.tsx` | 按需加载 Server shell 配置、草稿与保存队列、Refresh 草稿保留及浏览器字体编辑 |
-| Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示设置，保留页面状态，并按需加载 prompt preview、Terminal 配置与 release 信息 |
+| Settings | `apps/web/src/components/Settings.tsx` | 按功能类别展示设置，保留页面状态，并按需加载各类别的数据 |
+| Memory settings | `apps/web/src/components/MemorySettings.tsx` | 全局默认值、Workspace 覆盖选项和主动提议提示词预览 |
 | Skills settings | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、来源与 Origin、Workspace 选择器、启用复选框、诊断和 Refresh |
 | MCP settings | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断、浏览器运行时和安装进度 |
 | Extensions settings | `apps/web/src/components/ExtensionsSettings.tsx` | 扩展列表、加载状态、注册工具与命令、诊断、安装目录和 Refresh |
@@ -267,9 +269,11 @@ Composer 将 `/reload` 作为会话操作提交给 [Session HTTP API](#session)�
 
 ### Workspace Memory
 
-主 Session 注册 `memory_propose`、`memory_search` 和 `memory_read`。宿主通过 ResourceLoader 的 inline extension 在 `before_agent_start` 按 Workspace 开关调整工具。执行时还会读取当前注册记录。子 Session 沿用独立的上下文和原有工具集；Global system prompt 预览继续展示基础指令。
+主 Session 注册 Memory 工具（`memory_propose`、`memory_search` 和 `memory_read`）。宿主通过 ResourceLoader 的 inline extension 在每轮的 `before_agent_start` 读取 Workspace 的生效设置，并在 `event.systemPromptOptions.selectedTools` 中更新 Memory 工具。启用 Memory 和主动提议时，扩展设置 `event.systemPromptOptions.sections.pi_ark_memory`；其余状态移除该段。Pi SDK 将命名段落与原有提示词组合，继续加载用户的 `SYSTEM.md`、`APPEND_SYSTEM.md` 和全局追加内容。
 
-启用短索引后，`context_with_system` 把上限为 8 条、2 KiB UTF-8 的 JSON 目录作为参考数据附在最近一条 user message 的请求副本里。系统提示词、工具定义及消息顺序保持原样；目录不进入 JSONL。Agent 按标题、摘要和标签查询，并用 `memory_read` 获取生效条目的正文。工具结果按普通会话历史存储；禁用、归档或删除影响后续召回。详见 [Memory 设计](design-memory.md)。
+设置变更在主 Session 的下一轮启动时应用于工具与提示词。工具执行时仍按当前 Workspace 的注册记录和启用状态校验。子 Session 沿用原有工具与上下文；Global system prompt 预览继续展示基础指令。Settings → Memory 单独展示内置的主动提议段落和所选 Workspace 的生效状态。
+
+Memory 与短索引均启用时，`context_with_system` 把上限为 8 条、2 KiB UTF-8 的 JSON 目录作为参考数据附在最近一条 user message 的请求副本里，保留系统提示词、工具定义及消息顺序。目录仅用于本次请求；普通的 Memory 工具结果仍进入会话历史。Agent 按标题、摘要和标签查询，并用 `memory_read` 获取生效条目的正文。禁用、归档或删除影响后续召回。详见 [Memory 设计](design-memory.md)。
 
 建议要可追溯到实际消息。Server 用当前 Session 的短 Message ID 和活动分支生成 `pi-ark://` 来源。确认与来源检查比较保存的分支记录和当前活动分支。已删除的来源触发待复核；历史分支仍可读，但确认建议时需要用户认可。条目更新与删除比较 `revision`，确认操作可重复请求。
 
@@ -480,7 +484,7 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
-- Workspace registry 和共享 `preferences`（Global prompt append、Files preferences、Terminal shell 设置和 Skills 停用清单）：`PI_ARK_HOME/config.json`。
+- Workspace registry 和共享 `preferences`（Global prompt append、Files preferences、Terminal shell 设置、Skills 停用清单和 Memory 全局默认值）：`PI_ARK_HOME/config.json`。
 - Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
@@ -589,18 +593,19 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
       "disabledBuiltin": [],
       "disabledGlobal": [],
       "disabledWorkspace": {}
-    }
+    },
+    "memory": { "enabled": false, "autoIndex": false, "proactive": false }
   }
 }
 ```
 
-缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，`preferences.skills` 保存 Skills 的停用清单，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。所有 Workspace 使用同一份配置；历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词、文件偏好与 Terminal 设置。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append；Terminal PUT 使用 `TerminalSettings` 更新 `preferences.terminal`。这些写入入口共享 Global config 的串行原子写入，各入口保留其他设置字段。
+缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，`preferences.skills` 保存 Skills 的停用清单，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词、文件偏好与 Terminal 设置。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append；Terminal PUT 使用 `TerminalSettings` 更新 `preferences.terminal`。这些写入入口共享 Global config 的串行原子写入，各入口保留其他设置字段。
 
 ### Settings 的页面缓存
 
-Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Appearance、Models & providers、Agent behavior、Skills、MCP、Extensions、Files、Terminal、Maintenance 和 Account。Appearance 的三个区域直接读写浏览器 localStorage，改动立即生效。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据；prompt preview 在展开时加载，Skills、MCP 与 Extensions 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
+Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Appearance、Models & providers、Agent behavior、Memory、Skills、MCP、Extensions、Files、Terminal、Maintenance 和 Account。Appearance 的三个区域直接读写浏览器 localStorage，改动立即生效。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据。Global system prompt preview 在展开时加载；Memory 类别打开后读取全局默认值、主动提议提示词及所选 Workspace 的设置。Skills、MCP 与 Extensions 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
 
-Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的内容；选择普通 profile 且其他字段保持已保存内容时立即保存。Terminal 使用独立的保存队列与请求序号，保留请求期间的新编辑内容。该类别的 Refresh settings 等待已有保存队列，再请求 Server 的设置和 profiles，并保留尚未保存的草稿。其他类别的 Refresh settings 读取 Global settings 和模型数据，Maintenance 同时刷新 release 信息；Skills 与 MCP 使用各自的 Refresh 读取资源列表。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
+Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的内容；选择普通 profile 且其他字段保持已保存内容时立即保存。Terminal 使用独立的保存队列与请求序号，保留请求期间的新编辑内容。该类别的 Refresh settings 等待已有保存队列，再请求 Server 的设置和 profiles，并保留尚未保存的草稿。Memory 类别的 Refresh settings 重新读取全局默认值、主动提议提示词和所选 Workspace 的设置。其余类别的 Refresh settings 读取 Global settings 和模型数据，Maintenance 同时刷新 release 信息；Skills 与 MCP 使用各自的 Refresh 读取资源列表。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
 
 ### Pi-Ark release 管理
 
@@ -628,9 +633,9 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 | 路径 | 内容 |
 |---|---|
-| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry 和共享 preferences（提示词、Files、Terminal shell 与 Skills 停用清单） |
+| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry 和共享 preferences（提示词、Files、Terminal shell、Skills 停用清单与 Memory 全局默认值） |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
-| `PI_ARK_HOME/memory/<store-id>.json` | 单个 Workspace 注册的 Memory 设置、条目与建议；按存储标识串行原子写入 |
+| `PI_ARK_HOME/memory/<store-id>.json` | 单个 Workspace 注册的 Memory 覆盖选项、条目与建议；按存储标识串行原子写入 |
 | `PI_ARK_HOME/auth-sessions.json` | 登录 token 的 SHA-256 哈希、expiry 与 credential fingerprint |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
@@ -641,6 +646,10 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | `PI_ARK_AGENT_DIR/models.json` | Custom provider/model config |
 | `PI_ARK_AGENT_DIR/SYSTEM.md` | 可选 Global replacement prompt |
 | `PI_ARK_AGENT_DIR/APPEND_SYSTEM.md` | 可选 Global append prompt |
+
+Memory 的全局默认值保存在 `preferences.memory`，包含布尔字段（`enabled`、`autoIndex` 和 `proactive`）。Workspace 文件在 `overrides` 中保存显式覆盖值，缺失的覆盖字段继承全局默认值。读取没有 `overrides` 的旧版 v1 文件时，服务端将原有的 `enabled` 和 `autoIndex` 视为显式覆盖值。关闭 Memory 时，短索引和主动提议的生效值为 `false`，已保存的选择保持原值。
+
+Workspace 注册记录的 `memoryStoreId` 指向对应的 Memory 文件。新注册的 Workspace 继承全局默认值；若继承启用状态，首次写入条目或建议时分配存储标识。保存显式覆盖值也会按需分配存储标识。改名沿用该标识。
 
 ### Workspace data
 
@@ -712,8 +721,9 @@ Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fon
 | GET | `/api/workspaces/:workspaceId/image` | Files/Markdown image stream；执行 Global preview limit |
 | GET | `/api/workspaces/:workspaceId/download` | 原始文件 stream download；不执行 preview limit |
 | GET/PUT | `/api/workspaces/:workspaceId/notebook` | 读取或自动保存 Workspace Notebook |
-| GET | `/api/workspaces/:workspaceId/memory` | Memory 设置、条目与待确认建议 |
-| PUT | `/api/workspaces/:workspaceId/memory/settings` | 保存启用和短索引开关 |
+| GET | `/api/workspaces/:workspaceId/memory` | 读取生效的 `enabled` 与 `autoIndex`，以及条目与建议 |
+| GET/PATCH | `/api/workspaces/:workspaceId/memory/settings` | 返回 `{ defaults, overrides, effective }`，依次为全局默认值、显式覆盖值和 Workspace 的生效值。PATCH 支持部分字段（`enabled`、`autoIndex` 和 `proactive`）；布尔值写入覆盖，`null` 清除覆盖以恢复继承，省略字段保持原值 |
+| PUT | `/api/workspaces/:workspaceId/memory/settings` | 兼容旧客户端，接收 `enabled` 和 `autoIndex` 布尔值，将二者写为覆盖并返回与条目列表 GET 相同的结构 |
 | POST/PATCH/DELETE | `/api/workspaces/:workspaceId/memory/entries`；编辑和删除后接 `/:entryId` | 新建、修订或删除条目；删除传入 `revision` |
 | POST | `/api/workspaces/:workspaceId/memory/entries/:entryId/check-source` | 检查消息来源；来源失效时标为待复核 |
 | GET | `/api/workspaces/:workspaceId/memory/proposals/:proposalId` | 建议、来源状态和可能重复的条目 |
@@ -758,7 +768,8 @@ interface TerminalInfo {
 | DELETE | `/api/settings/providers/:providerId/credential` | 删除指定 Provider 的保存 credential |
 | GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |
 | GET/PUT | `/api/settings/system-prompt` | 读取 effective prompt preview，或保存 Global append |
-| GET/PUT | `/api/settings/preferences` | GET 返回归一化的共享 preferences（包含 `terminal`）；PUT 使用仅含 `files` 的 payload 更新 Files preferences |
+| GET/PATCH | `/api/settings/memory` | 返回 `{ defaults, prompt }`（`prompt` 为内置的主动提议提示词）。PATCH 支持部分布尔字段（`enabled`、`autoIndex`、`proactive`），省略字段保持原值 |
+| GET/PUT | `/api/settings/preferences` | GET 返回归一化的共享 preferences（包含 `terminal` 和 `memory`）；PUT 使用仅含 `files` 的 payload 更新 Files preferences |
 | GET/PUT | `/api/settings/terminal` | GET 与 PUT 均返回 `{ settings, profiles, platform }`；PUT body 为 `{ shell, executable, args, env }`，保存 Global Terminal 设置 |
 | GET | `/api/settings/release` | Pi-Ark、bundled pi core、安装状态、路径、命令和 latest release |
 | POST | `/api/settings/release/update` | 安装并切换到 latest Pi-Ark release |

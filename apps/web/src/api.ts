@@ -1,5 +1,5 @@
 import { withBasePath } from "./base-path";
-import type { MemoryConfirmation, MemoryDraft, MemoryEntry, MemoryEntryPatch, MemoryProposal, MemoryProposalReview, MemorySettings, MemorySnapshot } from "./types";
+import type { GlobalMemorySettingsResponse, MemoryConfirmation, MemoryDraft, MemoryEntry, MemoryEntryPatch, MemoryOverridesPatch, MemoryProposal, MemoryProposalReview, MemorySettings, MemorySnapshot, WorkspaceMemorySettingsResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -83,8 +83,11 @@ export const api = {
   installMcpBrowser: () => request<import("./types").McpBrowserStatus>("/api/mcp/install-browser", { method: "POST" }),
   notebook: (workspaceId: string) => request<{ content: string }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/notebook`),
   saveNotebook: (workspaceId: string, content: string) => request<{ content: string }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/notebook`, { method: "PUT", body: JSON.stringify({ content }) }),
+  globalMemorySettings: (signal?: AbortSignal) => request<GlobalMemorySettingsResponse>("/api/settings/memory", { signal }),
+  saveGlobalMemorySettings: (settings: Partial<MemorySettings>) => request<GlobalMemorySettingsResponse>("/api/settings/memory", { method: "PATCH", body: JSON.stringify(settings) }),
+  workspaceMemorySettings: (workspaceId: string, signal?: AbortSignal) => request<WorkspaceMemorySettingsResponse>(`${memoryPath(workspaceId)}/settings`, { signal }),
+  saveWorkspaceMemorySettings: (workspaceId: string, settings: MemoryOverridesPatch) => request<WorkspaceMemorySettingsResponse>(`${memoryPath(workspaceId)}/settings`, { method: "PATCH", body: JSON.stringify(settings) }),
   memory: (workspaceId: string, signal?: AbortSignal) => request<MemorySnapshot>(memoryPath(workspaceId), { signal }),
-  saveMemorySettings: (workspaceId: string, settings: MemorySettings) => request<MemorySnapshot>(`${memoryPath(workspaceId)}/settings`, { method: "PUT", body: JSON.stringify(settings) }),
   createMemoryEntry: (workspaceId: string, draft: MemoryDraft) => request<MemoryEntry>(`${memoryPath(workspaceId)}/entries`, { method: "POST", body: JSON.stringify(draft) }),
   updateMemoryEntry: (workspaceId: string, entryId: string, patch: MemoryEntryPatch) => request<MemoryEntry>(memoryEntryPath(workspaceId, entryId), { method: "PATCH", body: JSON.stringify(patch) }),
   deleteMemoryEntry: (workspaceId: string, entryId: string, revision: number) => request<void>(`${memoryEntryPath(workspaceId, entryId)}?revision=${encodeURIComponent(revision)}`, { method: "DELETE" }),

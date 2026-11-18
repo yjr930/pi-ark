@@ -12,6 +12,7 @@ export interface PermalinkTarget {
   filePath?: string;
   fileType?: "file" | "directory";
   proposalId?: string;
+  settingsCategory?: "memory";
 }
 
 export function readPermalink(): PermalinkTarget {
@@ -27,6 +28,7 @@ export function readPermalink(): PermalinkTarget {
     filePath: page === "files" && params.has("path") ? params.get("path")! : undefined,
     fileType: page === "files" && params.has("path") ? params.get("kind") === "directory" ? "directory" : "file" : undefined,
     proposalId: page === "memory" ? params.get("proposal") || undefined : undefined,
+    settingsCategory: page === "settings" && params.get("category") === "memory" ? "memory" : undefined,
     page,
   };
 }
@@ -43,11 +45,12 @@ export function sessionPermalink(workspaceId: string, sessionId: string, message
   return url.toString();
 }
 
-export function appLocation(page: AppPage, workspaceId?: string, sessionId?: string): string {
+export function appLocation(page: AppPage, workspaceId?: string, sessionId?: string, settingsCategory?: PermalinkTarget["settingsCategory"]): string {
   const url = new URL(window.location.href);
   url.search = "";
   url.hash = "";
   url.searchParams.set("page", page);
+  if (page === "settings" && settingsCategory) url.searchParams.set("category", settingsCategory);
   if (workspaceId) url.searchParams.set("workspace", workspaceId);
   if (workspaceId && sessionId) url.searchParams.set("session", sessionId);
   return `${url.pathname}${url.search}`;

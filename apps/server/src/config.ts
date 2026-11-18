@@ -3,7 +3,9 @@ import { readFile, mkdir, writeFile, access, rename, copyFile } from "node:fs/pr
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
+import { normalizeMemoryDefaults, validateMemorySettingsPatch, type MemorySettings } from "./memory-settings.js";
 import { normalizeTerminalSettings, resolveTerminalShell, validateTerminalSettings, type TerminalSettings } from "./terminal-shells.js";
+export type { MemorySettings } from "./memory-settings.js";
 export type { TerminalSettings, TerminalShell, TerminalProfile } from "./terminal-shells.js";
 
 export interface WorkspaceDefinition {
@@ -32,6 +34,7 @@ export interface GlobalPreferences {
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
   terminal: TerminalSettings;
   skills: SkillSelection;
+  memory: MemorySettings;
 }
 
 export const arkHome = resolve(process.env.PI_ARK_HOME || join(homedir(), ".pi-ark"));
@@ -157,7 +160,27 @@ export function validateSkillSelection(input: unknown): SkillSelection {
 
 function normalizeGlobalPreferences(input?: Partial<GlobalPreferences>): GlobalPreferences {
   const size = input?.files?.maxPreviewSizeMb;
-  return { agent: { systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } }, files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 }, terminal: normalizeTerminalSettings(input?.terminal), skills: normalizeSkillSelection(input?.skills) };
+  return {
+    agent: { systemPrompt: { append: typeof input?.agent?.systemPrompt?.append === "string" ? input.agent.systemPrompt.append : "" } },
+    files: { showHiddenFiles: input?.files?.showHiddenFiles ?? true, maxPreviewSizeMb: Number.isInteger(size) && size! >= 1 && size! <= 100 ? size! : 10 },
+    terminal: normalizeTerminalSettings(input?.terminal),
+    skills: normalizeSkillSelection(input?.skills),
+    memory: normalizeMemoryDefaults(input?.memory),
+  };
+}
+
+export async function loadMemoryDefaults(): Promise<MemorySettings> {
+  const parsed = JSON.parse(await readFile(configPath, "utf8")) as { preferences?: { memory?: unknown } };
+  return normalizeMemoryDefaults(parsed.preferences?.memory);
+}
+
+export async function saveMemoryDefaults(input: unknown): Promise<MemorySettings> {
+  const patch = validateMemorySettingsPatch(input);
+  const next = await updateGlobalConfig((current) => ({
+    ...current,
+    preferences: { ...current.preferences, memory: { ...normalizeMemoryDefaults(current.preferences?.memory), ...patch } },
+  }));
+  return next.preferences.memory;
 }
 
 export async function loadSkillSelection(): Promise<SkillSelection> {

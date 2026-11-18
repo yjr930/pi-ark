@@ -4,7 +4,7 @@
 
 ## 首版用途
 
-**为每个已启用的 Workspace 提供一套经过用户确认的长期笔记。** Agent 可以建议保存或更新一条经验；用户看到内容和来源后确认。新 Session 拿到一份有限大小的目录，遇到相关任务时按需读取条目。用户可以在 Workspace 的 **Memory** 页面修订、归档或删除条目。
+**为每个已启用的 Workspace 提供一套经过用户确认的长期笔记。** Agent 可以建议保存或更新一条经验；用户看到内容和来源后确认。主 Session 可按需查询和读取条目，启用短索引后还会在模型请求中附带一份有限大小的目录。用户可以在 Workspace 的 **Memory** 页面修订、归档或删除条目。
 
 以下场景是首版要解决的问题：用户在一个 Session 解释了为什么报表按到账日统计，另一个 Session 生成月报时可以找到口径和原因；后来用户改用结算日，当前有效条目随之更新。上一次对话仍留在原 Session，方便查证。
 
@@ -15,7 +15,7 @@
 | 官方将启动时的 `MEMORY.md` 与按需读取的主题文件分开；Anthropic 的近期研究指出，主动载入的记忆应保持简短。 | **借鉴：短目录和正文分开。** 目录由服务端生成，正文按需读取。目录优先保留用户置顶和与当前工作相关的条目。 | 新 Session 知道有哪些经验可以查；使用其他工具时，上下文仍留给当前任务。{[官方说明](https://code.claude.com/docs/en/memory#how-it-works)；[Anthropic 研究](https://www.anthropic.com/research/components-of-agent-memory)} |
 | v2.1.327 的模板区分记忆类型（`user`、`feedback`、`project` 和 `reference`）；Cyril Simonnet 的使用经验强调原因、日期和原资料入口。 | **借鉴：一条记忆记录一件事。** 首版保留「偏好」「反馈」「项目事实」「参考资料」四种类型。反馈写明原因和适用条件；会变化的事实带复核日期。 | 未来的 Session 可以判断这条经验何时适用。例如，个人回复偏好和项目的报表口径有不同的变更方式。{[Memory 模板](https://github.com/Piebald-AI/claude-code-system-prompts/blob/f212301d01a776b8a0406e90fe50657bd1ec30a0/system-prompts/system-prompt-memory-instructions.md)；[Cyril 的日常用法](https://cyrilsimonnet.substack.com/p/the-memory-setup-i-actually-use-with)} |
 | irosona 的盘点中，`MEMORY.md` 索引能正常定位文件，问题集中在正文中由模型填写的条目间引用。 | **改造：由程序维护条目引用和索引。** 模型提交结构化的保存建议；服务端生成条目标识。首版的来源引用采用现有的会话链接或用户提供的资料链接。 | 改标题不会切断引用；归档会更新目录。按真实条目解析引用比让模型记住文件名更可靠。{[irosona 的盘点与实测](https://zenn.dev/irosona/articles/claude-code-memory-100-entries)} |
-| Claude Code 的本地 auto memory 默认开启，模型可直接写入。Gordon Beeming 记录了单次要求被误用为长期偏好的顾虑。 | **改造：Workspace 自选启用，Agent 建议、用户确认。** 先让用户控制写入内容，再根据使用情况考虑自动提取。 | 跨 Session 的内容会反复影响回答；用户最清楚一句「这次这样做」是否应变成未来的约定。{[默认值](https://code.claude.com/docs/en/memory#enable-or-disable-auto-memory)；[Gordon 的使用记录](https://gordonbeeming.com/blog/2026-09-15/experimenting-with-automatic-memory-in-codex-and-claude)} |
+| Claude Code 的本地 auto memory 默认开启，模型可直接写入。Gordon Beeming 记录了单次要求被误用为长期偏好的顾虑。 | **改造：用户配置全局默认值与 Workspace 覆盖选项。** 主动提议默认关闭；Agent 提交的建议由用户确认后成为正式条目。 | 跨 Session 的内容会反复影响回答；用户最清楚一句「这次这样做」是否应变成未来的约定。{[默认值](https://code.claude.com/docs/en/memory#enable-or-disable-auto-memory)；[Gordon 的使用记录](https://gordonbeeming.com/blog/2026-09-15/experimenting-with-automatic-memory-in-codex-and-claude)} |
 | Claude Code 用 Git 仓库确定本地 memory 范围。 | **改造：以 Pi-Ark 中注册的 Workspace 为范围。** 模型可在同一 Workspace 的主 Session 之间查阅共享笔记。 | 用户已经用 Workspace 区分项目。相同 Git 仓库可以注册为不同 Workspace，此时分别维护各自的经验。{[Claude Code 的存储范围](https://code.claude.com/docs/en/memory#storage-location)；[Pi-Ark 的 Workspace 注册](../apps/server/src/workspaces.ts)} |
 | Max Nardit 的整理实测同时出现了正确修订和缺少原文依据的日期；Vellum Labs 的对照显示，修订时可能发现受影响的旧决定。 | **留待后续：按需整理成待审阅的改动。** 首版先提供修订、归档和来源核对。后续让 Agent 查相关原文，给出合并或替换建议和差异。 | 日常使用先积累可以评估的样本，再决定整理任务的成本和频率。{[Max 的实测](https://max.nardit.com/articles/anthropic-agent-memory-components-dreaming-memory-md)；[Vellum Labs 的对照](https://dev.to/vellumkasane/claude-code-memory-options-compared-claudemd-vs-auto-memory-vs-an-llm-wiki-30-decisions-11jp)} |
 
@@ -25,7 +25,7 @@
 
 | 现有能力 | 当前用途 | 首版的关系 |
 | --- | --- | --- |
-| 项目 `AGENTS.md` 和 Global system prompt | Pi-Ark 通过 ResourceLoader 加载项目上下文与全局指令，并提供 system prompt 预览。 | 继续保存项目规则和行为要求。Memory 提供经验和待查事实，由请求层装入；Global 预览仍展示基础提示词。{[Pi SDK 集成调研](research.md#resourceloader-与-system-prompt)；[ResourceLoader](../apps/server/src/resource-loader.ts)；[预览和运行时](../apps/server/src/agents.ts)} |
+| 项目 `AGENTS.md` 和 Global system prompt | Pi-Ark 通过 ResourceLoader 加载项目上下文与全局指令，并提供 system prompt 预览。 | 继续保存项目规则和用户指令。Pi-Ark 将主动提议规则作为独立的 system prompt 段落组装；短索引作为模型请求的参考资料。Global 预览仍展示基础提示词，主动提议段落在 Settings → Memory 单独预览。{[Pi SDK 集成调研](research.md#resourceloader-与-system-prompt)；[ResourceLoader](../apps/server/src/resource-loader.ts)；[预览和运行时](../apps/server/src/agents.ts)} |
 | Workspace Notebook | 每个 Workspace 都有可自由编辑的 Markdown 笔记，路径为 `<workspace>/.pi-ark/notebook.md`。 | Notebook 继续供人随手记录。需要在多个 Session 复用某段笔记时，用户可以选取内容建立 Memory 条目。{[Notebook 的交互](product-and-interaction.md#workspace-notebook)；[Notebook 存储](../apps/server/src/workspace-notebook.ts)} |
 | Session、Fork、Rollback 和 Compact | SessionManager 维护 JSONL 树；模型用活动分支和压缩后的上下文；页面可展示压缩前的原始消息。 | Session 管理对话，Memory 管理用户已确认的跨 Session 条目。Rollback 撤回对话分支时保留已确认条目，用户可在 Memory 页面重新审阅和删除。{[Session 创建与恢复](architecture.md#session-创建与恢复)；[Pi 集成调研](research.md#fork-与-rollback)} |
 | Subagent | 子 Session 具有独立的消息上下文，由父 Session 委派任务。 | 首版由主 Session 使用 Memory。子 Session 如需一条经验，主 Session 在委派时传入与任务有关的内容和来源。{[Subagent 架构](architecture.md#subagent)} |
@@ -47,7 +47,9 @@
 
 ### 首版存储方式
 
-首版使用 **实例数据目录中的 Workspace 文件**：启用时为 Workspace 注册记录分配一个 Memory 存储标识，在 `PI_ARK_HOME/memory/<store-id>.json` 保存条目、待确认的建议和 Workspace 设置；每条正文仍是 Markdown。Workspace 改名沿用注册记录；用户可在移除前导出。关闭 Workspace 时可勾选同时删除 Memory；默认保留原数据文件。重新注册后，第一次启用时分配新的存储标识。开发与备用实例各用自己的 `PI_ARK_HOME`，同一代码目录的注册由各实例分别管理。{设计依据：[`arkHome` 与 Workspace 配置](../apps/server/src/config.ts)；[Workspace 注册及重命名](../apps/server/src/workspaces.ts)。}
+Memory 的全局默认值存于 `PI_ARK_HOME/config.json` 的 `preferences.memory`。用户在 [Settings → Memory](user-guide.md#memory) 为每个选项分别选择继承、开启或关闭；显式选择会覆盖全局默认值。旧版 v1 文件中已保存的启用和短索引值继续作为 Workspace 的覆盖值，缺失字段继承全局默认值。
+
+Workspace 的覆盖值与条目和建议一起存于 `PI_ARK_HOME/memory/<store-id>.json`。每条正文仍是 Markdown。存储标识跟随 Workspace 的注册记录，改名时继续沿用。新注册的 Workspace 如果继承了启用状态，首次写入条目或建议时才分配存储标识；保存显式覆盖值也会按需分配标识。用户可在移除 Workspace 前导出，关闭 Workspace 时默认保留原文件，也可选择同时删除 Memory。重新注册后的 Workspace 从全局默认值起步。开发与备用实例各用自己的 `PI_ARK_HOME`，分别管理同一代码目录的注册。{[`arkHome` 与 Workspace 配置](../apps/server/src/config.ts)；[Workspace 注册及重命名](../apps/server/src/workspaces.ts)。}
 
 首版用一个小型存储文件统一保存条目与建议，按存储标识串行更新；每次写入比较修订号，再用同目录临时文件替换。服务端从当前数据生成目录和 Markdown 导出，省去模型手动维护正文文件与索引文件的同步工作。`MEMORY.md` 形式可用作导出格式。如果后续用户希望直接编辑多个 Markdown 文件，可以在保留条目接口的前提下更换存储方式。{设计依据：[Notebook 的串行写入方式](../apps/server/src/workspace-notebook.ts)；[从业者对索引与引用的观察](research-claude-code-memory.md#从业者分析)。}
 
@@ -58,6 +60,8 @@
 1. 用户为 Workspace 启用 Memory 后，可以从 **Memory** 页面新建条目，也可以在主 Session 中表达「以后都按这个口径」。主 Agent 用`memory_propose` 工具提交一条待确认的建议，内容包括摘要、正文、条目类型和候选来源。系统以当前 Workspace、所选消息和活动分支记录建议的来源。
 2. 会话内显示建议卡片，用户可以修改内容、选择更新现有条目或新建，并通过界面确认。建议独立于对话回合保存，Agent 可继续回复。服务端从已登录的界面请求接收确认，检查来源和修订号；工具返回的是待确认的建议记录。
 3. 确认时比较同类型的相近标题与现有记录，提示可能重复或冲突的条目。用户选定更新对象后，替换同一条的有效内容，并保存这次修改的理由与来源。针对同一建议重复提交确认时，返回首次确认的结果。
+
+Memory 与 **Proactive suggestions** 同时开启时，Pi-Ark 在主 Session 的下一轮加入内置提示词，请 Agent 检查有明确来源的长期偏好、纠正或经过核实的 Workspace 经验。关闭主动提议时，Agent 仍可应用户要求提交建议。主动提议与用户发起的建议使用同一套确认流程。
 
 ### 在 Agent 请求中召回
 
@@ -75,9 +79,10 @@
 
 | 接入位置 | 设计用途 |
 | --- | --- |
-| Workspace 的服务与 API | 新增 Memory 服务，使用现有的 Workspace 注册查找和登录检查。API 负责用户读写、评审建议和导出。工具根据当前 runtime 的 Workspace 定位存储范围。{现有入口：[`WorkspaceService.get`](../apps/server/src/workspaces.ts)；[API 与认证](../apps/server/src/index.ts)。} |
-| `AgentService.instantiateSession()` | 为主 Session 注册 Memory 工具和宿主提供的扩展工厂，按请求检查 Workspace 设置。SDK 支持 `DefaultResourceLoader` 的 `extensionFactories`，Pi-Ark 已用它注册 MCP 和 Code Mode 的扩展。{[`AgentService`](../apps/server/src/agents.ts)；[ResourceLoader](../apps/server/src/resource-loader.ts)。} |
-| Pi SDK 的 `context_with_system` | 在请求副本中把短目录附在最近一条 user message 上，明确标为参考资料，保留系统指令、工具定义和消息顺序。该 hook 在每次模型调用前触发，可修改发送的消息列表。`before_agent_start` 的提示词改动另有 Session 记录机制；首版的动态目录用请求层处理。{[Pi 的扩展文档：context_with_system](https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/docs/extensions.md#context_with_system)；本项目使用的 SDK 版本参见 [`apps/server/package.json`](../apps/server/package.json)。} |
+| Workspace 的服务与 API | Memory API 提供全局默认值和 Workspace 设置，沿用 Workspace 注册查找与登录检查，并处理条目的读写、建议审阅和导出。工具根据当前 runtime 的 Workspace 定位存储范围。{[Memory API](architecture.md#http-api)；[`WorkspaceService.get`](../apps/server/src/workspaces.ts)。} |
+| `AgentService.instantiateSession()` | 为主 Session 注册 Memory 工具与扩展工厂，通过 `DefaultResourceLoader` 的 `extensionFactories` 安装宿主扩展。{[`AgentService`](../apps/server/src/agents.ts)；[ResourceLoader](../apps/server/src/resource-loader.ts)。} |
+| Pi SDK 的 `before_agent_start` | 按 Workspace 的生效设置选择 Memory 工具。Memory 和主动提议均启用时，扩展设置 `systemPromptOptions.sections.pi_ark_memory`，否则移除该段。SDK 将其与用户已有提示词一起组装。{[Memory 扩展](../apps/server/src/agent-tools/memory.ts)；[SDK 接入说明](research.md#workspace-memory-的-sdk-接入)。} |
+| Pi SDK 的 `context_with_system` | 在模型请求的副本中将短目录附于最近一条 user message，明确标为参考资料，并保留系统指令、工具定义与消息顺序。{[Pi 的扩展文档：context_with_system](https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/docs/extensions.md#context_with_system)。} |
 | Session 的展示与压缩 | 动态目录只参与当次请求的构建，Session 树和前端展示使用原消息。`memory_read` 的普通工具调用及结果仍是历史的一部分。Compact 后的普通模型请求再次按当前 Workspace 读取目录；已进入历史的正文可随历史被摘要。索引开关默认关闭；用户可以在工具查询与自动附带目录之间选择。{[压缩统计和上下文投影](research.md#compact-的统计信息)；[SDK 集成研究](research.md)。} |
 
 Memory 服务校验条目的字段和来源，并将用户在界面中的确认记录为正式写入的依据。网页、工具输出和子 Agent 的文字可以成为待核对的证据。Workspace 范围由内置工具和服务接口管理；本机的文件访问继续遵循实例现有的部署方式。选中的索引和正文随本次请求进入当前配置的模型；界面提示检查建议里的敏感内容，诊断记录优先保留状态和用量。
@@ -87,4 +92,4 @@ Memory 服务校验条目的字段和来源，并将用户在界面中的确认�
 | 顺序 | 交付与确认方式 |
 | --- | --- |
 | 比较实际使用效果 | 用相同模型和任务，比较「关闭 Memory」「工具查询」「短目录加工具查询」。任务覆盖长期偏好、环境经验、已修订决定和不相关问题。记录找对条目的次数、需要用户重复纠正的次数、无关召回、输入 token 与等待时间。判断短目录是否值得默认参与每个请求。 |
-| 再决定自动化 | 根据试用中重复出现的反馈，考虑由 Agent 在工作时提示保存，或提供一个用户主动发起的整理任务。整理读取用户选定的来源，输出拟议更新、合并和归档的差异；用户确认后更新正式条目。自动提取、向量检索和跨 Workspace 分享分别按使用证据评估。 |
+| 评估主动提议与后续整理 | 根据建议的采用情况评估主动提议的效果。后续可考虑由用户发起整理任务，从选定来源生成待审阅的更新、合并和归档建议。自动提取、向量检索和跨 Workspace 分享分别按使用证据评估。 |

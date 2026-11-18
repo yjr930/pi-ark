@@ -1,13 +1,14 @@
-import { Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, Puzzle, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
+import { BookOpen, Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, Puzzle, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { clearSessionCache, flushSessionCache, formatCacheSize, getSessionCacheSummary } from "../session-cache";
 import { themes } from "../theme";
 import { FONT_LEVELS, FONT_SCALE_STEP, MAX_FONT_SCALE, MIN_FONT_SCALE, levelPixels } from "../typography";
 import type { AppearanceSettings } from "../appearance";
-import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, GlobalPreferences } from "../types";
+import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, GlobalPreferences, Workspace } from "../types";
 import { Select } from "./Select";
 import { McpSettings } from "./McpSettings";
+import { MemorySettings, type MemorySettingsHandle } from "./MemorySettings";
 import { ExtensionsSettings } from "./ExtensionsSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { SubscriptionLogin } from "./SubscriptionLogin";
@@ -18,6 +19,7 @@ const categories = [
   { id: "appearance", label: "Appearance", description: "Theme, text size, and conversation display, saved in this browser.", icon: Palette },
   { id: "models", label: "Models & providers", description: "Credentials, available models, and defaults for new Sessions.", icon: Cpu },
   { id: "agent", label: "Agent behavior", description: "Shared instructions and conversation defaults.", icon: SlidersHorizontal },
+  { id: "memory", label: "Memory", description: "Changes save automatically and take effect on the next turn in the main Session.", icon: BookOpen },
   { id: "skills", label: "Skills", description: "Agent skills available globally and in each workspace.", icon: Sparkles },
   { id: "mcp", label: "MCP", description: "Agent tool servers, connection state, and browser runtime.", icon: Plug },
   { id: "extensions", label: "Extensions", description: "User-installed extensions and the tools they register.", icon: Puzzle },
@@ -40,8 +42,20 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (che
   return <button type="button" role="switch" aria-label={label} aria-checked={checked} className={`settings-toggle ${checked ? "enabled" : ""}`} onClick={() => onChange(!checked)}><span /></button>;
 }
 
-export function Settings({ active, appearance, onAppearanceChange }: { active: boolean; appearance: AppearanceSettings; onAppearanceChange: (next: AppearanceSettings) => void }) {
-  const [category, setCategory] = useState<SettingsCategory>("appearance");
+type SettingsProps = {
+  active: boolean;
+  appearance: AppearanceSettings;
+  onAppearanceChange: (next: AppearanceSettings) => void;
+  memoryCategory: boolean;
+  onMemoryCategoryChange: (selected: boolean) => void;
+  workspaces: Workspace[];
+  workspacesLoading: boolean;
+  workspaceId: string;
+};
+
+export function Settings({ active, appearance, onAppearanceChange, memoryCategory, onMemoryCategoryChange, workspaces, workspacesLoading, workspaceId }: SettingsProps) {
+  const [otherCategory, setOtherCategory] = useState<Exclude<SettingsCategory, "memory">>("appearance");
+  const category = memoryCategory ? "memory" : otherCategory;
   const [global, setGlobal] = useState<GlobalSettings | null>(null);
   const currentCategory = categories.find((item) => item.id === category)!;
   const [providerId, setProviderId] = useState("");
@@ -65,6 +79,8 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
   const [saving, setSaving] = useState(false);
   const [terminalBusy, setTerminalBusy] = useState(false);
   const terminalSettingsRef = useRef<TerminalSettingsHandle>(null);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const memorySettingsRef = useRef<MemorySettingsHandle>(null);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [cacheSummary, setCacheSummary] = useState(() => getSessionCacheSummary());
   const [cacheClearOpen, setCacheClearOpen] = useState(false);
@@ -77,9 +93,27 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
   const modelSaveRevision = useRef(0);
   const filesSaveRevision = useRef(0);
   const contentRef = useRef<HTMLElement>(null);
+  const tabsRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef<Partial<Record<SettingsCategory, number>>>({});
 
   useLayoutEffect(() => { if (active && contentRef.current) contentRef.current.scrollTop = scrollPositions.current[category] || 0; }, [active, category, loading]);
+  useLayoutEffect(() => {
+    const tabs = tabsRef.current;
+    const selected = tabs?.querySelector<HTMLButtonElement>('[aria-current="page"]');
+    if (!active || !tabs || !selected) return;
+    const reveal = () => {
+      if (tabs.scrollWidth <= tabs.clientWidth) return;
+      const row = tabs.getBoundingClientRect();
+      const button = selected.getBoundingClientRect();
+      if (button.left < row.left + 8) tabs.scrollLeft += button.left - row.left - 8;
+      else if (button.right > row.right - 8) tabs.scrollLeft += button.right - row.right + 8;
+    };
+    reveal();
+    const observer = new ResizeObserver(reveal);
+    observer.observe(tabs);
+    observer.observe(selected);
+    return () => observer.disconnect();
+  }, [active, category]);
 
   useEffect(() => {
     let current = true;
@@ -112,6 +146,7 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
   }, [active, category]);
 
   async function refreshSettings() {
+    if (category === "memory") { await memorySettingsRef.current?.refresh(); return; }
     if (category === "terminal") { setNotice(null); await terminalSettingsRef.current?.refresh(); return; }
     setSaving(true); setNotice(null);
     try {
@@ -367,18 +402,28 @@ export function Settings({ active, appearance, onAppearanceChange }: { active: b
     } finally { setCacheClearing(false); }
   }
 
-  if (loading) return <section className="settings-page"><div className="page-loading"><LoaderCircle size={20} />Loading settings</div></section>;
+  function selectCategory(next: SettingsCategory) {
+    if (next !== "memory") setOtherCategory(next);
+    if ((next === "memory") !== memoryCategory) onMemoryCategoryChange(next === "memory");
+    setNotice(null);
+  }
+
+  const loadingCategory = loading && (category === "agent" || category === "appearance" || category === "models" || category === "files" || category === "maintenance" || category === "account");
 
   return <section className="settings-page">
-    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces, plus Agent resources and browser appearance</p></div>{category !== "skills" && category !== "mcp" && category !== "extensions" && <button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={saving || (category === "terminal" && terminalBusy)} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button>}</header>
+    <header className="page-header"><div><h2>Settings</h2><p>Shared preferences for all workspaces, plus Agent resources and browser appearance</p></div>{category !== "skills" && category !== "mcp" && category !== "extensions" && <button type="button" className="icon-button settings-refresh" title="Refresh settings" aria-label="Refresh settings" disabled={category === "memory" ? memoryBusy : loadingCategory || saving || (category === "terminal" && terminalBusy)} onClick={() => void refreshSettings()}><RefreshCw size={15} /></button>}</header>
     <div className="settings-layout">
-      <nav className="settings-tabs" aria-label="Settings categories">
+      <nav className="settings-tabs" aria-label="Settings categories" ref={tabsRef}>
         <span className="settings-nav-label">Preferences</span>
-        {categories.map((item) => <button type="button" key={item.id} className={category === item.id ? "active" : ""} aria-current={category === item.id ? "page" : undefined} onClick={() => { setCategory(item.id); setNotice(null); }}><item.icon size={16} /><span>{item.label}</span></button>)}
+        {categories.map((item) => <button type="button" key={item.id} className={category === item.id ? "active" : ""} aria-current={category === item.id ? "page" : undefined} onClick={() => selectCategory(item.id)}><item.icon size={16} /><span>{item.label}</span></button>)}
       </nav>
       <main className="settings-content" ref={contentRef} onScroll={(event) => { if (active) scrollPositions.current[category] = event.currentTarget.scrollTop; }}>
-        <div className="settings-content-heading"><span>{category === "terminal" ? "Server and browser settings" : category === "appearance" || category === "account" ? "Browser settings" : category === "skills" || category === "mcp" || category === "extensions" ? "Agent resources" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
-        {notice && <div role="status" className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={15} /> : <CircleAlert size={15} />}{notice.text}</div>}
+        <div className="settings-content-heading"><span>{category === "memory" ? "Global and Workspace settings" : category === "terminal" ? "Server and browser settings" : category === "appearance" || category === "account" ? "Browser settings" : category === "skills" || category === "mcp" || category === "extensions" ? "Agent resources" : "Global settings"}</span><h2>{currentCategory.label}</h2><p>{currentCategory.description}</p></div>
+        {loadingCategory && <div className="settings-inline-loading" role="status"><LoaderCircle size={16} aria-hidden="true" />Loading settings…</div>}
+        {notice && category !== "memory" && <div role="status" className={`settings-notice ${notice.kind}`}>{notice.kind === "success" ? <Check size={15} /> : <CircleAlert size={15} />}{notice.text}</div>}
+        <div className="settings-category" hidden={category !== "memory"}>
+          <MemorySettings ref={memorySettingsRef} active={active && category === "memory"} workspaces={workspaces} workspacesLoading={workspacesLoading} workspaceId={workspaceId} onBusyChange={setMemoryBusy} />
+        </div>
         <div className="settings-category" hidden={category !== "terminal"}>
           <TerminalSettings ref={terminalSettingsRef} active={active && category === "terminal"} onBusyChange={setTerminalBusy} />
         </div>

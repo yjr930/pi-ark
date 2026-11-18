@@ -7,7 +7,7 @@ import Fastify from "fastify";
 import { AgentService } from "./agents.js";
 import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { arkHome, ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadGlobalPreferences, piArkAgentDir, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveTerminalSettings, type TerminalSettings, type GlobalPreferences } from "./config.js";
+import { arkHome, ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadGlobalPreferences, loadMemoryDefaults, piArkAgentDir, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveMemoryDefaults, saveTerminalSettings, type TerminalSettings, type GlobalPreferences, type WorkspaceDefinition } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { McpService } from "./mcp.js";
 import { SkillService } from "./skills.js";
@@ -39,14 +39,6 @@ app.addHook("onClose", async () => terminals.dispose());
 const settings = await SettingsService.create(config.workspaces[0]?.path || process.cwd());
 const piCore = new PiCoreService();
 const authFlows = new AuthFlowService((providerId, interaction) => settings.loginSubscription(providerId, interaction));
-const memory = new WorkspaceMemory(join(arkHome, "memory"));
-const agents = new AgentService(settings, workspaces, memory);
-const skills = new SkillService(workspaces, () => agents.reloadIdleSessions());
-const mcp = new McpService(() => agents.reloadIdleSessions());
-const extensions = new ExtensionService(workspaces, async (workspace) => createResourceLoader({ workspace, globalAppend: (await loadGlobalPreferences()).agent.systemPrompt.append }), () => agents.reloadIdleSessions());
-const fileSearch = new FileSearchIndex();
-await mcp.ensureConfig();
-
 let workspaceUpdate: Promise<void> = Promise.resolve();
 function updateWorkspaces<T>(action: () => Promise<T>): Promise<T> {
   const task = workspaceUpdate.then(action);
@@ -54,6 +46,24 @@ function updateWorkspaces<T>(action: () => Promise<T>): Promise<T> {
   return task;
 }
 const saveWorkspaces = () => saveWorkspaceDefinitions(workspaces.list());
+const closingWorkspaces = new Set<string>();
+function ensureMemoryStore(workspace: WorkspaceDefinition): Promise<string> {
+  // Close waits for Agent tools, so those tools cannot queue behind their own Workspace close.
+  if (closingWorkspaces.has(workspace.id)) return Promise.reject(Object.assign(new Error("Workspace is closing"), { statusCode: 409 }));
+  return updateWorkspaces(async () => {
+    const current = workspaces.currentRegistration(workspace);
+    if (!current) throw Object.assign(new Error("Workspace is no longer registered"), { statusCode: 404 });
+    return workspaces.ensureMemoryStore(current.id, saveWorkspaces);
+  });
+}
+
+const memory = new WorkspaceMemory(join(arkHome, "memory"), undefined, loadMemoryDefaults);
+const agents = new AgentService(settings, workspaces, memory, ensureMemoryStore);
+const skills = new SkillService(workspaces, () => agents.reloadIdleSessions());
+const mcp = new McpService(() => agents.reloadIdleSessions());
+const extensions = new ExtensionService(workspaces, async (workspace) => createResourceLoader({ workspace, globalAppend: (await loadGlobalPreferences()).agent.systemPrompt.append }), () => agents.reloadIdleSessions());
+const fileSearch = new FileSearchIndex();
+await mcp.ensureConfig();
 
 function workspaceFromQuery(workspaceId?: string) {
   if (!workspaceId) throw Object.assign(new Error("A workspace id is required"), { statusCode: 400 });
@@ -123,28 +133,28 @@ app.post<{ Params: { workspaceId: string }; Body: { direction?: unknown } }>("/a
   catch (error) { workspaces.replaceOrder(previous); throw error; }
   return { workspaces: workspaces.list() };
 }));
-app.delete<{ Params: { workspaceId: string }; Querystring: { deleteMemory?: string } }>("/api/workspaces/:workspaceId", (request, reply) => updateWorkspaces(async () => {
-  const previous = workspaces.list();
-  const workspace = workspaces.remove(request.params.workspaceId);
-  try {
-    await saveWorkspaces();
-    if (request.query.deleteMemory === "true") await memory.purge(workspace.memoryStoreId);
-  } catch (error) {
-    workspaces.replaceOrder(previous);
-    await saveWorkspaces().catch((restoreError) => app.log.error(restoreError));
-    throw error;
-  }
-  terminals.closeWorkspace(workspace.id);
-  await agents.closeWorkspace(workspace);
-  return reply.code(204).send();
-}));
+app.delete<{ Params: { workspaceId: string }; Querystring: { deleteMemory?: string } }>("/api/workspaces/:workspaceId", (request, reply) => {
+  const { workspaceId } = request.params;
+  if (closingWorkspaces.has(workspaceId)) return reply.code(409).send({ error: "Workspace is already closing" });
+  closingWorkspaces.add(workspaceId);
+  return updateWorkspaces(async () => {
+    const previous = workspaces.list();
+    const workspace = workspaces.remove(workspaceId);
+    try {
+      await saveWorkspaces();
+      if (request.query.deleteMemory === "true") await memory.purge(workspace.memoryStoreId);
+    } catch (error) {
+      workspaces.replaceOrder(previous);
+      await saveWorkspaces().catch((restoreError) => app.log.error(restoreError));
+      throw error;
+    }
+    terminals.closeWorkspace(workspace.id);
+    await agents.closeWorkspace(workspace);
+    return reply.code(204).send();
+  }).finally(() => closingWorkspaces.delete(workspaceId));
+});
 registerMemoryRoutes(app, {
-  memory, workspaces,
-  saveSettings: (workspaceId, input) => updateWorkspaces(async () => {
-    const workspace = workspaces.get(workspaceId);
-    const storeId = workspace.memoryStoreId ?? (input.enabled ? await workspaces.ensureMemoryStore(workspaceId, saveWorkspaces) : undefined);
-    return memory.setSettings(storeId, input);
-  }),
+  memory, workspaces, ensureStore: ensureMemoryStore, loadDefaults: loadMemoryDefaults, saveDefaults: saveMemoryDefaults,
   sourceStatus: (workspace, source) => agents.memorySourceStatus(workspace, source),
 });
 app.get("/api/settings/global", async () => settings.getGlobal());
