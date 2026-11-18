@@ -499,6 +499,7 @@ Files 页面顶部的目录 breadcrumb 使用整个页面宽度。下方左侧�
 - 点击目录列表顶部的 Up one level 返回父目录。
 - 点击 breadcrumb 中的任意目录返回对应路径。
 - 拖动桌面端两栏之间的 separator 可以调整文件列表宽度。
+- 在移动端预览文件时，点击目录路径右侧的 Hide directory 可以收起文件列表，让阅读区域占用更多空间。点击 Show directory 可以恢复文件列表。
 - 打开文件或目录右侧的 action menu，可以选择 Copy path（服务器绝对路径）或 Copy relative path（Workspace-relative path）。
 - 每个文件的 action menu 和阅读区域 header 都提供 Download。
 - Markdown 使用阅读视图，并解析 Workspace 内的相对图片；本地文件链接基于当前文件所在的目录打开 Files。

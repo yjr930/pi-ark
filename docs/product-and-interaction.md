@@ -219,7 +219,7 @@ Header 的 Session information 面板显示创建时间、更新时间、消息�
 
 Files 页面的目录 breadcrumb 横跨文件列表和阅读区域，长目录路径可以使用整个页面宽度。breadcrumb 下方的左侧区域显示目录内容，右侧区域显示选中文件，并在阅读区域顶部单独显示文件路径。目录列表顶部的 Up one level 返回父目录；目录导航始终限制在 Workspace 内。
 
-桌面端可以拖动文件列表与阅读区域之间的 separator，调整后的文件列表宽度保存在浏览器 localStorage。移动端继续使用上下堆叠布局。每个文件和目录右侧的 action menu 可以复制服务器绝对路径或 Workspace-relative path；每个文件的 menu 还提供 Download。
+桌面端可以拖动文件列表与阅读区域之间的 separator，调整后的文件列表宽度保存在浏览器 localStorage。移动端使用上下堆叠布局。预览文件时，目录路径右侧的 Hide directory 可以收起文件列表，阅读区域使用腾出的高度。Show directory 可以恢复文件列表，当前的文件预览保持原样。进入目录时，页面显示该目录的文件列表。每个文件和目录右侧的 action menu 可以复制服务器绝对路径或 Workspace-relative path；每个文件的 menu 还提供 Download。
 
 Markdown 文件使用与 conversation 相同的安全 Markdown renderer，并支持相对图片路径。PNG、JPEG、GIF 和 WebP 文件在阅读区域内按可用空间预览，其他文本文件使用代码视图。选中文件的 header 始终提供 Download；binary file 或超过 Workspace 预览上限的文件显示下载状态，不读取文件内容。Global Settings 的 Files 类别可以控制 dotfile 显示和最大预览大小；预览大小默认是 10 MB，可以设置为 1–100 MB。Pi-Ark 自身的 `.pi-ark` 状态目录始终不进入文件列表。
 

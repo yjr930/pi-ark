@@ -1,5 +1,5 @@
-import { ArrowUp, Check, ChevronRight, CircleAlert, Copy, Download, File, FileCode2, Folder, FolderOpen, Image as ImageIcon, LoaderCircle, MoreHorizontal } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, Copy, Download, File, FileCode2, Folder, FolderOpen, Image as ImageIcon, LoaderCircle, MoreHorizontal } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { api } from "../api";
 import type { FileContent, FileEntry, Workspace } from "../types";
 import { Markdown } from "./Markdown";
@@ -36,6 +36,10 @@ export function Files({ workspace, target, onNavigate }: { workspace: Workspace;
   const [error, setError] = useState("");
   const [browserWidth, setBrowserWidth] = useState(() => Math.max(230, Number(localStorage.getItem("pi-ark-files-browser-width")) || 320));
   const [resizing, setResizing] = useState(false);
+  const [directoryCollapsed, setDirectoryCollapsed] = useState(false);
+  const browserId = useId();
+  const canCollapseDirectory = activeTarget.type === "file";
+  const directoryHiddenOnMobile = canCollapseDirectory && directoryCollapsed;
   const [actionMenu, setActionMenu] = useState<FileActionMenu | null>(null);
   const [copiedPath, setCopiedPath] = useState<"absolute" | "relative" | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -130,9 +134,12 @@ export function Files({ workspace, target, onNavigate }: { workspace: Workspace;
 
   return <section className={`files-page ${resizing ? "files-resizing" : ""}`}>
     <header className="page-header"><div><h2>Files</h2><p>{workspace.path}</p></div></header>
-    <div className="file-workspace" ref={workspaceRef} style={{ "--file-browser-width": `${browserWidth}px` } as React.CSSProperties}>
-      <nav className="breadcrumbs" aria-label="Current directory"><button onClick={() => setDirectory("")}><FolderOpen size={15} />{workspace.name}</button>{crumbs.map((crumb, index) => <span key={`${crumb}-${index}`}><ChevronRight size={13} /><button onClick={() => setDirectory(crumbs.slice(0, index + 1).join("/"))}>{crumb}</button></span>)}</nav>
-      <aside className="file-browser">
+    <div className={`file-workspace${directoryHiddenOnMobile ? " file-directory-collapsed" : ""}`} ref={workspaceRef} style={{ "--file-browser-width": `${browserWidth}px` } as React.CSSProperties}>
+      <div className="file-directory-bar">
+        <nav className="breadcrumbs" aria-label="Current directory"><button onClick={() => setDirectory("")}><FolderOpen size={15} />{workspace.name}</button>{crumbs.map((crumb, index) => <span key={`${crumb}-${index}`}><ChevronRight size={13} /><button onClick={() => setDirectory(crumbs.slice(0, index + 1).join("/"))}>{crumb}</button></span>)}</nav>
+        {canCollapseDirectory && <button type="button" className="file-directory-toggle" aria-controls={browserId} aria-expanded={!directoryHiddenOnMobile} onClick={() => { setActionMenu(null); setDirectoryCollapsed((current) => !current); }}>{directoryHiddenOnMobile ? <ChevronDown size={15} /> : <ChevronUp size={15} />}{directoryHiddenOnMobile ? "Show directory" : "Hide directory"}</button>}
+      </div>
+      <aside id={browserId} className="file-browser">
         <div className="file-list" onScroll={() => setActionMenu(null)}>
           <button className="file-parent-row" disabled={!directory} onClick={() => setDirectory(parentDirectory(directory))}><ArrowUp size={16} /><span>Up one level</span><small>{directory ? parentDirectory(directory) || workspace.name : "Workspace root"}</small></button>
           {directoryLoading && <div className="loading"><LoaderCircle size={18} />Loading</div>}
