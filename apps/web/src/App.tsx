@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Archive, Box, ChevronDown, ChevronLeft, ChevronRight, Files as FilesIcon, FolderPlus, Settings as Gear, Link2, LoaderCircle, Menu, MessageSquare, Plus, TerminalSquare } from "lucide-react";
 import { api } from "./api";
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog";
@@ -16,7 +16,7 @@ import { readAgentReturnPosition, withAgentReturnPosition } from "./navigation-h
 import { cacheSessionList, cacheSessionUiState, deleteCachedSessionSnapshot, getCachedSessionList, getCachedSessionUiState, initializeSessionCache, sessionCacheKey } from "./session-cache";
 import { SessionPrefetcher, type SessionPrefetchTarget } from "./session-prefetch";
 import { resolveActiveSessionId } from "./session-selection";
-import { acknowledgeSessionStatus, countWorkingSessions, mergeSessionStatuses, type SessionStatusMap } from "./session-status";
+import { acknowledgeSessionStatus, countWorkingSessions, mergeSessionStatuses, readViewedRevisions, saveViewedRevision, type SessionStatusMap } from "./session-status";
 import { readAppearance, saveAppearance, subscribeAppearance, type AppearanceSettings } from "./appearance";
 import type { SessionInfo, Workspace } from "./types";
 
@@ -35,6 +35,7 @@ export default function App() {
   const prefetcherRef = useRef<SessionPrefetcher | undefined>(undefined);
   const selectionRevision = useRef(0);
   const currentWorkspaceId = useRef("");
+  const [viewedScope, setViewedScope] = useState("");
   const [auth, setAuth] = useState<"loading" | "in" | "out">("loading");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(true);
@@ -78,7 +79,9 @@ export default function App() {
 
   const startSession = useCallback(async () => {
     const session = await api.session();
-    await initializeSessionCache(`${basePath || "/"}:${session.username}`);
+    const scope = `${basePath || "/"}:${session.username}`;
+    await initializeSessionCache(scope);
+    setViewedScope(scope);
     await initializeFileLinks();
     setAuth("in");
     await loadWorkspaces();
@@ -196,29 +199,38 @@ export default function App() {
   }, [sessions, sessionsWorkspaceId, workspaceId]);
 
   useEffect(() => {
-    if (auth !== "in" || workspaces.length === 0) return;
+    if (auth !== "in" || !viewedScope || workspaces.length === 0) return;
     let current = true;
+    const inFlight = new Set<string>();
     const refresh = () => {
       for (const item of workspaces) {
+        if (inFlight.has(item.id)) continue;
+        inFlight.add(item.id);
         void api.sessionStatuses(item.id).then((result) => {
           if (!current) return;
           const viewed = item.id === currentWorkspaceId.current && page === "agent" && document.visibilityState === "visible" ? sessionId : undefined;
-          setStatusesByWorkspace((statuses) => ({ ...statuses, [item.id]: mergeSessionStatuses(statuses[item.id] || {}, result.statuses, viewed) }));
+          const saved = readViewedRevisions(viewedScope, item.id);
+          setStatusesByWorkspace((statuses) => ({ ...statuses, [item.id]: mergeSessionStatuses(statuses[item.id] || {}, result.statuses, viewed, saved) }));
           if (item.id !== currentWorkspaceId.current) return;
           const openIds = result.statuses.map((status) => status.id);
           openSessionIdsRef.current = { ...openSessionIdsRef.current, [item.id]: openIds };
           setOpenSessionIds((ids) => ({ ...ids, [item.id]: openIds }));
-        }).catch(() => undefined);
+        }).catch(() => undefined).finally(() => inFlight.delete(item.id));
       }
     };
     refresh();
     const timer = window.setInterval(refresh, 1000);
     return () => { current = false; window.clearInterval(timer); };
-  }, [auth, page, sessionId, workspaceId, workspaces]);
+  }, [auth, page, sessionId, viewedScope, workspaceId, workspaces]);
 
   useEffect(() => {
     if (page === "agent" && sessionId && document.visibilityState === "visible") setStatusesByWorkspace((workspaces) => ({ ...workspaces, [workspaceId]: acknowledgeSessionStatus(workspaces[workspaceId] || {}, sessionId) }));
   }, [page, sessionId, workspaceId]);
+
+  const selectedStatus = sessionStatuses[sessionId];
+  useLayoutEffect(() => {
+    if (viewedScope && page === "agent" && selectedStatus && document.visibilityState === "visible") saveViewedRevision(viewedScope, workspaceId, selectedStatus);
+  }, [page, selectedStatus, viewedScope, workspaceId]);
 
   useEffect(() => {
     if (page === "terminal" && workspaceId) setTerminalWorkspaces((current) => current.includes(workspaceId) ? current : [...current, workspaceId]);

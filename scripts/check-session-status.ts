@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { acknowledgeSessionStatus, countWorkingSessions, mergeSessionStatuses } from "../apps/web/src/session-status.ts";
+import { acknowledgeSessionStatus, countWorkingSessions, mergeSessionStatuses, readViewedRevisions, saveViewedRevision } from "../apps/web/src/session-status.ts";
 import type { SessionRuntimeStatus } from "../apps/web/src/types.ts";
 
 const sessionId = "session-a";
 function runtimeStatus(state: SessionRuntimeStatus["state"], statusRevision: number, updateRevision: number): SessionRuntimeStatus {
-  return { id: sessionId, state, statusRevision, updateRevision, ...(state === "error" ? { errorMessage: "Model request failed" } : {}) };
+  return { id: sessionId, runtimeId: "runtime-a", state, statusRevision, updateRevision, ...(state === "error" ? { errorMessage: "Model request failed" } : {}) };
 }
 
 assert.equal(countWorkingSessions({}), 0);
@@ -78,9 +78,20 @@ const repeatedError = mergeSessionStatuses(errorWithUnviewedOutput, [runtimeStat
 assert.deepEqual(mergeSessionStatuses(repeatedError, [runtimeStatus("error", 4, 2)], sessionId), repeatedError);
 const mixedOrder = mergeSessionStatuses(initial, [runtimeStatus("ready", 2, 1), runtimeStatus("running", 3, 1), runtimeStatus("ready", 2, 1)]);
 assert.deepEqual(mixedOrder, runningWithUnviewedOutput);
-const workingStates = mergeSessionStatuses(mergeSessionStatuses({}, [runtimeStatus("running", 1, 0)]), [{ id: "session-b", state: "running", statusRevision: 2, updateRevision: 0 }, { id: "session-c", state: "ready", statusRevision: 3, updateRevision: 0 }]);
+const workingStates = mergeSessionStatuses(mergeSessionStatuses({}, [runtimeStatus("running", 1, 0)]), [{ id: "session-b", runtimeId: "runtime-b", state: "running", statusRevision: 2, updateRevision: 0 }, { id: "session-c", runtimeId: "runtime-c", state: "ready", statusRevision: 3, updateRevision: 0 }]);
 assert.equal(countWorkingSessions(workingStates), 2);
-assert.equal(countWorkingSessions(mergeSessionStatuses(workingStates, [{ id: "session-a", state: "ready", statusRevision: 4, updateRevision: 1 }])), 1);
-assert.equal(countWorkingSessions(mergeSessionStatuses({}, [{ id: "session-d", state: "error", statusRevision: 1, updateRevision: 0 }])), 0);
+assert.equal(countWorkingSessions(mergeSessionStatuses(workingStates, [{ id: "session-a", runtimeId: "runtime-a", state: "ready", statusRevision: 4, updateRevision: 1 }])), 1);
+assert.equal(countWorkingSessions(mergeSessionStatuses({}, [{ id: "session-d", runtimeId: "runtime-d", state: "error", statusRevision: 1, updateRevision: 0 }])), 0);
+
+const storage = new Map<string, string>();
+Object.defineProperty(globalThis, "localStorage", { value: { getItem: (key: string) => storage.get(key), setItem: (key: string, value: string) => storage.set(key, value) } });
+saveViewedRevision("instance:user", "workspace-a", acknowledged[sessionId]);
+const saved = readViewedRevisions("instance:user", "workspace-a");
+assert.equal(mergeSessionStatuses({}, [runtimeStatus("ready", 2, 1)], undefined, saved)[sessionId].unread, false);
+assert.equal(mergeSessionStatuses({}, [runtimeStatus("ready", 4, 2)], undefined, saved)[sessionId].unread, true);
+assert.equal(mergeSessionStatuses(acknowledged, [{ ...runtimeStatus("ready", 1, 1), runtimeId: "replacement" }], undefined, saved)[sessionId].unread, true);
+assert.equal(readViewedRevisions("instance:other", "workspace-a").size, 0);
+assert.equal(readViewedRevisions("instance:user", "workspace-b").size, 0);
+assert.equal(mergeSessionStatuses({}, [runtimeStatus("ready", 2, 1)], undefined, readViewedRevisions("instance:other", "workspace-a"))[sessionId].unread, true);
 
 console.log("Session status checks passed.");

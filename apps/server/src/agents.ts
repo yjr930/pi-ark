@@ -56,6 +56,7 @@ interface AgentHandle {
   queueRebuildPromise?: Promise<void>;
   displayMessages?: ReturnType<typeof buildSessionDisplayMessages>;
   runtimeState: SessionRuntimeState;
+  runtimeId: string;
   statusRevision: number;
   updateRevision: number;
   pendingError?: string;
@@ -147,6 +148,7 @@ export class AgentService {
       id: handle.session.sessionId,
       state: handle.runtimeState,
       waitingForAnswer: handle.pendingQuestions.size > 0,
+      runtimeId: handle.runtimeId,
       statusRevision: handle.statusRevision,
       updateRevision: handle.updateRevision,
       ...(handle.errorMessage ? { errorMessage: handle.errorMessage } : {}),
@@ -622,6 +624,7 @@ export class AgentService {
       queueVersion: 0,
       queueRevision: 0,
       runtimeState: "ready",
+      runtimeId: randomUUID(),
       statusRevision: 0,
       updateRevision: 0,
     };

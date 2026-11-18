@@ -528,6 +528,7 @@ html, body { color: var(--text); background: var(--bg); }
 /* On narrow screens the model menu anchors to the composer instead of the trigger, so it stays inside the viewport. */
 @media (max-width: 760px) {
   .composer-model .ark-select { position: static; }
+  .composer-model .ark-select-trigger { position: relative; }
   .composer-model .ark-select-menu { right: 0; left: 0; width: auto; }
 }
 .ark-select-menu em { max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

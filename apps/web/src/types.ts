@@ -31,6 +31,7 @@ export interface SessionRuntimeStatus {
   id: string;
   state: "ready" | "running" | "error";
   waitingForAnswer?: boolean;
+  runtimeId: string;
   statusRevision: number;
   updateRevision: number;
   errorMessage?: string;

@@ -120,7 +120,7 @@ async function assertDialogChrome(dialog, { input = false } = {}) {
 }
 
 await page.route("**/api/workspaces/*/session-statuses", async (route) => {
-  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ statuses: mockedSessionStatuses }) });
+  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ statuses: mockedSessionStatuses.map((status) => ({ runtimeId: "browser-fixture-runtime", ...status })) }) });
 });
 await page.route("**/api/settings/release?latest=true", async (route) => {
   const response = await route.fetch();
@@ -324,6 +324,23 @@ try {
   assert.equal(await page.locator(".chat-header .status-dot > i").getAttribute("class"), "error");
   mockedSessionStatuses = [{ id: compactedSessionFixture.getSessionId(), state: "ready", statusRevision: 2, updateRevision: 2 }, { id: sessionFixture.getSessionId(), state: "ready", statusRevision: 5, updateRevision: 2 }];
   await page.locator(".chat-header .status-dot").filter({ hasText: "Ready" }).waitFor({ timeout: 3000 });
+
+  const reloadedPage = await context.newPage();
+  try {
+    let fixtureUpdate = 2;
+    await reloadedPage.route("**/api/workspaces/*/session-statuses", (route) => route.fulfill({ json: { statuses: [
+      { id: sessionFixture.getSessionId(), runtimeId: "browser-fixture-runtime", state: "ready", statusRevision: fixtureUpdate + 3, updateRevision: fixtureUpdate },
+      { id: failedSessionFixture.getSessionId(), runtimeId: "new-output-on-reload", state: "ready", statusRevision: 2, updateRevision: 1 },
+    ] } }));
+    await reloadedPage.goto(page.url());
+    await reloadedPage.locator(".session-list-item").filter({ hasText: "Failed model fixture" }).getByRole("status", { name: "Session has new output" }).waitFor();
+    const reloadedFixtureRow = reloadedPage.locator(".session-list-item").filter({ hasText: "Browser UI fixture" });
+    const unreadAfterReload = reloadedFixtureRow.getByRole("status", { name: "Session has new output" });
+    assert.equal(await unreadAfterReload.count(), 0);
+    fixtureUpdate += 1;
+    await unreadAfterReload.waitFor({ timeout: 3000 });
+  } finally { await reloadedPage.close(); }
+
   await fixtureSessionRow.locator(".session-open").click();
   await page.getByText("Final browser answer", { exact: true }).waitFor({ timeout: 500 });
   await page.locator(".status-dot").filter({ hasText: "Refreshing conversation" }).waitFor({ timeout: 500 });
@@ -611,6 +628,25 @@ try {
   await activeRun.locator(":scope > summary").filter({ hasText: "Running" }).waitFor();
   assert.notEqual(await activeRun.getAttribute("open"), null);
   assert.equal(await activeRun.locator(".feed-tool-details[open]").count(), 0);
+  const desktopViewport = activePage.viewportSize();
+  await activePage.setViewportSize({ width: 390, height: 844 });
+  const mobileModel = activePage.getByRole("button", { name: "Session model", exact: true });
+  const mobileStop = activePage.locator(".composer .stop-button:enabled");
+  await mobileStop.waitFor();
+  const [modelBox, chevronBox, stopBox] = await Promise.all([mobileModel.boundingBox(), mobileModel.locator("svg").boundingBox(), mobileStop.boundingBox()]);
+  assert.ok(modelBox && chevronBox && stopBox);
+  const chevronInset = modelBox.x + modelBox.width - chevronBox.x - chevronBox.width;
+  assert.ok(chevronInset >= 0 && chevronInset <= 16 && chevronBox.x >= modelBox.x && chevronBox.x + chevronBox.width <= stopBox.x, JSON.stringify({ modelBox, chevronBox, stopBox }));
+  assert.ok(Math.abs(chevronBox.y + chevronBox.height / 2 - (modelBox.y + modelBox.height / 2)) <= 1, "Model chevron is centered in its trigger");
+  await mobileModel.click();
+  const mobileModelMenu = activePage.locator(".composer-model").getByRole("listbox");
+  await mobileModelMenu.waitFor();
+  const [menuBox, composerBox] = await Promise.all([mobileModelMenu.boundingBox(), activePage.locator(".composer").boundingBox()]);
+  assert.ok(menuBox && composerBox);
+  assert.ok(Math.abs(menuBox.x - composerBox.x) <= 2 && Math.abs(menuBox.width - composerBox.width) <= 2 && menuBox.y + menuBox.height <= composerBox.y, JSON.stringify({ menuBox, composerBox }));
+  await activePage.keyboard.press("Escape");
+  await mobileModelMenu.waitFor({ state: "hidden" });
+  await activePage.setViewportSize(desktopViewport);
   const prefixRun = activePage.locator(".run-collapse:not(.active)").first();
   await prefixRun.locator(":scope > summary").waitFor();
   await prefixRun.locator(":scope > summary").click();

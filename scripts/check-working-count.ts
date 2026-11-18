@@ -3,7 +3,7 @@ import { countWorkingSessions, formatWorkingCount, mergeSessionStatuses } from "
 import { normalizeAppearance } from "../apps/web/src/appearance.ts";
 import type { SessionRuntimeStatus } from "../apps/web/src/types.ts";
 
-const status = (id: string, state: SessionRuntimeStatus["state"]): SessionRuntimeStatus => ({ id, state, statusRevision: 1, updateRevision: 0 });
+const status = (id: string, state: SessionRuntimeStatus["state"]): SessionRuntimeStatus => ({ id, runtimeId: `runtime-${id}`, state, statusRevision: 1, updateRevision: 0 });
 
 assert.equal(countWorkingSessions({}), 0);
 assert.equal(countWorkingSessions(mergeSessionStatuses({}, [status("a", "ready")])), 0);
