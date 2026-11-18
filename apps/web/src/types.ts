@@ -8,6 +8,76 @@ export interface Workspace {
   path: string;
 }
 
+export type MemoryType = "user" | "feedback" | "project" | "reference";
+export type MemoryStatus = "active" | "review" | "archived";
+export type MemorySource =
+  | { kind: "message"; link: string; entryId: string; sessionId: string }
+  | { kind: "manual" | "notebook" }
+  | { kind: "external"; url: string };
+
+export interface MemoryDraft {
+  type: MemoryType;
+  title: string;
+  summary: string;
+  body: string;
+  tags: string[];
+  pinned: boolean;
+  reviewAfter?: string | null;
+  sourceUrl?: string | null;
+  fromNotebook?: boolean;
+}
+
+export interface MemoryEntry extends Pick<MemoryDraft, "type" | "title" | "summary" | "body" | "tags" | "pinned" | "reviewAfter"> {
+  id: string;
+  revision: number;
+  source: MemorySource;
+  status: MemoryStatus;
+  createdAt: string;
+  updatedAt: string;
+  verifiedAt?: string;
+  changeReason?: string;
+}
+
+export interface MemoryProposal {
+  id: string;
+  draft: MemoryDraft;
+  source: MemorySource;
+  status: "pending" | "confirmed" | "dismissed";
+  createdAt: string;
+  entryId?: string;
+}
+
+export interface MemorySettings {
+  enabled: boolean;
+  autoIndex: boolean;
+}
+
+export interface MemorySnapshot extends MemorySettings {
+  entries: MemoryEntry[];
+  proposals: MemoryProposal[];
+}
+
+export interface MemoryProposalReview {
+  proposal: MemoryProposal;
+  historical: boolean;
+  sourceAvailable: boolean;
+  matches: MemoryEntry[];
+}
+
+export interface MemoryEntryPatch extends MemoryDraft {
+  revision: number;
+  status?: MemoryStatus;
+  reverify?: boolean;
+  changeReason?: string;
+}
+
+export interface MemoryConfirmation {
+  draft: MemoryDraft;
+  target?: Pick<MemoryEntry, "id" | "revision">;
+  reviewHistorical?: boolean;
+  reason?: string;
+}
+
 export interface SessionInfo {
   id: string;
   cwd: string;

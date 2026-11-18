@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { createAgentSession, DefaultResourceLoader, SessionManager, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, SessionManager, type AgentSession, type AgentSessionEvent, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { WebSocket } from "ws";
 import type { WorkspaceDefinition } from "./config.js";
 import { ensureWorkspaceState, loadGlobalPreferences, piArkAgentDir } from "./config.js";
@@ -16,6 +16,8 @@ import { COMPACTION_TIMING_TYPE, type CompactionTiming } from "./compaction-stat
 import { createSubagentTool, SUBAGENT } from "./agent-tools/subagent.js";
 import { createWebfetchTool, WEBFETCH } from "./agent-tools/webfetch.js";
 import { createQuestionTools } from "./agent-tools/question.js";
+import { createMemoryExtension, createMemoryTools, MEMORY_TOOLS } from "./agent-tools/memory.js";
+import type { MemoryMessageSource, WorkspaceMemory } from "./workspace-memory.js";
 import { answeredOutcome, deriveQuestionGroups, formatOutcomeMessage, normalizeQuestions, QUESTION_ANSWER_TYPE, QUESTION_TOOLS, questionToken, unansweredOutcome, type QuestionGroupState, type QuestionItem, type QuestionMode, type QuestionOutcome, type QuestionReason } from "./questions.js";
 import { SubagentService, SUBAGENT_ROLE_PROMPT, type SubagentConfiguration } from "./subagents.js";
 import { type SubagentTaskInput } from "./subagent-types.js";
@@ -116,7 +118,7 @@ export class AgentService {
 
   private readonly sessionReader: SessionReader;
 
-  constructor(private readonly settings: SettingsService, workspaces: Pick<WorkspaceService, "get">) {
+  constructor(private readonly settings: SettingsService, private readonly workspaces: Pick<WorkspaceService, "get"> & Partial<Pick<WorkspaceService, "currentRegistration">>, private readonly memory?: WorkspaceMemory) {
     this.sessionReader = new SessionReader(workspaces, (workspace, sessionId) => this.handles.get(this.key(workspace, sessionId))?.session.sessionManager);
     this.subagents = new SubagentService(this.sessionReader, async (workspace, manager, configuration) => (await this.instantiate(workspace, manager, configuration)).session, (workspace, run) => {
       const runs = this.subagents.store.state(workspace, run.parentSessionId).runs;
@@ -129,6 +131,10 @@ export class AgentService {
 
   private key(workspace: WorkspaceDefinition, sessionId: string): string {
     return `${workspace.id}:${sessionId}`;
+  }
+
+  memorySourceStatus(workspace: WorkspaceDefinition, source: MemoryMessageSource) {
+    return this.sessionReader.memorySourceStatus(workspace, source);
   }
 
   async list(workspace: WorkspaceDefinition) {
@@ -575,8 +581,8 @@ export class AgentService {
     finally { session.dispose(); }
   }
 
-  private createResourceLoader(workspace: WorkspaceDefinition, globalAppend: string, settingsManager = createGlobalSettingsManager(workspace.path)): Promise<DefaultResourceLoader> {
-    return createWorkspaceResourceLoader({ workspace, globalAppend, settingsManager });
+  private createResourceLoader(workspace: WorkspaceDefinition, globalAppend: string, settingsManager = createGlobalSettingsManager(workspace.path), extensionFactories?: ExtensionFactory[]): Promise<DefaultResourceLoader> {
+    return createWorkspaceResourceLoader({ workspace, globalAppend, settingsManager, extensionFactories });
   }
 
   private instantiate(workspace: WorkspaceDefinition, manager: SessionManager, configuration?: SubagentConfiguration): Promise<AgentHandle> {
@@ -590,7 +596,9 @@ export class AgentService {
     const settingsManager = createGlobalSettingsManager(workspace.path);
     const childConfiguration = origin?.task.configuration ?? origin?.run;
     const systemPromptAppend = configuration?.systemPromptAppend ?? childConfiguration?.systemPromptAppend ?? preferences.agent.systemPrompt.append;
-    const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager);
+    const memory = origin ? undefined : this.memory;
+    const memoryStoreId = () => this.workspaces.currentRegistration ? this.workspaces.currentRegistration(workspace)?.memoryStoreId : workspace.memoryStoreId;
+    const resourceLoader = await this.createResourceLoader(workspace, origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend, settingsManager, memory ? [createMemoryExtension(memory, memoryStoreId)] : undefined);
     const modelConfiguration = await this.settings.getSessionModelConfiguration();
     const hasExistingSession = manager.buildSessionContext().messages.length > 0;
     this.healDanglingQuestions(manager);
@@ -606,9 +614,10 @@ export class AgentService {
     };
     const questionTools = origin ? [] : createQuestionTools(askQuestion, askBackgroundQuestion);
     const extensionTools = extensionToolNames(resourceLoader);
-    const activeTools = [...new Set([...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT, ...QUESTION_TOOLS] : []), ...extensionTools])];
-    const tools = [...activeTools, "codemode"];
-    const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : []), ...questionTools];
+    const memoryEnabled = memory && await memory.isEnabled(memoryStoreId()).catch(() => false);
+    const activeTools = [...new Set([...FILE_TOOLS, READ_PI_ARK_LINK, WEBFETCH, ...(!origin ? [SUBAGENT, ...QUESTION_TOOLS] : []), ...extensionTools, ...(memoryEnabled ? MEMORY_TOOLS : [])])];
+    const tools = [...new Set([...activeTools, "codemode", ...(memory ? MEMORY_TOOLS : [])])];
+    const customTools = [createReadPiArkLinkTool(this.sessionReader), createWebfetchTool(), ...(!origin ? [this.subagentTool(workspace, manager.getSessionId())] : []), ...questionTools, ...(memory ? createMemoryTools(workspace, memory, memoryStoreId) : [])];
     const { session, modelFallbackMessage } = await createAgentSession({ cwd: workspace.path, sessionManager: manager, settingsManager, tools, customTools, resourceLoader, model: configuration?.model ?? (hasExistingSession ? undefined : modelConfiguration.model), thinkingLevel: configuration?.thinkingLevel, scopedModels: modelConfiguration.scopedModels });
     session.setActiveToolsByName(activeTools);
     await session.bindExtensions({});
@@ -801,6 +810,21 @@ export class AgentService {
 
   private broadcast(handle: AgentHandle, payload: unknown): void {
     for (const [client, state] of handle.clients) if (!state.snapshotsOnly) send(client, payload);
+  }
+
+  async closeWorkspace(workspace: WorkspaceDefinition): Promise<void> {
+    const prefix = `${workspace.id}:`;
+    await Promise.allSettled([...this.opening].filter(([key]) => key.startsWith(prefix)).map(([, promise]) => promise));
+    await Promise.allSettled([...this.handles].filter(([key]) => key.startsWith(prefix)).map(async ([key, handle]) => {
+      handle.session.clearQueue();
+      await this.subagents.stop(workspace, handle.session.sessionId);
+      if (!handle.session.isIdle) await handle.session.abort();
+      handle.unsubscribe();
+      for (const client of handle.clients.keys()) client.close(1000, "Workspace closed");
+      await this.shutdownSession(handle.session);
+      handle.session.dispose();
+      this.handles.delete(key);
+    }));
   }
 
   async reloadIdleSessions(): Promise<number> {

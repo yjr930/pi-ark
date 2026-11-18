@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Braces, Check, ChevronDown, CircleAlert, FolderPlus, LoaderCircle, MessageCircleQuestion, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, BookOpen, Braces, Check, ChevronDown, CircleAlert, FolderPlus, LoaderCircle, MessageCircleQuestion, MoreHorizontal, NotebookPen, Pencil, Pin, PinOff, Tag, Tags, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { internalSessionLink } from "../permalinks";
@@ -110,7 +110,7 @@ function GroupSection({ group, sessions, statuses, workspaceId, activeSessionId,
   </div>;
 }
 
-export function SessionList({ workspaceId, sessions, statuses, activeSessionId, showArchived, notebookActive, createGroupOpen, onSelect, onOpenNotebook, onCreateGroupClose, onChanged }: { workspaceId: string; sessions: SessionInfo[]; statuses: Record<string, SessionStatusView>; activeSessionId: string; showArchived: boolean; notebookActive: boolean; createGroupOpen: boolean; onSelect: (sessionId: string) => void; onOpenNotebook: () => void; onCreateGroupClose: () => void; onChanged: Changed }) {
+export function SessionList({ workspaceId, sessions, statuses, activeSessionId, showArchived, notebookActive, memoryActive, createGroupOpen, onSelect, onOpenNotebook, onOpenMemory, onCreateGroupClose, onChanged }: { workspaceId: string; sessions: SessionInfo[]; statuses: Record<string, SessionStatusView>; activeSessionId: string; showArchived: boolean; notebookActive: boolean; memoryActive: boolean; createGroupOpen: boolean; onSelect: (sessionId: string) => void; onOpenNotebook: () => void; onOpenMemory: () => void; onCreateGroupClose: () => void; onChanged: Changed }) {
   const [groups, setGroups] = useState<SessionGroup[]>([]);
   const active = sessions.filter((session) => !session.archived && !session.subagentOrigin);
   const archived = sessions.filter((session) => session.archived && !session.subagentOrigin);
@@ -119,7 +119,7 @@ export function SessionList({ workspaceId, sessions, statuses, activeSessionId, 
   useEffect(loadGroups, [workspaceId]);
 
   return <div className="session-list">
-    <div className="session-notebook-entry"><button className={notebookActive ? "active" : ""} onClick={onOpenNotebook}><NotebookPen size={14} />Notebook</button></div>
+    <div className="session-notebook-entry"><button type="button" className={notebookActive ? "active" : ""} aria-current={notebookActive ? "page" : undefined} onClick={onOpenNotebook}><NotebookPen size={14} />Notebook</button><button type="button" className={memoryActive ? "active" : ""} aria-current={memoryActive ? "page" : undefined} onClick={onOpenMemory}><BookOpen size={14} />Memory</button></div>
     {groups.length === 0 ? <div className="session-items">{active.map((session) => <SessionRow workspaceId={workspaceId} session={session} status={statuses[session.id]} groups={groups} active={session.id === activeSessionId} onSelect={() => onSelect(session.id)} onChanged={onChanged} key={session.id} />)}</div> : <div className="session-group-list">{groups.map((group) => <GroupSection group={group} sessions={active.filter((session) => session.groups.includes(group.id))} statuses={statuses} workspaceId={workspaceId} activeSessionId={activeSessionId} groups={groups} onSelect={onSelect} onChanged={onChanged} onGroupsChanged={loadGroups} key={group.id} />)}<GroupSection group={{ id: "", name: "Ungrouped" }} sessions={ungrouped} statuses={statuses} workspaceId={workspaceId} activeSessionId={activeSessionId} groups={groups} onSelect={onSelect} onChanged={onChanged} onGroupsChanged={loadGroups} /></div>}
     {showArchived && <div className="archived-sessions"><div className="archived-sessions-label"><span>Archived</span><small>{archived.length}</small></div><div className="session-items archived">{archived.map((session) => <SessionRow workspaceId={workspaceId} session={session} status={statuses[session.id]} groups={groups} active={session.id === activeSessionId} onSelect={() => onSelect(session.id)} onChanged={onChanged} key={session.id} />)}{archived.length === 0 && <div className="empty-session-group">No archived sessions</div>}</div></div>}
     {createGroupOpen && <NameDialog title="Create session group" description="Use groups to organize related sessions. A session can belong to several groups." label="Group name" submitLabel="Create group" icon={<FolderPlus size={18} />} onClose={onCreateGroupClose} onSubmit={async (name) => { await api.createSessionGroup(workspaceId, name); loadGroups(); onCreateGroupClose(); }} />}

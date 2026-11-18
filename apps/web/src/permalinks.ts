@@ -1,7 +1,7 @@
 import { validMessageTarget, validLeafEntryId } from "../../server/src/internal-links";
 export { internalMessageLink, internalSessionLink, parseInternalSessionLink, type InternalSessionTarget } from "../../server/src/internal-links";
 
-export type AppPage = "agent" | "notebook" | "files" | "terminal" | "settings";
+export type AppPage = "agent" | "notebook" | "memory" | "files" | "terminal" | "settings";
 
 export interface PermalinkTarget {
   workspaceId?: string;
@@ -11,13 +11,14 @@ export interface PermalinkTarget {
   page: AppPage;
   filePath?: string;
   fileType?: "file" | "directory";
+  proposalId?: string;
 }
 
 export function readPermalink(): PermalinkTarget {
   const params = new URLSearchParams(window.location.search);
   const messageId = validMessageTarget(params.get("message"));
   const rawPage = params.get("page");
-  const page: AppPage = rawPage === "notebook" || rawPage === "files" || rawPage === "terminal" || rawPage === "settings" ? rawPage : "agent";
+  const page: AppPage = rawPage === "notebook" || rawPage === "memory" || rawPage === "files" || rawPage === "terminal" || rawPage === "settings" ? rawPage : "agent";
   return {
     workspaceId: params.get("workspace") || undefined,
     sessionId: params.get("session") || undefined,
@@ -25,6 +26,7 @@ export function readPermalink(): PermalinkTarget {
     leafEntryId: validLeafEntryId(params.get("leafEntryId")),
     filePath: page === "files" && params.has("path") ? params.get("path")! : undefined,
     fileType: page === "files" && params.has("path") ? params.get("kind") === "directory" ? "directory" : "file" : undefined,
+    proposalId: page === "memory" ? params.get("proposal") || undefined : undefined,
     page,
   };
 }
@@ -55,6 +57,14 @@ export function fileLocation(workspaceId: string, path: string, type: "file" | "
   const url = new URL(appLocation("files", workspaceId, sessionId), window.location.href);
   url.searchParams.set("path", path);
   url.searchParams.set("kind", type);
+  return `${url.pathname}${url.search}`;
+}
+
+export function memoryLocation(workspaceId: string, sessionId?: string, proposalId?: string, messageId?: string, leafEntryId?: string): string {
+  const url = new URL(appLocation("memory", workspaceId, sessionId), window.location.href);
+  if (proposalId) url.searchParams.set("proposal", proposalId);
+  if (sessionId && messageId) url.searchParams.set("message", messageId);
+  if (sessionId && leafEntryId) url.searchParams.set("leafEntryId", leafEntryId);
   return `${url.pathname}${url.search}`;
 }
 

@@ -59,6 +59,10 @@ Pi-Ark 使用 `DefaultResourceLoader` 组合以下内容：
 
 Global preview 与实际 runtime 共用 ResourceLoader 创建流程，并使用统一启用的文件工具（`read`、`bash`、`edit` 和 `write`），通过临时 AgentSession 的 `systemPrompt` 读取 complete effective prompt。Loader 显式选择 Global `SYSTEM.md` 与 `APPEND_SYSTEM.md`，并使用 `appendSystemPromptOverride` 在 Global append resources 后面追加共享内容。Workspace 的 AGENTS.md 保持为项目上下文。
 
+## Workspace Memory 的 SDK 接入
+
+主 Session 通过 `customTools` 注册 Memory 工具，并使用 `DefaultResourceLoader` 的 `extensionFactories` 注册宿主扩展。`before_agent_start` 在每次启动回合时更新所选工具；`context_with_system` 在模型请求副本中附上可选的目录。目录不加入 system prompt 或 JSONL；普通的 Memory 工具结果随 Session 记录。子 Session 和 Global system prompt 预览不安装这套扩展。
+
 ## Compact 的统计信息
 
 Pi-Ark 使用 SDK 的 `buildSessionProjection(entries, compactionEntryId, byId)` 重建每次压缩当时的上下文，并通过 `getCurrentSystemMessage()` 与 `estimateTokens()` 计算压缩后的组成。`tokensBefore` 来自原生 compaction entry；After、System prompt、Summary 和 Retained 使用 SDK 的估算方法。`CompactionEntry.usage` 提供生成摘要的 input/output token 用量。

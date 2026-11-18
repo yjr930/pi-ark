@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { parseSessionEntries, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { WorkspaceDefinition } from "./config.js";
 import { internalMessageLink, internalSessionLink, internalWorkspaceLink, parsePiArkLink, pinnedPiArkLink, validLeafEntryId } from "./internal-links.js";
-import { buildSessionDisplayMessages, resolveDisplayMessageIndex } from "./session-display.js";
+import { buildSessionDisplayMessages, resolveDisplayMessageIndex, sessionMessageId } from "./session-display.js";
+import type { MemoryMessageSource } from "./workspace-memory.js";
 import type { WorkspaceService } from "./workspaces.js";
 
 export const MAX_LINK_RESULT_BYTES = 48 * 1024;
@@ -161,6 +162,22 @@ export class SessionReader {
       if (offset + length < content.length) break;
     }
     return compose(selected);
+  }
+
+  async memorySourceStatus(workspace: WorkspaceDefinition, source: MemoryMessageSource): Promise<"active" | "historical" | "missing"> {
+    const target = parsePiArkLink(source.link);
+    if (target?.workspaceId !== workspace.id || target.sessionId !== source.sessionId || !target.leafEntryId || !target.messageId) return "missing";
+    let manager: SessionManager;
+    try { manager = await this.resolveSession(workspace, source.sessionId); }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code === "UNKNOWN_SESSION" || code === "ENOENT") return "missing";
+      throw error;
+    }
+    if (!manager.getEntry(target.leafEntryId) || manager.getEntry(source.entryId)?.type !== "message") return "missing";
+    const sourceIndex = manager.getEntries().findIndex((entry) => entry.id === source.entryId);
+    if (sourceIndex < 0 || sessionMessageId(source.sessionId, sourceIndex) !== target.messageId || !manager.getBranch(target.leafEntryId).some((entry) => entry.id === source.entryId)) return "missing";
+    return manager.getBranch().some((entry) => entry.id === target.leafEntryId) ? "active" : "historical";
   }
 
   async images(input: Pick<ReadPiArkLinkInput, "link" | "leafEntryId">, signal?: AbortSignal) {

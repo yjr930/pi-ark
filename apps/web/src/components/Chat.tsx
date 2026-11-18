@@ -1,6 +1,6 @@
 import { FormEvent, createContext, useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useId, type ClipboardEvent as ReactClipboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, CircleStop, Clock3, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronUp, CircleStop, Clock3, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { api, websocketUrl } from "../api";
 import { connectionWatchdogIntervalMs, isConnectionStale, reconnectDelay } from "../connection-retry";
 import { buildConversationSegments, buildToolCallGroups, toolCallLabel } from "../conversation";
@@ -22,6 +22,7 @@ import { pinnedPiArkLink } from "../../../server/src/internal-links";
 const RoleLabels = createContext({ user: "User", assistant: "AI" });
 const SubagentRunsContext = createContext<SubagentRun[]>([]);
 const LiveNestedToolsContext = createContext<ReadonlyMap<string, readonly string[]>>(new Map());
+const OpenMemoryContext = createContext<((proposalId: string) => void) | undefined>(undefined);
 
 function subagentCallTitle(call: ContentBlock | undefined): string | undefined {
   const tasks = call?.arguments?.tasks;
@@ -116,6 +117,22 @@ function hasAssistantFooterContent(message: AgentMessage): boolean {
 function matchesToolResult(call: ContentBlock, result: AgentMessage | undefined): result is AgentMessage {
   if (result?.role !== "toolResult") return false;
   return call.id && result.toolCallId ? call.id === result.toolCallId : true;
+}
+
+function pendingMemoryProposalId(result?: AgentMessage, callName?: string): string | undefined {
+  if (result?.role !== "toolResult" || result.isError || (result.toolName || callName) !== "memory_propose") return;
+  const extract = (value: unknown) => value && typeof value === "object" && "status" in value && value.status === "pending" && "proposalId" in value && typeof value.proposalId === "string" ? value.proposalId.trim() || undefined : undefined;
+  const fromDetails = extract(result.details);
+  if (fromDetails) return fromDetails;
+  for (const block of blocks(result.content)) {
+    if (block.type !== "text" || !block.text) continue;
+    try { const id = extract(JSON.parse(block.text)); if (id) return id; } catch { /* Normal tool output need not be JSON. */ }
+  }
+}
+
+function ReviewMemoryAction({ proposalId }: { proposalId: string }) {
+  const openMemory = useContext(OpenMemoryContext);
+  return openMemory ? <div className="feed-memory-action"><span>Memory suggestion</span><button type="button" className="secondary-button" onClick={() => openMemory(proposalId)}><BookOpen size={14} />Review memory</button></div> : null;
 }
 
 function toolCallPreview(call: ContentBlock): string {
@@ -225,6 +242,7 @@ function ToolFeedItem({ call, callTimestamp, result, summaryMessage, messageId, 
   const status = isSummary ? "Saved" : result?.isError ? "Failed" : call ? result ? "Completed" : "Running" : "Result";
   const statusClass = `status-${status.toLowerCase()}`;
   const running = Boolean(call && !result);
+  const proposalId = pendingMemoryProposalId(result, call?.name);
   const sources = [{ label: isSummary ? "Message" : call ? "Call" : "Result", messageId }, ...(resultMessageId ? [{ label: "Result", messageId: resultMessageId }] : [])];
   useLayoutEffect(() => {
     if (target && !running && !targetOpenedRef.current) {
@@ -247,6 +265,7 @@ function ToolFeedItem({ call, callTimestamp, result, summaryMessage, messageId, 
       if (block.type === "image" && block.data && block.mimeType) { const source = `data:${block.mimeType};base64,${block.data}`; return <button type="button" className="message-image-button" onClick={() => onImageOpen(source, "Tool result image")} key={index}><img className="message-image" src={source} alt="Tool result" /></button>; }
       return null;
     })}</div></section>}{isCompaction && summaryMessage?.compaction && <section className="compact-generation-details"><strong>Compaction details</strong><dl><div><dt>Trigger</dt><dd>{summaryMessage.compaction.reason || "—"}</dd></div><div><dt>Duration</dt><dd>{compactDuration(summaryMessage.compaction.durationMs)}</dd></div>{summaryMessage.compaction.summarizerInputTokens !== undefined && <div><dt>Summarizer input tokens</dt><dd>{summaryMessage.compaction.summarizerInputTokens}</dd></div>}{summaryMessage.compaction.summarizerOutputTokens !== undefined && <div><dt>Summarizer output tokens</dt><dd>{summaryMessage.compaction.summarizerOutputTokens}</dd></div>}</dl><p>≈ Token estimates from pi SDK</p></section>}{summaryMessage?.summary && <section><strong>Summary</strong><Markdown source={summaryMessage.summary} className="message-markdown" onImageOpen={onImageOpen} /></section>}{!isSummary && <MessageTime timestamp={result?.timestamp ?? callTimestamp} className="feed-tool-time" />}</div></details>
+    {proposalId && <ReviewMemoryAction proposalId={proposalId} />}
   </div>;
 }
 
@@ -281,7 +300,7 @@ function FeedMessage({ message, hiddenCalls, idByMessage, resultByCall, targetMe
   return <article hidden={allCallsHidden} id={messageId ? `message-${messageId}` : undefined} data-message-id={messageId} data-message-role={message.role} data-entry-id={message.entryId} className={`feed-source-message feed-ai-message message-agent ${target ? "permalink-target" : ""}`}>{content}</article>;
 }
 
-function RunCollapse({ active, duration, toolMessages, target, stateKey, disclosureOpen, onDisclosureChange, children }: { active: boolean; duration: string; toolMessages: number; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; children: ReactNode }) {
+function RunCollapse({ active, duration, toolMessages, target, stateKey, disclosureOpen, onDisclosureChange, proposalIds, children }: { active: boolean; duration: string; toolMessages: number; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; proposalIds: string[]; children: ReactNode }) {
   const previousActiveRef = useRef(active);
   const targetOpenedRef = useRef(false);
   useLayoutEffect(() => {
@@ -293,7 +312,7 @@ function RunCollapse({ active, duration, toolMessages, target, stateKey, disclos
     previousActiveRef.current = active;
   }, [active, disclosureOpen, onDisclosureChange, stateKey, target]);
   const open = disclosureOpen ?? (active || target);
-  return <details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className={`run-collapse ${active ? "active" : ""}`}><summary><Clock3 size={13} />{active ? "Running" : duration}<span>{toolMessages} tool messages</span></summary><div>{children}</div></details>;
+  return <><details open={open} onToggle={(event) => { if (event.currentTarget.open !== open) onDisclosureChange(stateKey, event.currentTarget.open); }} className={`run-collapse ${active ? "active" : ""}`}><summary><Clock3 size={13} />{active ? "Running" : duration}<span>{toolMessages} tool messages</span></summary><div>{children}</div></details>{!open && proposalIds.map((proposalId) => <ReviewMemoryAction key={proposalId} proposalId={proposalId} />)}</>;
 }
 
 function ToolCallSequence({ calls, target, stateKey, disclosureOpen, onDisclosureChange, children }: { calls: ContentBlock[]; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; children: (hiddenCalls: ReadonlySet<ContentBlock>) => ReactNode }) {
@@ -305,7 +324,7 @@ function ToolCallSequence({ calls, target, stateKey, disclosureOpen, onDisclosur
       if (disclosureOpen !== true) onDisclosureChange(stateKey, true);
     }
   }, [disclosureOpen, onDisclosureChange, stateKey, target]);
-  const collapsedCalls = calls.slice(0, -3).filter((call) => call.name !== "question" && call.name !== "question_background");
+  const collapsedCalls = calls.slice(0, -3).filter((call) => call.name !== "question" && call.name !== "question_background" && call.name !== "memory_propose");
   const hiddenCalls = new Set(expanded ? [] : collapsedCalls);
   return <div className="feed-tool-sequence">{collapsedCalls.length > 0 && <button type="button" className="tool-sequence-toggle" aria-expanded={expanded} onClick={() => onDisclosureChange(stateKey, !expanded)}>{expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}{expanded ? "show fewer tool calls" : `show more tool calls (${collapsedCalls.length})`}</button>}{children(hiddenCalls)}</div>;
 }
@@ -316,6 +335,7 @@ function TurnMessages({ messages, active, targetMessageId, hideReasoning, rollba
   const resultByToolCallId = new Map<string, AgentMessage>();
   for (const message of messages) if (message.role === "toolResult" && message.toolCallId) resultByToolCallId.set(message.toolCallId, message);
   const resultByCall = new Map<ContentBlock, AgentMessage>();
+  const callNameByResult = new Map<AgentMessage, string | undefined>();
   const pairedToolResults = new Set<AgentMessage>();
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
@@ -323,7 +343,7 @@ function TurnMessages({ messages, active, targetMessageId, hideReasoning, rollba
     const calls = blocks(message.content).filter((block) => block.type === "toolCall");
     for (const call of calls) {
       const result = call.id ? resultByToolCallId.get(call.id) : calls.length === 1 && matchesToolResult(call, messages[index + 1]) ? messages[index + 1] : undefined;
-      if (result) { resultByCall.set(call, result); pairedToolResults.add(result); }
+      if (result) { resultByCall.set(call, result); callNameByResult.set(result, call.name); pairedToolResults.add(result); }
     }
   }
   let latestUserMessage: AgentMessage | undefined;
@@ -341,7 +361,16 @@ function TurnMessages({ messages, active, targetMessageId, hideReasoning, rollba
     if (segment.type === "message" && segment.message.role === "user") return renderMessage(segment.message, segment.key);
     const turnHeader = segment.type !== "warning" && segment.aiStart ? <div className="ai-turn-header" aria-label={`${roles.assistant} response`}><div className="ai-turn-avatar"><Sparkles size={15} /></div><div className="ai-turn-label">{roles.assistant}</div></div> : null;
     if (segment.type === "message") return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content">{renderMessage(segment.message, segment.key)}</div></div>;
-    if (segment.type === "collapsed") { const firstMessage = segment.messages[0]; const stateKey = `run:${firstMessage?.entryId || firstMessage?.messageId || segment.key}`; return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content"><RunCollapse active={segment.active} duration={segment.duration} toolMessages={segment.toolMessages} target={segment.messages.some((message) => message.messageId === targetMessageId)} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange}>{renderToolGroups(segment.messages)}</RunCollapse></div></div>; }
+    if (segment.type === "collapsed") {
+      const firstMessage = segment.messages[0];
+      const stateKey = `run:${firstMessage?.entryId || firstMessage?.messageId || segment.key}`;
+      const proposalIds = new Set<string>();
+      for (const message of segment.messages) {
+        const proposalId = pendingMemoryProposalId(message, callNameByResult.get(message));
+        if (proposalId) proposalIds.add(proposalId);
+      }
+      return <div className={`ai-feed-segment ${segment.aiStart ? "start" : ""}`} key={segment.key}>{turnHeader}<div className="ai-feed-content"><RunCollapse active={segment.active} duration={segment.duration} toolMessages={segment.toolMessages} target={segment.messages.some((message) => message.messageId === targetMessageId)} stateKey={stateKey} disclosureOpen={disclosures[stateKey]} onDisclosureChange={onDisclosureChange} proposalIds={[...proposalIds]}>{renderToolGroups(segment.messages)}</RunCollapse></div></div>;
+    }
     return <div className="ai-feed-segment" key={segment.key}><div className="ai-feed-content"><div className="turn-warning" role="status"><TriangleAlert size={14} /><div className="turn-warning-copy"><strong>{segment.title}</strong>{segment.detail && <span>{segment.detail}</span>}</div></div></div></div>;
   })}</>;
 }
@@ -349,7 +378,7 @@ function TurnMessages({ messages, active, targetMessageId, hideReasoning, rollba
 function number(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value); }
 function fileData(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.onerror = () => reject(reader.error || new Error("Cannot read attachment")); reader.readAsDataURL(file); }); }
 
-export function Chat({ workspace, session, sessions, sessionStatuses, targetMessageId, leafEntryId, restorePosition, hideReasoning, onSessionChanged, onSessionForked }: { workspace: Workspace; session: SessionInfo; sessions: SessionInfo[]; sessionStatuses: Record<string, SessionRuntimeStatus>; targetMessageId?: string; leafEntryId?: string; restorePosition?: { scrollTop: number; followOutput: boolean }; hideReasoning: boolean; onSessionChanged: () => void; onSessionForked: (sessionId: string) => void }) {
+export function Chat({ workspace, session, sessions, sessionStatuses, targetMessageId, leafEntryId, restorePosition, hideReasoning, onSessionChanged, onSessionForked, onOpenMemory }: { workspace: Workspace; session: SessionInfo; sessions: SessionInfo[]; sessionStatuses: Record<string, SessionRuntimeStatus>; targetMessageId?: string; leafEntryId?: string; restorePosition?: { scrollTop: number; followOutput: boolean }; hideReasoning: boolean; onSessionChanged: () => void; onSessionForked: (sessionId: string) => void; onOpenMemory: (proposalId: string) => void }) {
   const cacheKey = sessionCacheKey(workspace.id, session.id) + (leafEntryId ? `:${leafEntryId}` : "");
   const [cachedSnapshot] = useState<AgentSnapshot | null>(() => {
     const cached = getCachedSessionSnapshot(cacheKey);
@@ -879,7 +908,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     finally { setPreparingAttachments(false); }
   }
 
-  return <RoleLabels.Provider value={roles}><SubagentRunsContext.Provider value={subagentRuns}><LiveNestedToolsContext.Provider value={liveNestedTools}><QuestionUiContext.Provider value={questionUi}><section className={`chat-page ${leafEntryId ? "historical-branch" : ""} chat-width-${chatWidth}`} aria-busy={isLoading}>
+  return <RoleLabels.Provider value={roles}><SubagentRunsContext.Provider value={subagentRuns}><LiveNestedToolsContext.Provider value={liveNestedTools}><QuestionUiContext.Provider value={questionUi}><OpenMemoryContext.Provider value={onOpenMemory}><section className={`chat-page ${leafEntryId ? "historical-branch" : ""} chat-width-${chatWidth}`} aria-busy={isLoading}>
     <div className="chat-top">{origin && <div className="parent-agent-bar" aria-label="Parent Agent status"><Sparkles size={14} /><span>Parent Agent</span>{origin.parentDeleted ? <strong>Session deleted</strong> : <SessionReference className="parent-agent-title" link={internalSessionLink(workspace.id, origin.parentSessionId)}>{parentSession?.name || parentSession?.firstMessage || "Parent Agent"}</SessionReference>}<SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} /><span className={`status-dot ${parentStatus?.state === "error" ? "error" : ""}`} title={parentStatus?.errorMessage}><i className={parentStatus?.state === "running" ? "working" : parentStatus?.state === "error" ? "error" : ""} /><span>{parentStatus?.state || "ready"}</span></span>{!origin.parentDeleted && <SessionReference className="parent-request-link" link={origin.parentLink} leafEntryId={origin.parentLeafEntryId}>Open parent request</SessionReference>}</div>}<header className="page-header chat-header">
       <div className="chat-title"><h2>{title}</h2><button className="subtle-icon-button" title="Rename session" disabled={isLoading || Boolean(leafEntryId)} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button>{!isSubagent && <SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} />}<span className={`status-dot ${statusIsError ? "error" : ""}`} title={runtimeError || (statusIsError ? displayStatus : undefined)}><i className={statusIsError ? "error" : active || isLoading ? "working" : ""} /><span>{displayStatus}</span></span></div>
       <div className="chat-header-actions"><span className="chat-context-usage" aria-label={sessionContextPercent == null ? "Context usage unavailable" : `Context usage ${sessionContextPercent.toFixed(1)}%`}>{sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.totalDisplayMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id, undefined, leafEntryId)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
@@ -903,5 +932,5 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     {!isLoading && rollbackEntryId && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !actionBusy) setRollbackEntryId(null); }}><div className="dialog-card compact-dialog rollback-dialog" role="dialog" aria-modal="true" aria-labelledby="rollback-session-title"><div className="dialog-header no-close"><div className="dialog-icon rollback-dialog-icon"><RotateCcw size={18} /></div><div><h2 id="rollback-session-title">Roll back latest message?</h2><p>This removes the latest conversation turn and returns its message to the composer. Project files stay unchanged.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => setRollbackEntryId(null)}>Cancel</button><button type="button" className="secondary-button rollback-confirm-button" disabled={actionBusy} onClick={() => void confirmRollback()}><RotateCcw size={14} />Roll back conversation</button></div></div></div>}
     {!isLoading && queuedEditCandidate && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !queueBusy) setQueuedEditCandidate(null); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="replace-composer-title"><div className="dialog-header no-close"><div className="dialog-icon"><Pencil size={18} /></div><div><h2 id="replace-composer-title">Replace composer draft?</h2><p>The composer already contains content. Replace it with the queued message?</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={queueBusy} onClick={() => setQueuedEditCandidate(null)}>Cancel</button><button type="button" className="secondary-button" disabled={queueBusy} onClick={() => void takeQueuedMessageForEdit(queuedEditCandidate)}><Pencil size={14} />Replace draft</button></div></div></div>}
     {imageOpen && <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Image preview" onMouseDown={(event) => { if (event.target === event.currentTarget) setImageOpen(null); }}><button type="button" title="Close image preview" onClick={() => setImageOpen(null)}><X size={19} /></button><img src={imageOpen.source} alt={imageOpen.alt} /></div>}
-  </section></QuestionUiContext.Provider></LiveNestedToolsContext.Provider></SubagentRunsContext.Provider></RoleLabels.Provider>;
+  </section></OpenMemoryContext.Provider></QuestionUiContext.Provider></LiveNestedToolsContext.Provider></SubagentRunsContext.Provider></RoleLabels.Provider>;
 }

@@ -22,6 +22,8 @@ import { startHeartbeat } from "./websocket-heartbeat.js";
 import { resolveFileLinks } from "./file-links.js";
 import { FileSearchIndex } from "./file-search.js";
 import { readWorkspaceNotebook, saveWorkspaceNotebook } from "./workspace-notebook.js";
+import { WorkspaceMemory } from "./workspace-memory.js";
+import { registerMemoryRoutes } from "./memory-routes.js";
 
 const previousAgentDir = process.env.PI_ARK_MIGRATE_AGENT_DIR || process.env.PI_CODING_AGENT_DIR;
 await ensurePiArkAgentState(previousAgentDir);
@@ -37,12 +39,21 @@ app.addHook("onClose", async () => terminals.dispose());
 const settings = await SettingsService.create(config.workspaces[0]?.path || process.cwd());
 const piCore = new PiCoreService();
 const authFlows = new AuthFlowService((providerId, interaction) => settings.loginSubscription(providerId, interaction));
-const agents = new AgentService(settings, workspaces);
+const memory = new WorkspaceMemory(join(arkHome, "memory"));
+const agents = new AgentService(settings, workspaces, memory);
 const skills = new SkillService(workspaces, () => agents.reloadIdleSessions());
 const mcp = new McpService(() => agents.reloadIdleSessions());
 const extensions = new ExtensionService(workspaces, async (workspace) => createResourceLoader({ workspace, globalAppend: (await loadGlobalPreferences()).agent.systemPrompt.append }), () => agents.reloadIdleSessions());
 const fileSearch = new FileSearchIndex();
 await mcp.ensureConfig();
+
+let workspaceUpdate: Promise<void> = Promise.resolve();
+function updateWorkspaces<T>(action: () => Promise<T>): Promise<T> {
+  const task = workspaceUpdate.then(action);
+  workspaceUpdate = task.then(() => undefined, () => undefined);
+  return task;
+}
+const saveWorkspaces = () => saveWorkspaceDefinitions(workspaces.list());
 
 function workspaceFromQuery(workspaceId?: string) {
   if (!workspaceId) throw Object.assign(new Error("A workspace id is required"), { statusCode: 400 });
@@ -85,7 +96,7 @@ app.get("/api/auth/session", async () => ({ authenticated: true, username: confi
 
 app.get("/api/workspaces", async () => ({ workspaces: workspaces.list() }));
 app.get<{ Querystring: { path: string } }>("/api/directories", async (request) => workspaces.suggestDirectories(request.query.path || ""));
-app.post<{ Body: { name?: string; path: string } }>("/api/workspaces", async (request, reply) => {
+app.post<{ Body: { name?: string; path: string } }>("/api/workspaces", (request, reply) => updateWorkspaces(async () => {
   const workspace = await workspaces.add(request.body || { path: "" });
   try {
     await ensureWorkspaceState(workspace);
@@ -95,15 +106,15 @@ app.post<{ Body: { name?: string; path: string } }>("/api/workspaces", async (re
     throw error;
   }
   return reply.code(201).send(workspace);
-});
-app.patch<{ Params: { workspaceId: string }; Body: { name: string } }>("/api/workspaces/:workspaceId", async (request) => {
+}));
+app.patch<{ Params: { workspaceId: string }; Body: { name: string } }>("/api/workspaces/:workspaceId", (request) => updateWorkspaces(async () => {
   const previous = workspaces.get(request.params.workspaceId);
   const workspace = workspaces.rename(request.params.workspaceId, request.body?.name);
   try { await saveWorkspaceDefinitions(workspaces.list()); }
   catch (error) { workspaces.rename(previous.id, previous.name); throw error; }
   return workspace;
-});
-app.post<{ Params: { workspaceId: string }; Body: { direction?: unknown } }>("/api/workspaces/:workspaceId/move", async (request) => {
+}));
+app.post<{ Params: { workspaceId: string }; Body: { direction?: unknown } }>("/api/workspaces/:workspaceId/move", (request) => updateWorkspaces(async () => {
   const direction = request.body?.direction;
   if (direction !== "up" && direction !== "down") throw Object.assign(new Error("Direction must be up or down"), { statusCode: 400 });
   const previous = workspaces.list();
@@ -111,13 +122,30 @@ app.post<{ Params: { workspaceId: string }; Body: { direction?: unknown } }>("/a
   try { await saveWorkspaceDefinitions(workspaces.list()); }
   catch (error) { workspaces.replaceOrder(previous); throw error; }
   return { workspaces: workspaces.list() };
-});
-app.delete<{ Params: { workspaceId: string } }>("/api/workspaces/:workspaceId", async (request, reply) => {
+}));
+app.delete<{ Params: { workspaceId: string }; Querystring: { deleteMemory?: string } }>("/api/workspaces/:workspaceId", (request, reply) => updateWorkspaces(async () => {
+  const previous = workspaces.list();
   const workspace = workspaces.remove(request.params.workspaceId);
-  try { await saveWorkspaceDefinitions(workspaces.list()); }
-  catch (error) { workspaces.restore(workspace); throw error; }
+  try {
+    await saveWorkspaces();
+    if (request.query.deleteMemory === "true") await memory.purge(workspace.memoryStoreId);
+  } catch (error) {
+    workspaces.replaceOrder(previous);
+    await saveWorkspaces().catch((restoreError) => app.log.error(restoreError));
+    throw error;
+  }
   terminals.closeWorkspace(workspace.id);
+  await agents.closeWorkspace(workspace);
   return reply.code(204).send();
+}));
+registerMemoryRoutes(app, {
+  memory, workspaces,
+  saveSettings: (workspaceId, input) => updateWorkspaces(async () => {
+    const workspace = workspaces.get(workspaceId);
+    const storeId = workspace.memoryStoreId ?? (input.enabled ? await workspaces.ensureMemoryStore(workspaceId, saveWorkspaces) : undefined);
+    return memory.setSettings(storeId, input);
+  }),
+  sourceStatus: (workspace, source) => agents.memorySourceStatus(workspace, source),
 });
 app.get("/api/settings/global", async () => settings.getGlobal());
 app.get<{ Querystring: { latest?: string } }>("/api/settings/release", async (request) => piCore.info(request.query.latest === "true"));

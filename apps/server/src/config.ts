@@ -10,6 +10,7 @@ export interface WorkspaceDefinition {
   id: string;
   name: string;
   path: string;
+  memoryStoreId?: string;
 }
 
 export interface ArkConfig {
@@ -78,10 +79,16 @@ export async function loadConfig(): Promise<ArkConfig> {
   if (!parsed.tls?.keyPath || !parsed.tls?.certPath) throw new Error("Pi-Ark TLS configuration is incomplete");
   if (!Array.isArray(parsed.workspaces)) throw new Error("Pi-Ark workspace registry is invalid");
   const ids = new Set<string>();
+  const memoryIds = new Set<string>();
   for (const workspace of parsed.workspaces) {
     if (!/^[a-zA-Z0-9_-]+$/.test(workspace.id) || ids.has(workspace.id)) throw new Error(`Invalid or duplicate workspace id: ${workspace.id}`);
     if (!isAbsolute(workspace.path)) throw new Error(`Workspace path must be absolute: ${workspace.path}`);
     ids.add(workspace.id);
+    if (workspace.memoryStoreId !== undefined) {
+      const id = typeof workspace.memoryStoreId === "string" ? workspace.memoryStoreId.toLowerCase() : "";
+      if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(id) || memoryIds.has(id)) throw new Error(`Invalid or duplicate Memory store for Workspace ${workspace.id}`);
+      memoryIds.add(id);
+    }
   }
 
   return {

@@ -92,6 +92,7 @@ docs/               产品、架构、使用和集成文档
 | Attachments | `apps/server/src/attachments.ts` | 限额检查、文件名清理、保存和 image content 转换 |
 | Session metadata | `apps/server/src/session-metadata.ts` | Pin、Archive、group 和串行原子写入 |
 | Workspace Notebook | `apps/server/src/workspace-notebook.ts` | Workspace 临时笔记的读取与串行原子写入 |
+| Workspace Memory | `apps/server/src/workspace-memory.ts`、`memory-routes.ts`、`agent-tools/memory.ts` | 记忆条目、用户确认、来源检查和请求时召回 |
 | File search | `apps/server/src/file-search.ts` | Workspace 文件清单缓存、关键词打分与输入框文件补全查询 |
 | Global settings | `apps/server/src/settings.ts` | Provider、model、thinking、queue、compaction、retry 和 credential login |
 | OAuth flow | `apps/server/src/auth-flows.ts` | Subscription login 的事件、prompt、answer 和 cancel 状态 |
@@ -255,6 +256,14 @@ Server 每 15 秒向 WebSocket 发送协议 ping 和 `ping` 消息；一个心�
 - `enabledModels` 解析出的 scoped models。
 
 新 Session 使用已勾选模型中的 Global default；Global default 不在当前 scope 中时，使用 scope 中的第一个模型。恢复已有 Session 时，pi SDK 优先恢复 Session JSONL 记录的当前模型，scoped models 用于后续模型选择。
+
+### Workspace Memory
+
+主 Session 注册 `memory_propose`、`memory_search` 和 `memory_read`。宿主通过 ResourceLoader 的 inline extension 在 `before_agent_start` 按 Workspace 开关调整工具。执行时还会读取当前注册记录。子 Session 沿用独立的上下文和原有工具集；Global system prompt 预览继续展示基础指令。
+
+启用短索引后，`context_with_system` 把上限为 8 条、2 KiB UTF-8 的 JSON 目录作为参考数据附在最近一条 user message 的请求副本里。系统提示词、工具定义及消息顺序保持原样；目录不进入 JSONL。Agent 按标题、摘要和标签查询，并用 `memory_read` 获取生效条目的正文。工具结果按普通会话历史存储；禁用、归档或删除影响后续召回。详见 [Memory 设计](design-memory.md)。
+
+建议要可追溯到实际消息。Server 用当前 Session 的短 Message ID 和活动分支生成 `pi-ark://` 来源。确认与来源检查比较保存的分支记录和当前活动分支。已删除的来源触发待复核；历史分支仍可读，但确认建议时需要用户认可。条目更新与删除比较 `revision`，确认操作可重复请求。
 
 ### Subagent
 
@@ -613,6 +622,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 |---|---|
 | `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry 和共享 preferences（提示词、Files、Terminal shell 与 Skills 停用清单） |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
+| `PI_ARK_HOME/memory/<store-id>.json` | 单个 Workspace 注册的 Memory 设置、条目与建议；按存储标识串行原子写入 |
 | `PI_ARK_HOME/auth-sessions.json` | 登录 token 的 SHA-256 哈希、expiry 与 credential fingerprint |
 | `PI_ARK_AGENT_DIR/auth.json` | pi provider credentials |
 | `PI_ARK_AGENT_DIR/settings.json` | pi Global defaults |
@@ -694,6 +704,13 @@ Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fon
 | GET | `/api/workspaces/:workspaceId/image` | Files/Markdown image stream；执行 Global preview limit |
 | GET | `/api/workspaces/:workspaceId/download` | 原始文件 stream download；不执行 preview limit |
 | GET/PUT | `/api/workspaces/:workspaceId/notebook` | 读取或自动保存 Workspace Notebook |
+| GET | `/api/workspaces/:workspaceId/memory` | Memory 设置、条目与待确认建议 |
+| PUT | `/api/workspaces/:workspaceId/memory/settings` | 保存启用和短索引开关 |
+| POST/PATCH/DELETE | `/api/workspaces/:workspaceId/memory/entries`；编辑和删除后接 `/:entryId` | 新建、修订或删除条目；删除传入 `revision` |
+| POST | `/api/workspaces/:workspaceId/memory/entries/:entryId/check-source` | 检查消息来源；来源失效时标为待复核 |
+| GET | `/api/workspaces/:workspaceId/memory/proposals/:proposalId` | 建议、来源状态和可能重复的条目 |
+| POST | `/api/workspaces/:workspaceId/memory/proposals/:proposalId/confirm` 或 `/dismiss` | 确认或驳回建议 |
+| GET | `/api/workspaces/:workspaceId/memory/export` | 下载 Markdown |
 
 ### Terminal
 

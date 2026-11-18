@@ -79,7 +79,13 @@ Sessions 标题栏右侧依次显示 Show archived sessions、Open Pi-Ark sessio
 
 ### Workspace Notebook
 
-原 New group 独立栏位显示 Notebook 入口。打开后，主内容区显示当前 Workspace 的纯文本 Markdown 笔记编辑器；输入停止约 300 ms 后自动保存，离开输入框或页面时立即提交尚未保存的内容。Header 显示 Loading notes、Saving、Saved 或 Save failed。每个 Workspace 使用独立的 `.pi-ark/notebook.md`，再次打开 Notebook 时恢复保存内容。
+Session 列表上方并列显示 Notebook 和 Memory。打开 Notebook 后，主内容区显示当前 Workspace 的纯文本 Markdown 笔记编辑器；输入停止约 300 ms 后自动保存，离开输入框或页面时立即提交尚未保存的内容。Header 显示 Loading notes、Saving、Saved 或 Save failed。每个 Workspace 使用独立的 `.pi-ark/notebook.md`，再次打开 Notebook 时恢复保存内容。
+
+### Workspace Memory
+
+**Memory** 打开当前 Workspace 的长期经验列表。页面提供 **Enable Memory** 和 **Include short index**，均默认关闭。列表支持搜索和筛选（类型、状态），条目可以编辑、置顶、复核、归档、删除或导出。Notebook 里选中文本会显示 **Save to Memory**。点击后进入预填正文的草稿，用户保存后才添加条目。
+
+主 Session 的 Agent 可以提出保存建议。聊天的工具结果显示 **Review memory**，点击后进入建议审阅。Memory 页也列出仍待确认的建议。用户可查看来源、修改内容、驳回建议，或选择新建条目与更新现有条目。来自历史分支的建议要确认已复核来源。普通工具结果展示读取记录；切换 Workspace 后显示该 Workspace 的独立列表。
 
 ### 新建与选择
 

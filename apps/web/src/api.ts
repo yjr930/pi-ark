@@ -1,4 +1,9 @@
 import { withBasePath } from "./base-path";
+import type { MemoryConfirmation, MemoryDraft, MemoryEntry, MemoryEntryPatch, MemoryProposal, MemoryProposalReview, MemorySettings, MemorySnapshot } from "./types";
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -9,11 +14,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers,
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(body.error || response.statusText);
+    const body = await response.json().catch(() => undefined);
+    throw new ApiError(body?.error || response.statusText || `Request failed (${response.status})`, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+function memoryPath(workspaceId: string): string {
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/memory`;
+}
+
+function memoryEntryPath(workspaceId: string, entryId: string): string {
+  return `${memoryPath(workspaceId)}/entries/${encodeURIComponent(entryId)}`;
+}
+
+function memoryProposalPath(workspaceId: string, proposalId: string): string {
+  return `${memoryPath(workspaceId)}/proposals/${encodeURIComponent(proposalId)}`;
 }
 
 export const api = {
@@ -23,7 +40,7 @@ export const api = {
   workspaces: () => request<{ workspaces: import("./types").Workspace[] }>("/api/workspaces"),
   addWorkspace: (workspace: { name?: string; path: string }) => request<import("./types").Workspace>("/api/workspaces", { method: "POST", body: JSON.stringify(workspace) }),
   renameWorkspace: (workspaceId: string, name: string) => request<import("./types").Workspace>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
-  closeWorkspace: (workspaceId: string) => request<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, { method: "DELETE" }),
+  closeWorkspace: (workspaceId: string, deleteMemory = false) => request<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}${deleteMemory ? "?deleteMemory=true" : ""}`, { method: "DELETE" }),
   moveWorkspace: (workspaceId: string, direction: "up" | "down") => request<{ workspaces: import("./types").Workspace[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/move`, { method: "POST", body: JSON.stringify({ direction }) }),
   resolveFileLinks: (workspaceId: string, paths: string[], basePath = "") => request<{ links: Array<{ input: string; path: string; type: "file" | "directory" }> }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/file-links/resolve`, { method: "POST", body: JSON.stringify({ paths, basePath }) }),
   directories: (path: string) => request<{ basePath: string; directories: Array<{ name: string; path: string }> }>(`/api/directories?path=${encodeURIComponent(path)}`),
@@ -66,6 +83,16 @@ export const api = {
   installMcpBrowser: () => request<import("./types").McpBrowserStatus>("/api/mcp/install-browser", { method: "POST" }),
   notebook: (workspaceId: string) => request<{ content: string }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/notebook`),
   saveNotebook: (workspaceId: string, content: string) => request<{ content: string }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/notebook`, { method: "PUT", body: JSON.stringify({ content }) }),
+  memory: (workspaceId: string, signal?: AbortSignal) => request<MemorySnapshot>(memoryPath(workspaceId), { signal }),
+  saveMemorySettings: (workspaceId: string, settings: MemorySettings) => request<MemorySnapshot>(`${memoryPath(workspaceId)}/settings`, { method: "PUT", body: JSON.stringify(settings) }),
+  createMemoryEntry: (workspaceId: string, draft: MemoryDraft) => request<MemoryEntry>(`${memoryPath(workspaceId)}/entries`, { method: "POST", body: JSON.stringify(draft) }),
+  updateMemoryEntry: (workspaceId: string, entryId: string, patch: MemoryEntryPatch) => request<MemoryEntry>(memoryEntryPath(workspaceId, entryId), { method: "PATCH", body: JSON.stringify(patch) }),
+  deleteMemoryEntry: (workspaceId: string, entryId: string, revision: number) => request<void>(`${memoryEntryPath(workspaceId, entryId)}?revision=${encodeURIComponent(revision)}`, { method: "DELETE" }),
+  checkMemorySource: (workspaceId: string, entryId: string) => request<{ entry: MemoryEntry; sourceAvailable: boolean }>(`${memoryEntryPath(workspaceId, entryId)}/check-source`, { method: "POST" }),
+  memoryProposal: (workspaceId: string, proposalId: string, signal?: AbortSignal) => request<MemoryProposalReview>(memoryProposalPath(workspaceId, proposalId), { signal }),
+  confirmMemoryProposal: (workspaceId: string, proposalId: string, confirmation: MemoryConfirmation) => request<MemoryProposal>(`${memoryProposalPath(workspaceId, proposalId)}/confirm`, { method: "POST", body: JSON.stringify(confirmation) }),
+  dismissMemoryProposal: (workspaceId: string, proposalId: string) => request<MemoryProposal>(`${memoryProposalPath(workspaceId, proposalId)}/dismiss`, { method: "POST" }),
+  memoryExportUrl: (workspaceId: string) => withBasePath(`${memoryPath(workspaceId)}/export`),
   sessions: (workspaceId: string) => request<{ sessions: import("./types").SessionInfo[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/sessions`),
   sessionStatuses: (workspaceId: string) => request<{ statuses: import("./types").SessionRuntimeStatus[] }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/session-statuses`),
   createSession: (workspaceId: string) => request<{ id: string }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/sessions`, { method: "POST" }),

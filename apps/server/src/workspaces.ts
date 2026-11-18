@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -18,10 +19,27 @@ function assertWorkspacePath(workspacePath: string, candidate: string): void {
 export type FilePreview = { name: string; path: string; size: number } & ({ kind: "text"; content: string; markdown: boolean } | { kind: "image"; mimeType: string });
 
 export class WorkspaceService {
-  private readonly byId: Map<string, WorkspaceDefinition>;
+  private readonly byId = new Map<string, WorkspaceDefinition>();
+  private readonly registrations = new WeakMap<WorkspaceDefinition, object>();
 
   constructor(workspaces: WorkspaceDefinition[]) {
-    this.byId = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+    for (const workspace of workspaces) this.restore(workspace);
+  }
+
+  currentRegistration(workspace: WorkspaceDefinition): WorkspaceDefinition | undefined {
+    const current = this.byId.get(workspace.id);
+    const key = this.registrations.get(workspace);
+    return current && key && this.registrations.get(current) === key ? current : undefined;
+  }
+
+  async ensureMemoryStore(workspaceId: string, save: () => Promise<void>): Promise<string> {
+    const workspace = this.get(workspaceId);
+    if (workspace.memoryStoreId) return workspace.memoryStoreId;
+    const id = randomUUID();
+    workspace.memoryStoreId = id;
+    try { await save(); }
+    catch (error) { delete workspace.memoryStoreId; throw error; }
+    return id;
   }
 
   list(): WorkspaceDefinition[] {
@@ -48,7 +66,7 @@ export class WorkspaceService {
     let suffix = 2;
     while (this.byId.has(id)) id = `${baseId}-${suffix++}`;
     const workspace = { id, name, path: workspacePath };
-    this.byId.set(id, workspace);
+    this.restore(workspace);
     return workspace;
   }
 
@@ -57,6 +75,7 @@ export class WorkspaceService {
     const name = inputName?.trim();
     if (!name) throw Object.assign(new Error("Workspace name is required"), { statusCode: 400 });
     const updated = { ...workspace, name };
+    this.registrations.set(updated, this.registrations.get(workspace)!);
     this.byId.set(id, updated);
     return updated;
   }
@@ -68,6 +87,7 @@ export class WorkspaceService {
   }
 
   restore(workspace: WorkspaceDefinition): void {
+    if (!this.registrations.has(workspace)) this.registrations.set(workspace, {});
     this.byId.set(workspace.id, workspace);
   }
 

@@ -222,7 +222,7 @@ metadata:
 
 ## 从业者分析
 
-本节于 **2026-11-18 UTC** 核对。**近 3 个月**指 2026-08-18 起发表或更新的资料；下表同时标明文章的实测版本或证据类型。官方行为仍以本文的现行文档与版本记录为准。关于如何应用这些观察，见 [Pi-Ark Memory 设计草案](design-memory.md)。
+本节于 **2026-11-18 UTC** 核对。**近 3 个月**指 2026-08-18 起发表或更新的资料；下表同时标明文章的实测版本或证据类型。官方行为仍以本文的现行文档与版本记录为准。关于如何应用这些观察，见 [Pi-Ark Memory 设计](design-memory.md)。
 
 | 文章与时效 | 作者的观察 | 值得参考的做法 |
 | --- | --- | --- |
@@ -237,7 +237,7 @@ metadata:
 
 ## 相关报告
 
-- [Pi-Ark Memory 设计草案](design-memory.md)
+- [Pi-Ark Memory 设计](design-memory.md)
 - [Claude Code 的 system prompt](research-claude-code-system-prompt.md)
 - [Claude Code 的 agent 间通信机制](research-claude-code-agent-communication.md)
 

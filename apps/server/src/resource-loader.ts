@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createCodemodeExtension, createMcpExtension, DefaultResourceLoader, type Skill } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, createMcpExtension, DefaultResourceLoader, type ExtensionFactory, type Skill } from "@earendil-works/pi-coding-agent";
 import { ensureWorkspaceTrust, loadSkillSelectionSync, piArkAgentDir, type SkillSelection, type WorkspaceDefinition } from "./config.js";
 import { createGlobalSettingsManager } from "./settings.js";
 
@@ -115,6 +115,7 @@ export interface CreateResourceLoaderOptions {
   globalAppend: string;
   settingsManager?: ReturnType<typeof createGlobalSettingsManager>;
   selection?: SkillSelectionSource;
+  extensionFactories?: ExtensionFactory[];
 }
 
 export async function createResourceLoader(options: CreateResourceLoaderOptions): Promise<DefaultResourceLoader> {
@@ -144,7 +145,7 @@ export async function createResourceLoader(options: CreateResourceLoaderOptions)
     appendSystemPrompt: existsSync(appendSystemPromptPath) ? [appendSystemPromptPath] : [],
     appendSystemPromptOverride: (base) => [resourceGuide(workspace), ...base, ...(options.globalAppend ? [options.globalAppend] : [])],
     additionalSkillPaths,
-    extensionFactories: [createMcpExtension(), createCodemodeExtension()],
+    extensionFactories: [createMcpExtension(), createCodemodeExtension(), ...options.extensionFactories ?? []],
     skillsOverride: ({ skills, diagnostics }) => ({ skills: skills.filter((skill) => !isDisabled(skill)), diagnostics }),
   });
   ensureWorkspaceTrust(workspace.path);

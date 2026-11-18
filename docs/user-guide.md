@@ -287,9 +287,9 @@ Workspace 行右侧的带圈数字表示该 Workspace 中正在运行的 Session
 
 ### 关闭与重新打开 Workspace
 
-选择 Close 并确认后，Workspace 从侧栏和 Global registry 中移除。服务器目录、项目文件、附件和 Session 保持原状。Pi-Ark 同时关闭该 Workspace 的所有 Terminal Tab，并释放对应的进程和输出。
+选择 Close 并确认后，Workspace 从侧栏和 Global registry 中移除。Pi-Ark 会停止该 Workspace 的 Agent 和 Terminal；服务器目录、项目文件、附件和 Session 继续保留。要保留可阅读的 Memory 副本，请在关闭前从 Memory 页面导出。勾选 **Also delete this Workspace’s Memory** 会同时删除这份 Memory；默认保留原数据文件供管理员备份。
 
-再次通过 Add workspace 添加相同目录后，原有 Session 和 settings 会重新出现。
+再次通过 Add workspace 添加相同目录后，原有 Session 和项目设置会重新出现。Memory 按新的 Workspace 注册记录独立启用。
 
 ## Session 操作
 
@@ -321,6 +321,15 @@ Session row 会显示当前状态：旋转图标表示 Agent 正在运行；绿�
 ### 使用 Notebook
 
 点击 Session 列表顶部的 Notebook 行，主内容区会打开当前 Workspace 的临时笔记。直接输入文字即可；停止输入约 300 ms 后页面自动保存，离开输入框或切换页面时也会提交尚未保存的内容。右上角显示 Loading notes、Saving、Saved 或 Save failed。笔记保存在 `<workspace>/.pi-ark/notebook.md`，每个 Workspace 使用独立内容。
+
+### 使用 Memory
+
+1. 点击 Session 列表上方的 **Memory**，勾选 **Enable Memory**。Memory 仅供当前 Workspace 的主 Session 查阅。**Include short index** 默认关闭；打开后，模型请求会附带置顶和相关条目的短索引，正文仍按需读取。
+2. 点击 **New entry** 手动保存，或在 Notebook 选中文本后点击 **Save to Memory**，补充标题、摘要与条目类型后保存。Notebook 继续独立自动保存。
+3. 在聊天中说「请记住：以后月报按到账日统计，因为要与银行流水对账」。Agent 提出建议后，点击聊天里的 **Review memory**，也可以从 Memory 页的 **Pending suggestions** 打开。检查内容和来源后，选择新建条目或更新已有条目，再确认保存。来自历史分支的建议需要额外确认来源。
+4. 可以新建 Session 并请 Agent 查阅 Workspace 的经验，例如「按我们记下的口径整理月报」。Memory 页可搜索、编辑、归档、恢复或删除条目，也可通过 **Open source message** 查看原消息。通过 **Export Markdown** 可以下载条目副本。
+
+项目事实默认在确认后的 90 天到期复核。归档和待复核的条目会从 Agent 的召回结果中移除；在 Memory 页面可查看和更新这些条目。关闭 Memory 保留条目，停止向 Agent 提供新的读取结果。已经出现在原 Session 的消息与工具结果继续保存在该 Session。
 
 ### 打开内部链接
 
