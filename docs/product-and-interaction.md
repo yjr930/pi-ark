@@ -281,7 +281,7 @@ Update Pi-Ark 根据当前操作系统与 architecture 安装完整的 release a
 
 ### Memory
 
-**Settings → Memory** 集中配置三个选项（**Enable Memory**、**Include short index**、**Proactive suggestions**），全局初始值均为关闭。用户可选择 Workspace，为每个选项分别指定继承全局、开启或关闭。选项旁显示全局默认值和所选 Workspace 的生效值。窄屏时，分类栏会滚动到当前类别的标签。
+**Settings → Memory** 集中配置三个选项（**Enable Memory**、**Include short index**、**Proactive suggestions**），全局初始值均为关闭。用户可选择 Workspace，为每个选项分别指定继承全局、开启或关闭。Workspace 选择器与覆盖选项使用 Pi-Ark 的共用下拉菜单，选项旁显示全局默认值和所选 Workspace 的生效值。保存提示位于设置组底部，开关和设置行保持原位。窄屏时，分类栏会滚动到当前类别的标签。
 
 展开 **Proactive suggestion prompt** 可查看 Pi-Ark 内置的主动提议提示词。页面标明该段是否在所选 Workspace 的主 Session 中生效。**Enable Memory** 和 **Proactive suggestions** 均开启时，该段会在主 Session 的下一轮加入。短索引独立配置，建议仍由用户审阅并确认。
 

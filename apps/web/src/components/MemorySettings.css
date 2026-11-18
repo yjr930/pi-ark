@@ -4,8 +4,7 @@
 }
 
 .memory-settings .settings-row > div { min-width: 0; }
-.memory-settings .settings-section-title svg,
-.memory-settings .settings-notice svg { flex: none; }
+.memory-settings .settings-section-title svg { flex: none; }
 
 .memory-settings .settings-inline-loading {
   display: flex;
@@ -34,19 +33,20 @@
   cursor: default;
 }
 
-.memory-settings .memory-settings-select {
-  max-width: 100%;
-  min-height: 38px;
-  padding: 6px 8px 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--input);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--fs-ui);
+.memory-settings .memory-settings-override > .ark-select {
+  width: min(100%, calc(164px * var(--fs-scale)));
+  flex: none;
 }
 
-.memory-settings :is(.memory-settings-switch, .memory-settings-select, summary):focus-visible {
+.memory-settings-values {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.memory-settings .ark-select-trigger:disabled { opacity: .55; cursor: default; }
+
+.memory-settings :is(.memory-settings-switch, .ark-select-trigger, summary):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -54,12 +54,6 @@
 .memory-settings .memory-settings-workspace {
   max-width: min(100%, 26rem);
   margin-bottom: 10px;
-}
-
-.memory-settings .memory-settings-override label {
-  color: var(--text);
-  font-size: var(--fs-ui);
-  font-weight: 650;
 }
 
 .memory-settings .memory-settings-caption {
@@ -90,13 +84,26 @@
   overflow-wrap: anywhere;
 }
 
-.memory-settings .memory-settings-notice {
-  flex-wrap: wrap;
-  overflow-wrap: anywhere;
+.memory-settings-feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: calc(8px + 1.5em);
+  padding-top: 8px;
+  color: var(--muted);
+  font-size: var(--fs-dense);
+  line-height: 1.5;
 }
+.memory-settings-feedback.is-saved { color: var(--accent); }
+.memory-settings-feedback.is-error { color: var(--danger); }
+.memory-settings-feedback-message { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.memory-settings-feedback-message svg { flex: none; width: 1em; height: 1em; }
+.memory-settings-feedback-message span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-settings-feedback button { padding: 0; border: 0; color: inherit; background: none; font: inherit; text-decoration: underline; cursor: pointer; }
 
 @media (max-width: 640px) {
-  .memory-settings .memory-settings-select { min-height: 44px; }
+  .memory-settings .ark-select-trigger { min-height: 44px; }
   .memory-settings .memory-settings-override { flex-direction: column; align-items: stretch; }
+  .memory-settings .memory-settings-override > .ark-select { width: 100%; }
   .memory-settings .memory-settings-prompt summary { min-height: 40px; }
 }

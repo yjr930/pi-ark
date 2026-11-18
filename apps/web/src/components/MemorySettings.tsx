@@ -1,7 +1,8 @@
 import { BookOpen, Check, CircleAlert, FileText, Folder, LoaderCircle } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import { api } from "../api";
-import type { MemorySettings as MemoryFlags, Workspace } from "../types";
+import type { Workspace } from "../types";
+import { Select } from "./Select";
 import "./MemorySettings.css";
 
 const fields = [
@@ -9,6 +10,12 @@ const fields = [
   { key: "autoIndex", label: "Include short index", description: "Attach a short index of relevant entries to model requests." },
   { key: "proactive", label: "Proactive suggestions", description: "Include the built-in prompt that encourages the agent to suggest useful memories." },
 ] as const;
+
+const overrideOptions = [
+  { value: "inherit", label: "Use global default" },
+  { value: "on", label: "On" },
+  { value: "off", label: "Off" },
+];
 
 type RequestPhase = "loading" | "ready" | "saving" | "saved" | "load-error" | "save-error";
 type RequestState<T> = { key: string; phase: RequestPhase; data?: T; error?: string };
@@ -18,8 +25,7 @@ function readDefaults(_id: string, signal: AbortSignal) {
   return api.globalMemorySettings(signal);
 }
 
-function useMemorySettingsResource<T>(active: boolean, id: string, read: (id: string, signal: AbortSignal) => Promise<T>, revision = 0) {
-  const key = `${revision}:${id}`;
+function useMemorySettingsResource<T>(active: boolean, key: string, read: (id: string, signal: AbortSignal) => Promise<T>, revision = 0) {
   const [stored, setStored] = useState<RequestState<T>>();
   const reader = useRef<AbortController | null>(null);
   const writer = useRef<Promise<void> | null>(null);
@@ -27,7 +33,7 @@ function useMemorySettingsResource<T>(active: boolean, id: string, read: (id: st
   const cancelRead = useCallback(() => reader.current?.abort(), []);
 
   const refresh = useCallback(async () => {
-    if (!active || !id) return;
+    if (!active || !key) return;
     cancelRead();
     const controller = new AbortController();
     reader.current = controller;
@@ -36,20 +42,23 @@ function useMemorySettingsResource<T>(active: boolean, id: string, read: (id: st
       // A refresh requested while saving must read after the PATCH completes.
       await writer.current;
       if (controller.signal.aborted) return;
-      const data = await read(id, controller.signal);
+      const data = await read(key, controller.signal);
       if (!controller.signal.aborted) setStored({ key, phase: "ready", data });
     } catch (reason) {
-      if (!controller.signal.aborted) setStored({ key, phase: "load-error", error: reason instanceof Error ? reason.message : undefined });
+      if (!controller.signal.aborted) setStored((current) => ({
+        key, phase: "load-error", data: current?.key === key ? current.data : undefined,
+        error: reason instanceof Error ? reason.message : undefined,
+      }));
     }
-  }, [active, id, key, read, cancelRead]);
+  }, [active, key, read, cancelRead]);
 
   useEffect(() => {
     void refresh();
     return cancelRead;
-  }, [refresh, cancelRead]);
+  }, [refresh, cancelRead, revision]);
 
   function persist(patch: () => Promise<T>, onSaved?: () => void) {
-    if (!state?.data || state.phase === "loading" || writer.current) return;
+    if (!state?.data || state.phase === "loading" || state.phase === "load-error" || writer.current) return;
     // A GET already in flight belongs to the settings before this edit.
     cancelRead();
     setStored({ key, phase: "saving", data: state.data });
@@ -66,20 +75,19 @@ function useMemorySettingsResource<T>(active: boolean, id: string, read: (id: st
 }
 
 function RequestFeedback({ state, scope, onRetry }: { state: RequestState<unknown> | undefined; scope: string; onRetry: () => void }) {
-  switch (state?.phase ?? "loading") {
-    case "loading":
-      return <div className="settings-inline-loading" role="status"><LoaderCircle size={16} aria-hidden="true" />{state?.data ? "Refreshing" : "Loading"} {scope}…</div>;
-    case "saving":
-      return <div className="settings-inline-loading" role="status"><LoaderCircle size={16} aria-hidden="true" />Saving {scope}…</div>;
-    case "saved":
-      return <div className="settings-notice success" role="status"><Check size={15} aria-hidden="true" />Changes saved.</div>;
-    case "load-error":
-      return <div className="settings-notice error memory-settings-notice" role="alert"><CircleAlert size={15} aria-hidden="true" /><span>Could not load {scope}.{state?.error && ` ${state.error}`}</span><button type="button" className="secondary-button" onClick={onRetry}>Retry loading {scope}</button></div>;
-    case "save-error":
-      return <div className="settings-notice error memory-settings-notice" role="alert"><CircleAlert size={15} aria-hidden="true" /><span>Could not save {scope}.{state?.error && ` ${state.error}`}</span></div>;
-    default:
-      return null;
-  }
+  const phase = state?.phase ?? "loading";
+  const error = phase === "load-error" || phase === "save-error";
+  const pending = phase === "loading" || phase === "saving";
+  const message = error ? `Could not ${phase === "load-error" ? "load" : "save"} ${scope}.${state?.error ? ` ${state.error}` : ""}`
+    : phase === "loading" ? `${state?.data ? "Refreshing" : "Loading"} ${scope}…`
+    : phase === "saving" ? "Saving changes…" : phase === "saved" ? "Changes saved." : "";
+  return <div className={`memory-settings-feedback${error ? " is-error" : phase === "saved" ? " is-saved" : ""}`}>
+    <div className="memory-settings-feedback-message" role={error ? "alert" : "status"}>
+      {pending ? <LoaderCircle className="agent-resource-spin" aria-hidden="true" /> : error ? <CircleAlert aria-hidden="true" /> : phase === "saved" && <Check aria-hidden="true" />}
+      {message && <span title={error ? message : undefined}>{message}</span>}
+    </div>
+    {phase === "load-error" && <button type="button" aria-label={`Retry loading ${scope}`} onClick={onRetry}>Retry</button>}
+  </div>;
 }
 
 type MemorySettingsProps = {
@@ -109,6 +117,8 @@ export const MemorySettings = forwardRef<MemorySettingsHandle, MemorySettingsPro
   const saving = global.state?.phase === "saving" || workspace.state?.phase === "saving";
   const loadingGlobal = !global.state || global.state.phase === "loading";
   const loadingWorkspace = !!selected && (!workspace.state || workspace.state.phase === "loading");
+  const globalUnavailable = loadingGlobal || global.state?.phase === "load-error";
+  const workspaceUnavailable = loadingWorkspace || workspace.state?.phase === "load-error";
   const busy = active && (saving || loadingGlobal || loadingWorkspace);
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
   useImperativeHandle(ref, () => ({
@@ -120,26 +130,26 @@ export const MemorySettings = forwardRef<MemorySettingsHandle, MemorySettingsPro
   const promptStatus = workspacesLoading ? "Loading Workspaces…"
     : !selected ? "No open Workspace uses this prompt."
     : loadingWorkspace ? `Checking whether ${selected.name} gets this prompt…`
-    : !effective ? `Prompt status is unavailable for ${selected.name}.`
+    : !effective || workspaceUnavailable ? `Prompt status is unavailable for ${selected.name}.`
     : proactiveActive ? `Included for ${selected.name} on the next turn in the main Session.`
     : `Not included for ${selected.name}: ${effective.enabled ? "proactive suggestions are off" : "Memory is off"}.`;
 
   return <div className="memory-settings">
     <section className="settings-section" aria-labelledby={`${scope}-defaults`}>
       <div className="settings-section-title"><BookOpen size={17} aria-hidden="true" /><div><h3 id={`${scope}-defaults`}>Global defaults</h3><p>Workspaces inherit these settings unless they have an override.</p></div></div>
-      <RequestFeedback state={global.state} scope="global defaults" onRetry={() => void refreshGlobal()} />
       {savedDefaults && <div className="settings-rows">
         {fields.map(({ key, label, description }) => {
           const labelId = `${scope}-default-${key}`;
           const enabled = savedDefaults.defaults[key];
           return <div className="settings-row" key={key}>
             <div><strong id={labelId}>{label}</strong><span id={`${labelId}-hint`}>{description}</span></div>
-            <button type="button" className="memory-settings-switch" role="switch" aria-checked={enabled} aria-labelledby={labelId} aria-describedby={`${labelId}-hint`} disabled={saving || loadingGlobal} onClick={() => global.persist(() => api.saveGlobalMemorySettings({ [key]: !enabled }), () => setDefaultsRevision((current) => current + 1))}>
+            <button type="button" className="memory-settings-switch" role="switch" aria-checked={enabled} aria-labelledby={labelId} aria-describedby={`${labelId}-hint`} disabled={saving || globalUnavailable} onClick={() => global.persist(() => api.saveGlobalMemorySettings({ [key]: !enabled }), () => setDefaultsRevision((current) => current + 1))}>
               <span className={`settings-toggle ${enabled ? "enabled" : ""}`} aria-hidden="true"><span /></span>
             </button>
           </div>;
         })}
       </div>}
+      <RequestFeedback state={global.state} scope="global defaults" onRetry={() => void refreshGlobal()} />
     </section>
 
     <section className="settings-section" aria-labelledby={`${scope}-overrides`}>
@@ -148,32 +158,24 @@ export const MemorySettings = forwardRef<MemorySettingsHandle, MemorySettingsPro
         <p>You can configure the short index and proactive suggestions at any time. They take effect when Memory is on for the Workspace.</p>
       </div></div>
       {workspacesLoading ? <div className="settings-inline-loading" role="status"><LoaderCircle size={16} aria-hidden="true" />Loading Workspaces…</div> : !selected ? <p className="memory-settings-caption">Open a Workspace to configure overrides.</p> : <>
-        <label className="settings-field memory-settings-workspace">
+        <div className="settings-field memory-settings-workspace">
           <span>Workspace</span>
-          <select className="memory-settings-select" value={selectedId} disabled={saving} onChange={(event) => setSelection({ origin: workspaceId, id: event.target.value })}>
-            {workspaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-        </label>
-        <RequestFeedback state={workspace.state} scope="Workspace overrides" onRetry={() => void refreshWorkspace()} />
+          <Select ariaLabel="Workspace" value={selectedId} options={workspaces.map((item) => ({ value: item.id, label: item.name }))} disabled={saving} onChange={(id) => setSelection({ origin: workspaceId, id })} />
+        </div>
         {savedWorkspace && <div className="settings-rows">
           {fields.map(({ key, label }) => {
             const id = `${scope}-override-${key}`;
             const value = savedWorkspace.overrides[key];
-            const inactive = key !== "enabled" && !savedWorkspace.effective.enabled;
-            const actual = !inactive && savedWorkspace.effective[key];
+            const choice = value === undefined ? "inherit" : value ? "on" : "off";
             return <div className="settings-row memory-settings-override" key={key}>
-              <div><label htmlFor={id}>{label}</label><span id={`${id}-status`}>Global default: {savedWorkspace.defaults[key] ? "On" : "Off"} · Effective: {actual ? "On" : "Off"}{inactive && " (Memory is off)"}</span></div>
-              <select id={id} className="memory-settings-select" aria-describedby={`${id}-status`} value={value === undefined ? "inherit" : value ? "on" : "off"} disabled={saving || loadingWorkspace} onChange={(event) => {
-                const next = event.target.value;
-                workspace.persist(() => api.saveWorkspaceMemorySettings(selectedId, { [key]: next === "inherit" ? null : next === "on" }));
-              }}>
-                <option value="inherit">Use global default</option>
-                <option value="on">On</option>
-                <option value="off">Off</option>
-              </select>
+              <div><strong>{label}</strong><span className="memory-settings-values" id={`${id}-status`}>Global default: {savedWorkspace.defaults[key] ? "On" : "Off"} · Effective: {savedWorkspace.effective[key] ? "On" : "Off"}</span></div>
+              <Select ariaLabel={label} ariaDescribedBy={`${id}-status`} options={overrideOptions} value={choice} disabled={saving || workspaceUnavailable} onChange={(next) => {
+                if (next !== choice) workspace.persist(() => api.saveWorkspaceMemorySettings(selectedId, { [key]: next === "inherit" ? null : next === "on" }));
+              }} />
             </div>;
           })}
         </div>}
+        <RequestFeedback state={workspace.state} scope="Workspace overrides" onRetry={() => void refreshWorkspace()} />
       </>}
     </section>
 

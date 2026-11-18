@@ -54,6 +54,31 @@ async function resize(viewport) {
   if (viewport !== desktop) await expect(page.locator(".sidebar")).not.toBeInViewport({ ratio: 0.001 });
 }
 
+async function openSelect(trigger, options) {
+  await expect(trigger).toHaveClass(/\bark-select-trigger\b/);
+  await expect(trigger).toHaveAttribute("aria-haspopup", "listbox");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  const selected = await trigger.innerText();
+  await trigger.click();
+  const menu = trigger.locator("..").getByRole("listbox");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(menu).toBeVisible();
+  await expect(menu).toHaveClass(/\bark-select-menu\b/);
+  await expect(menu).toHaveAttribute("id", /\S/);
+  await expect(trigger).toHaveAttribute("aria-controls", await menu.getAttribute("id"));
+  await expect(menu.getByRole("option")).toHaveText(options);
+  await expect(menu.getByRole("option", { selected: true })).toHaveText(selected);
+  return menu;
+}
+
+async function chooseOption(trigger, options, label) {
+  const menu = await openSelect(trigger, options);
+  await menu.getByRole("option", { name: label, exact: true }).click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toHaveText(label);
+}
+
 try {
   await mkdir(home);
   await mkdir(sessionDir, { recursive: true });
@@ -148,10 +173,12 @@ try {
   const defaultsRegion = settings.getByRole("region", { name: "Global defaults", exact: true });
   const overridesRegion = settings.getByRole("region", { name: "Workspace overrides", exact: true });
   const promptRegion = settings.getByRole("region", { name: "Proactive suggestion prompt preview", exact: true });
-  const workspaceSelect = overridesRegion.getByRole("combobox", { name: "Workspace", exact: true });
+  const workspaceSelect = overridesRegion.getByRole("button", { name: "Workspace", exact: true });
+  const workspaceOptions = [workspace.name, inherited.name];
+  const overrideLabels = { inherit: "Use global default", on: "On", off: "Off" };
   const fields = { enabled: "Enable Memory", autoIndex: "Include short index", proactive: "Proactive suggestions" };
   const defaultSwitch = (key) => defaultsRegion.getByRole("switch", { name: fields[key], exact: true });
-  const workspaceChoice = (key) => overridesRegion.getByRole("combobox", { name: fields[key], exact: true });
+  const workspaceChoice = (key) => overridesRegion.getByRole("button", { name: fields[key], exact: true });
   const allOff = { enabled: false, autoIndex: false, proactive: false };
   const allOn = { enabled: true, autoIndex: true, proactive: true };
   const onOff = (value) => value ? "On" : "Off";
@@ -162,28 +189,111 @@ try {
     return response.json();
   }
   async function expectWorkspaceSettings(target, defaults, overrides, effective) {
-    await expect(workspaceSelect).toHaveValue(target.id);
+    await expect(workspaceSelect).toHaveText(target.name);
     await expect.poll(() => readJson(`${memoryApi(target.id)}/settings`)).toEqual({ defaults, overrides, effective });
     for (const key of Object.keys(fields)) {
       const control = workspaceChoice(key);
-      await expect(control).toHaveValue(Object.hasOwn(overrides, key) ? onOff(overrides[key]).toLowerCase() : "inherit");
-      await expect(control).toHaveAccessibleDescription(`Global default: ${onOff(defaults[key])} · Effective: ${onOff(effective[key])}${key !== "enabled" && !effective.enabled ? " (Memory is off)" : ""}`);
+      await expect(control).toBeEnabled();
+      await expect(control).toHaveText(Object.hasOwn(overrides, key) ? onOff(overrides[key]) : overrideLabels.inherit);
+      await expect(control).toHaveAccessibleDescription(`Global default: ${onOff(defaults[key])} · Effective: ${onOff(effective[key])}`);
     }
   }
   async function setOverride(key, choice, overrides, effective) {
-    await workspaceChoice(key).selectOption(choice);
+    await chooseOption(workspaceChoice(key), Object.values(overrideLabels), overrideLabels[choice]);
     await expectWorkspaceSettings(inherited, allOn, overrides, effective);
+  }
+
+  function measureSettingsRows() {
+    return settingsContent.evaluate((panel) => {
+      const contentTop = panel.getBoundingClientRect().top - panel.scrollTop;
+      const boxes = (selector) => Array.from(panel.querySelectorAll(`.memory-settings ${selector}`), (element) => {
+        const { top, height } = element.getBoundingClientRect();
+        return [Math.round((top - contentTop) * 100) / 100, Math.round(height * 100) / 100];
+      });
+      return { scrollTop: panel.scrollTop, switches: boxes('[role="switch"]'), workspacePicker: boxes(".memory-settings-workspace .ark-select-trigger"), workspaceRows: boxes(".memory-settings-override") };
+    });
+  }
+
+  async function expectStableDefaultChange(key, expectedDefaults) {
+    const button = defaultSwitch(key);
+    const checked = expectedDefaults[key];
+    const workspaceApi = `${memoryApi(inherited.id)}/settings`;
+    const patchRequest = (request) => request.url() === defaultsApi && request.method() === "PATCH";
+    const workspaceRefresh = (request) => request.url() === workspaceApi && request.method() === "GET";
+    const targets = (url) => url.href === defaultsApi || url.href === workspaceApi;
+    const patch = Promise.withResolvers();
+    const refresh = Promise.withResolvers();
+    const holdRequests = async (route, request) => {
+      if (patchRequest(request)) await patch.promise;
+      if (workspaceRefresh(request)) await refresh.promise;
+      await route.continue();
+    };
+    await page.route(targets, holdRequests);
+    try {
+      await expect(button).toHaveAttribute("aria-checked", String(!checked));
+      // Bring the switch into view before taking either content or scroll measurements.
+      await button.scrollIntoViewIfNeeded();
+      await expect(button).toBeInViewport({ ratio: 1 });
+      const before = await measureSettingsRows();
+      assert.equal(before.switches.length, Object.keys(fields).length);
+      assert.equal(before.workspaceRows.length, Object.keys(fields).length);
+      assert.equal(before.workspacePicker.length, 1);
+
+      const [request] = await Promise.all([page.waitForRequest(patchRequest), button.click()]);
+      assert.deepEqual(request.postDataJSON(), { [key]: checked });
+      await expect(defaultsRegion.getByRole("status")).toHaveText("Saving changes…");
+      await expect(button).toHaveAttribute("aria-checked", String(!checked));
+      const saving = await measureSettingsRows();
+
+      const refreshing = page.waitForRequest(workspaceRefresh);
+      patch.resolve();
+      await refreshing;
+      await expect(button).toHaveAttribute("aria-checked", String(checked));
+      await expect(workspaceChoice("enabled")).toBeDisabled();
+      const reloading = await measureSettingsRows();
+
+      refresh.resolve();
+      await expectWorkspaceSettings(inherited, expectedDefaults, {}, expectedDefaults.enabled ? expectedDefaults : allOff);
+      const saved = await measureSettingsRows();
+      const width = page.viewportSize().width;
+      for (const [phase, layout] of Object.entries({ saving, reloading, saved })) {
+        assert.deepEqual(layout, before, `Memory settings moved at ${width}px while ${phase}`);
+      }
+    } finally {
+      patch.resolve();
+      refresh.resolve();
+      await page.unroute(targets, holdRequests);
+    }
   }
 
   await expect(settingsTab).toHaveAttribute("aria-current", "page");
   for (const key of Object.keys(fields)) await expect(defaultSwitch(key)).toHaveAttribute("aria-checked", "false");
   await expectWorkspaceSettings(workspace, allOff, legacyChoices, { ...legacyChoices, proactive: false });
-  await workspaceSelect.selectOption(inherited.id);
+  await expect(settings.locator("select")).toHaveCount(0);
+  await chooseOption(workspaceSelect, workspaceOptions, inherited.name);
   await expectWorkspaceSettings(inherited, allOff, {}, allOff);
-  for (const key of Object.keys(fields)) {
+  await expectStableDefaultChange("enabled", { ...allOff, enabled: true });
+  for (const key of ["autoIndex", "proactive"]) {
     await defaultSwitch(key).click();
     await expect(defaultSwitch(key)).toHaveAttribute("aria-checked", "true");
   }
+  await expectWorkspaceSettings(inherited, allOn, {}, allOn);
+  await resize(narrowMobile);
+  const fontScale = await page.evaluate(() => {
+    const style = document.documentElement.style;
+    const previous = style.getPropertyValue("--fs-scale");
+    style.setProperty("--fs-scale", "1.3");
+    return previous;
+  });
+  const defaultsWithMemoryOff = { ...allOn, enabled: false };
+  try {
+    await expectStableDefaultChange("enabled", defaultsWithMemoryOff);
+    await expectStableDefaultChange("enabled", allOn);
+    await expectNoHorizontalOverflow(settingsContent, "Memory settings at maximum text size");
+  } finally {
+    await page.evaluate((previous) => document.documentElement.style.setProperty("--fs-scale", previous), fontScale);
+  }
+  await resize(desktop);
   const { defaults, prompt } = await readJson(defaultsApi);
   assert.deepEqual(defaults, allOn);
   assert.match(prompt, /use memory_propose in this turn/);
@@ -204,14 +314,24 @@ try {
   for (const key of Object.keys(fields)) await expect(defaultSwitch(key)).toHaveAttribute("aria-checked", "true");
   await expectWorkspaceSettings(workspace, allOn, legacyChoices, { ...legacyChoices, proactive: true });
   assert.equal(await readFile(memoryPath, "utf8"), legacyFile);
-  await workspaceSelect.selectOption(inherited.id);
+  await chooseOption(workspaceSelect, workspaceOptions, inherited.name);
   await expectWorkspaceSettings(inherited, allOn, { autoIndex: false, proactive: false }, { ...allOn, autoIndex: false, proactive: false });
   for (const viewport of [desktop, mobile, narrowMobile]) {
     await resize(viewport);
     await expectNoHorizontalOverflow(settingsContent, "Memory settings");
     await expect(settingsTab).toBeInViewport({ ratio: 0.99 });
     await settingsContent.evaluate((panel) => { panel.scrollTop = 0; });
-    if (viewport !== narrowMobile) await page.screenshot({ path: join(screenshots, `settings-${viewport.width}.png`) });
+    if (viewport !== narrowMobile) {
+      await page.screenshot({ path: join(screenshots, `settings-${viewport.width}.png`) });
+      const menu = await openSelect(workspaceSelect, workspaceOptions);
+      await menu.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+      await expect(workspaceSelect).toBeInViewport({ ratio: 0.99 });
+      await expect(menu).toBeInViewport({ ratio: 0.99 });
+      await page.screenshot({ path: join(screenshots, `settings-workspace-menu-${viewport.width}.png`) });
+      await workspaceSelect.press("Escape");
+      await expect(workspaceSelect).toHaveAttribute("aria-expanded", "false");
+      await expect(menu).toHaveCount(0);
+    }
   }
   await resize(mobile);
   await overridesRegion.scrollIntoViewIfNeeded();
@@ -286,7 +406,7 @@ try {
   await expect(fixtureEntry).toBeVisible();
   assert.deepEqual(errors, []);
   assert.equal(await readFile(join(workspace.path, ".pi-ark", "notebook.md"), "utf8"), notebook);
-  console.log(`Memory settings, Workspace inheritance, navigation, selected shortcuts, review, Notebook, and layouts passed. Screenshots: ${screenshots}`);
+  console.log(`Memory settings, shared Select, switch layout, Workspace inheritance, navigation, selected shortcuts, review, and Notebook passed. Screenshots: ${screenshots}`);
 } catch (error) {
   await page?.screenshot({ path: join(screenshots, "memory-check-failure.png"), timeout: 2500 }).catch(() => {});
   console.error(log.split("\n").slice(-12).join("\n"));

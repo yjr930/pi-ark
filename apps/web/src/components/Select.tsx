@@ -8,7 +8,7 @@ export interface SelectOption {
   status?: string;
 }
 
-export function Select({ value, options, onChange, ariaLabel, disabled = false, placeholder = "Select…" }: { value: string; options: SelectOption[]; onChange: (value: string) => void; ariaLabel: string; disabled?: boolean; placeholder?: string }) {
+export function Select({ value, options, onChange, ariaLabel, ariaDescribedBy, disabled = false, placeholder = "Select…" }: { value: string; options: SelectOption[]; onChange: (value: string) => void; ariaLabel: string; ariaDescribedBy?: string; disabled?: boolean; placeholder?: string }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -24,7 +24,7 @@ export function Select({ value, options, onChange, ariaLabel, disabled = false, 
   }, [open]);
 
   return <div className={`ark-select ${open ? "open" : ""}`} ref={rootRef}>
-    <button type="button" className="ark-select-trigger" aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} disabled={disabled} onClick={() => setOpen((current) => !current)}>
+    <button type="button" className="ark-select-trigger" aria-label={ariaLabel} aria-describedby={ariaDescribedBy} aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} disabled={disabled} onClick={() => setOpen((current) => !current)}>
       <span>{selected?.label || placeholder}</span>{selected?.status && <small>{selected.status}</small>}<ChevronDown size={14} />
     </button>
     {open && <div className="ark-select-menu" id={listId} role="listbox">

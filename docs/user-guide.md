@@ -632,7 +632,7 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 | **Include short index** | 模型请求会附带置顶和相关条目的短索引，正文仍按需读取。 |
 | **Proactive suggestions** | 在主 Session 中加入内置提示词，请 Agent 在本轮结束前检查是否有值得保存的长期经验。建议仍需用户确认。关闭此选项时，也可以请 Agent 提出建议。 |
 
-在 **Workspace overrides** 选择要配置的 Workspace。每个选项可以选择 **Use global default**（继承）、**On**（开启）或 **Off**（关闭）。旧版已保存的启用和短索引选项继续覆盖全局默认值，缺失的选项继承全局默认值。
+在 **Workspace overrides** 中，使用 Pi-Ark 的下拉菜单选择要配置的 Workspace。用每行的菜单选择 **Use global default**（继承）、**On**（开启）或 **Off**（关闭）。保存状态显示在设置组底部。旧版已保存的启用和短索引选项继续覆盖全局默认值，缺失的选项继承全局默认值。
 
 展开 **Proactive suggestion prompt** 可以阅读 Pi-Ark 内置的提示词。预览下方显示所选 Workspace 的生效状态。短索引和主动提议均以启用 Memory 为前提。选择会立即保存，主 Session 在下一轮采用新的工具和主动提议设置。
 
