@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildConversationSegments, buildToolCallGroups } from "../apps/web/src/conversation.ts";
+import { buildConversationSegments, buildToolCallGroups, toolCallLabel } from "../apps/web/src/conversation.ts";
 import type { AgentMessage, ContentBlock, SubagentRun } from "../apps/web/src/types.ts";
 import { subagentCounts, subagentFinished, subagentListItems } from "../apps/web/src/subagent-view.ts";
 import { formatMessageTime } from "../apps/web/src/message-time.ts";
@@ -10,6 +10,17 @@ assert.equal(formatMessageTime(new Date(2026, 10, 12, 13, 14, 15).getTime())?.la
 assert.equal(formatMessageTime(0)?.dateTime, "1970-01-01T00:00:00.000Z");
 assert.equal(formatMessageTime(undefined), undefined);
 assert.equal(formatMessageTime(Number.NaN), undefined);
+
+const codemode: ContentBlock = { type: "toolCall", name: "codemode", arguments: { code: "text('tools.mcp__exa__web_search_exa({})');" } };
+const codemodeResult: AgentMessage = { role: "toolResult", toolName: "codemode", nestedCalls: { calls: [{ name: "mcp__exa__web_search_exa" }, { name: "read" }, { name: "mcp__exa__web_search_exa" }] } };
+assert.equal(toolCallLabel({ type: "toolCall", name: "mcp__playwright__browser_navigate" }), "mcp - browser_navigate");
+assert.equal(toolCallLabel(undefined, { role: "toolResult", toolName: "mcp__playwright__browser_snapshot" }), "mcp - browser_snapshot");
+assert.equal(toolCallLabel(codemode, codemodeResult), "mcp - web_search_exa");
+assert.equal(toolCallLabel(codemode, undefined, ["web_search_exa"]), "mcp - web_search_exa");
+assert.equal(toolCallLabel(codemode, { role: "toolResult", toolName: "codemode", details: { calls: [{ name: "mcp__exa__web_fetch_exa" }] } }), "mcp - web_fetch_exa");
+assert.equal(toolCallLabel(codemode, codemodeResult, ["browser_snapshot", "web_search_exa"]), "mcp - web_search_exa, browser_snapshot");
+assert.equal(toolCallLabel(codemode), "codemode");
+assert.equal(toolCallLabel({ type: "toolCall", name: "read" }), "read");
 
 const messages: AgentMessage[] = [
   { role: "user", content: "Inspect", timestamp: 1000 },

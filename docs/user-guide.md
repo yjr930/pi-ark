@@ -390,6 +390,8 @@ Text item 直接显示普通文字、图片和 reasoning。含普通 text 或 im
 
 Agent settled 后，如果历史 turn 缺少最后一条非工具内容，页面会显示紧凑的 Response interrupted warning。对应工具活动仍然可以通过折叠框查看。该 turn 因 provider error 结束时，warning 会显示保存的错误原因；内容为空的失败回复在 AI 标题下直接显示错误。Automatic retry 进行期间，页面显示当前 attempt 和错误原因。
 
+MCP 的工具调用条显示 `mcp - 工具名`（例如 `mcp - web_search_exa`）。点击调用条可以查看脚本参数和结果。
+
 连续的工具调用按可见内容分组，默认显示最后 3 个调用，点击 `show more tool calls (N)` 可显示较早的调用，N 是被折叠调用的数量；点击 `show fewer tool calls` 可恢复折叠。一个 message 中的多个调用分别计数。开启 Hide reasoning 后，隐藏的 thinking block（包括只包含 thinking 的独立 message）前后的连续调用归入同一分组。可见的 Reasoning、普通正文、图片、Compact、branch summary 和独立结果继续中断分组，包含普通正文或图片的 message 按原样显示。分组保留原始消息及其 permalink，并随 Session UI cache 恢复展开状态；较早调用的 permalink 会在首次访问时展开对应分组。
 
 `subagent` 的工具行分成左右两部分：左侧的分支 logo 与 `subagent` 文字点击后打开对应的子 Session；中间的竖线用来分隔；右侧显示委派任务标题与状态，点击展开工具参数与结果。该工具行使用普通工具行 2 倍的高度，并独立于连续 tool call 的折叠分组显示。

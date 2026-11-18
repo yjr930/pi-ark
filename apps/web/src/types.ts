@@ -59,6 +59,8 @@ export interface AgentMessage {
   timestamp?: number;
   toolName?: string;
   toolCallId?: string;
+  nestedCalls?: unknown;
+  details?: unknown;
   isError?: boolean;
   stopReason?: string;
   errorMessage?: string;

@@ -9,6 +9,25 @@ function blocks(content: AgentMessage["content"]): ContentBlock[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : content || [];
 }
 
+export function mcpToolName(name: unknown): string | undefined {
+  return typeof name === "string" ? /^mcp__[\w]+?__([\w]+)$/.exec(name)?.[1] : undefined;
+}
+
+function recordedToolNames(record: unknown): unknown[] {
+  if (!record || typeof record !== "object" || !("calls" in record) || !Array.isArray(record.calls)) return [];
+  return record.calls.map((call) => call?.name);
+}
+
+export function toolCallLabel(call?: ContentBlock, result?: AgentMessage, liveMcpTools: readonly string[] = []): string {
+  const name = call?.name || result?.toolName || "Tool";
+  const direct = mcpToolName(name);
+  if (direct) return `mcp - ${direct}`;
+  if (name !== "codemode") return name;
+  const recorded = [...recordedToolNames(result?.nestedCalls), ...recordedToolNames(result?.details)].map(mcpToolName).filter((tool) => tool !== undefined);
+  const tools = [...new Set([...recorded, ...liveMcpTools])];
+  return tools.length ? `mcp - ${tools.join(", ")}` : name;
+}
+
 function hasToolActivity(message: AgentMessage): boolean {
   return message.role === "toolResult" || blocks(message.content).some((block) => block.type === "toolCall");
 }
