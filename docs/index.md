@@ -12,7 +12,8 @@
 | [Pi 集成调研](research.md) | 开发 | pi SDK 选型、公开 API、事件和 session 存储背景 |
 | [Claude Code 调研：System prompt](research-claude-code-system-prompt.md) | 开发 | 提示词的组成、自定义方式、公开模板和外泄事件（[资料时效](research-claude-code-system-prompt.md#资料时效)） |
 | [Claude Code 调研：Agent 间的通信机制](research-claude-code-agent-communication.md) | 开发 | Subagent 委派、Agent Teams 的消息与任务表、跨会话消息（[资料时效](research-claude-code-agent-communication.md#资料时效)） |
-| [Claude Code 调研：Memory](research-claude-code-memory.md) | 开发 | 项目指令、自动记忆、会话记录和上下文压缩（[资料时效](research-claude-code-memory.md#资料时效)） |
+| [Claude Code 调研：Memory](research-claude-code-memory.md) | 开发 | 项目指令、自动记忆、会话记录和上下文压缩（[资料时效](research-claude-code-memory.md#资料时效)、[从业者分析](research-claude-code-memory.md#从业者分析)） |
+| [Pi-Ark Memory 设计草案](design-memory.md) | 产品设计、开发 | 依据从业者分析提出的 Workspace 范围、保存与召回方式，以及首版验证计划 |
 | [Agent 资源联合设计](design-agent-resources.md) | 产品设计、开发 | Skills、MCP 与 Extensions 的分层来源、启用管理、实现入口、内置 skill 与浏览器能力接入 |
 | [交互式提问工具](design-question-tool.md) | 产品设计、开发 | 提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面 |
 
@@ -35,6 +36,7 @@
 - 使用手册按照用户完成任务的顺序描述操作步骤。
 - Pi 集成调研记录技术选型依据和上游 pi API 背景。
 - Claude Code 调研分别记录 system prompt、agent 间的通信机制和 memory 设计，按官方文档、发布记录和带版本的第三方资料标明出处。
+- Pi-Ark Memory 设计草案记录跨 Session 记忆的借鉴依据与首版提案，供实现前评审。
 - Agent 资源联合设计记录 Skills、MCP 与 Extensions 的资源模型、服务端与页面实现入口，以及内置 `browser`、`mcp-servers` 与 `skill-authoring` skill、`playwright` server、MCP 密钥目录与用户扩展目录的接入。
 - 交互式提问工具文档记录提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面行为。
 

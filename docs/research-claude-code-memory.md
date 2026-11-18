@@ -220,8 +220,24 @@ metadata:
 
 **推断：** 修正一条经验后，最好在新会话中确认效果；如果继续旧会话，先前读入的版本仍可能出现在保留的历史或摘要中。{因为文件的修改仅决定后续从磁盘读取的内容，而恢复和压缩另行保留历史信息。依据：[M3]、[M7]、[M8]、[M10]。}
 
+## 从业者分析
+
+本节于 **2026-11-18 UTC** 核对。**近 3 个月**指 2026-08-18 起发表或更新的资料；下表同时标明文章的实测版本或证据类型。官方行为仍以本文的现行文档与版本记录为准。关于如何应用这些观察，见 [Pi-Ark Memory 设计草案](design-memory.md)。
+
+| 文章与时效 | 作者的观察 | 值得参考的做法 |
+| --- | --- | --- |
+| irosona，[用了五个月的 Claude Code 到底记住了什么](https://zenn.dev/irosona/articles/claude-code-memory-100-entries)，**近 3 个月**：2026-09-03 UTC（日本日期为 9 月 4 日）。作者盘点了 6 个项目中的 112 条记忆。 | 项目环境与决定占大部分，`user` 类型只有 1 条。正文中 96 个不同的 `[[…]]` 引用有 27 个无法解析，索引和 frontmatter 完整。作者修复了目标明确的链接，再用 `claude -p` 比较修复前后各 2 次。涉及多条引用的任务平均用时从 75.5 秒降至 54.0 秒；引用较少的任务未见明显变化。 | 用程序生成索引和校验条目引用；环境经验写明下次先检查什么。这里的耗时来自作者的记忆库和指定任务。 |
+| Cyril Simonnet，[The memory setup I actually use with Claude Code](https://cyrilsimonnet.substack.com/p/the-memory-setup-i-actually-use-with)，**近 3 个月**：2026-09-02。作者描述自己的日常配置。 | 用一个小型、有类型的索引保存 agent 经验，把自己维护的长期资料留在 Obsidian。`feedback` 带原因；随时间变化的 `project` 使用绝对日期；`reference` 指向原资料。 | 区分 agent 的经验、用户写的规则和人工维护的资料；为经验保留原因和来源。文章中的目录是作者的额外配置。 |
+| Gordon Beeming，[Experimenting with automatic memory in Codex and Claude](https://gordonbeeming.com/blog/2026-09-15/experimenting-with-automatic-memory-in-codex-and-claude)，**近 3 个月**：2026-09-15。作者分享使用感受和后续实验计划。 | 他同时清除旧记忆和改写 skills，之后感觉需要的纠正更少。作者明确表示无法把变化归因给其中一项。他担心仅适用于当前任务的要求被记成长期偏好。 | 在写入流程中区分「本次要求」和「长期经验」，并让用户能查看保存内容。 |
+| Vellum Labs，[对比 `CLAUDE.md`、auto memory 与 LLM Wiki](https://dev.to/vellumkasane/claude-code-memory-options-compared-claudemd-vs-auto-memory-vs-an-llm-wiki-30-decisions-11jp)，**近 3 个月**：2026-10-21 发布，2026-11-05 复测。作者声明文章由运行实验的 Claude Code agent 撰写，文章公开了脚本和题目。 | 基础比较用 v2.1.288，在同一库的不同副本中记录 30 条虚构决策。三种方式都找到了所问的事实；变更一条决策后，auto memory 和他们自制的 Wiki 标出了相关冲突。v2.1.318 的 headless 复测观察到，官方文档所称「25 KB」在该版本样本中按 UTF-16 代码单元计算，并保留完整的行。 | 设计评估要覆盖「决策改了以后怎么办」，并另外定义 Pi-Ark 自己的请求预算及单位。单仓库的结果适合作为复现实验的起点。 |
+| Max Nardit，[核对索引、会话记录与本地整理](https://max.nardit.com/articles/anthropic-agent-memory-components-dreaming-memory-md)，**近 3 个月**：2026-11-07；实测 v2.1.319。 | 作者复制少量模拟笔记与会话记录，再运行整理流程并审阅差异。3 次都纠正了过时的测试笔记；其中有运行把用户说的「上周」写成具体日期，而引用原文没有给出该日期。他也指出，按默认规则清理 transcript 后，长期笔记可能失去来源。 | 让整理生成待审阅的修改建议；来源失效时把条目标记为待复核。原文的本地脚本是作者自建流程。 |
+| Leonard（`lhl`），[Analysis — Claude Code Memory Subsystem](https://github.com/lhl/agentic-memory/blob/32e2bec4f65aa1286c81b6866fe815d7a61b71c2/ANALYSIS-claude-code-memory.md)，**超过 3 个月；历史参考**：2026-03-31。 | 作者基于当时的客户端源码整理了写入、查询、后台提取和整理路径。现行说明或 v2.1.327 模板仍能核对部分思路，例如索引与主题分离、候选记忆的选择与整理提示。{[M3]}{[M13]} | 用于理解早期实现。当前 CLI 的功能启用条件和后台时序用现行文档、发布记录或实测判断。 |
+
+**Anthropic 的近期研究。** Lance Martin 的 [The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory) 发表于 **2026-11-06（近 3 个月）**。文章区分会话记录、经验笔记、由笔记整理出的 Wiki，以及主动载入上下文的内容，并以 Claude Code 的短索引解释最后一层。文中还比较了不同模型保存和查阅笔记的行为，并在 Managed Agents 的 Pokémon 实验里用 transcript 找出错误笔记的来源。对 Pi-Ark 有价值的结论是让笔记可追溯、限制自动载入的内容，并比较实际任务中的召回效果。研究中的 Dreaming 实验与 CLI 的版本能力分别核对。{[Anthropic 原文](https://www.anthropic.com/research/components-of-agent-memory)}
+
 ## 相关报告
 
+- [Pi-Ark Memory 设计草案](design-memory.md)
 - [Claude Code 的 system prompt](research-claude-code-system-prompt.md)
 - [Claude Code 的 agent 间通信机制](research-claude-code-agent-communication.md)
 
