@@ -10,9 +10,9 @@
 | [程序实现架构](architecture.md) | 开发和运维 | 前后端模块、pi SDK 集成、数据流、存储、API、安全和部署 |
 | [使用手册](user-guide.md) | 使用者和管理员 | 安装、登录、Workspace、Session、Agent、Skills、MCP、Files、Terminal 和 Settings 操作 |
 | [Pi 集成调研](research.md) | 开发 | pi SDK 选型、公开 API、事件和 session 存储背景 |
-| [Claude Code 调研：System prompt](research-claude-code-system-prompt.md) | 开发 | 提示词的组成、自定义方式、公开模板和外泄事件 |
-| [Claude Code 调研：Agent 间的通信机制](research-claude-code-agent-communication.md) | 开发 | Subagent 委派、Agent Teams 的消息与任务表、跨会话消息 |
-| [Claude Code 调研：Memory](research-claude-code-memory.md) | 开发 | 项目指令、自动记忆、会话记录和上下文压缩 |
+| [Claude Code 调研：System prompt](research-claude-code-system-prompt.md) | 开发 | 提示词的组成、自定义方式、公开模板和外泄事件（[资料时效](research-claude-code-system-prompt.md#资料时效)） |
+| [Claude Code 调研：Agent 间的通信机制](research-claude-code-agent-communication.md) | 开发 | Subagent 委派、Agent Teams 的消息与任务表、跨会话消息（[资料时效](research-claude-code-agent-communication.md#资料时效)） |
+| [Claude Code 调研：Memory](research-claude-code-memory.md) | 开发 | 项目指令、自动记忆、会话记录和上下文压缩（[资料时效](research-claude-code-memory.md#资料时效)） |
 | [Agent 资源联合设计](design-agent-resources.md) | 产品设计、开发 | Skills、MCP 与 Extensions 的分层来源、启用管理、实现入口、内置 skill 与浏览器能力接入 |
 | [交互式提问工具](design-question-tool.md) | 产品设计、开发 | 提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面 |
 

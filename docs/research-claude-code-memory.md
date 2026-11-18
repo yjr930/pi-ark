@@ -1,6 +1,29 @@
 # Claude Code harness 调研：memory 的设计机制
 
-调研日期：2026-11-18 UTC。本文以 Anthropic 的公开文档和发布记录为主，并单独标记第三方的静态提示词与设计推断。
+本文以 Anthropic 的公开文档和发布记录为主，并单独标记第三方的静态提示词与设计推断。
+
+## 资料时效
+
+统一核对日为 **2026-11-18 UTC**，3 个月的分界日为 **2026-08-18**。核对时，npm 的 `latest` 标签和最新公开 release 均为 **v2.1.327（2026-11-17 发布）**。npm 的 `stable` 标签指向 **v2.1.311（2026-10-26 发布）**。本文采用 npm 注册表的 `time` 字段标注 Claude Code 的版本发布日期，并用官方发布记录说明相应变更。{[M12]}{[M17]}
+
+- **现行官方文档**：2026-11-18 核对了公开说明。这个日期记录文档核对的时间；功能的首发日期另按发布证据标注。
+- **近 3 个月**：公告、版本或快照发布于 2026-08-18 至 2026-11-18（含两端）。
+- **超过 3 个月**：资料早于 2026-08-18，直接沿用的风险高。只有旧证据的内容留作历史参考；如果现行官方文档仍确认相应机制，则标为 **超过 3 个月；现行文档复核**。
+
+| 机制 | 日期与版本 | 如何使用 |
+| --- | --- | --- |
+| `CLAUDE.md` 和 `.claude/rules/` | **现行官方文档**：2026-11-18 核对。 | 文件的位置、作用域和加载顺序以现行说明为准。{[M1]} |
+| 直接读取 `AGENTS.md` | **近 3 个月**：v2.1.277（2026-09-18）加入；v2.1.281（2026-09-23）扩大适用范围。 | 按客户端版本和 `/config` 的 **Project instructions** 选项判断。{[M2]}{[M12]} |
+| 按需加载的指令文件大小限制 | **近 3 个月**：v2.1.309（2026-10-22）。 | 按单文件及会话的上下文窗口大小计算，具体限额见下文。{[M1]}{[M12]} |
+| Auto memory 和索引上限 | **超过 3 个月；现行文档复核**：v2.1.59（2026-02-25）已有 auto memory 和 `/memory` 的记录；v2.1.83（2026-03-24）加入 25 KB 的索引上限。 | 本地会话仍默认启用；启动时以 200 行和 25 KB 中先达到的上限为准。{[M3]}{[M12]} |
+| 自定义项目目录名 | **超过 3 个月；现行文档复核**：v2.1.234（2026-08-17）。 | 会话记录和 auto memory 都使用所配置的目录名；从启动环境传入配置。{[M3]}{[M8]}{[M12]} |
+| Subagent 的持久 memory | **超过 3 个月；现行文档复核**：v2.1.33（2026-02-06）加入 `memory` 字段。 | 按所选作用域使用独立目录。{[M5]}{[M12]} |
+| 会话记录和恢复 | **现行官方文档**：2026-11-18 核对。 | 按现行说明定位 transcript；继续原有工作时，恢复相应的会话。{[M8]}{[M9]} |
+| Context compaction 后的指令和索引 | **近 3 个月**：v2.1.311（2026-10-26）修复自动压缩后读取旧内容的问题。 | 以现行说明区分从磁盘重载的内容和会话摘要。{[M7]}{[M12]} |
+| 云端 memory extraction | **近 3 个月**：v2.1.323（2026-11-12）。 | 发布记录说明 Anthropic 托管的云端会话中，压缩阈值变量对主会话和记忆提取的影响。{[M12]} |
+| Remote memory | **超过 3 个月；历史记录**：v2.1.69（2026-03-04）和 v2.1.172（2026-06-10）。 | 旧记录用于了解特定场景；普通 CLI 的 auto memory 以本机存储的现行说明为准。{[M3]}{[M12]} |
+| Piebald-AI 的 memory 模板 | **近 3 个月**：v2.1.327 快照（2026-11-17）。各片段标注的版本日期见正文。 | 参考模板里的指令；启用情况以官方说明和实际会话为准。{[M13]} |
+| API 与 Managed Agents 的记忆功能；prompt cache | **现行官方文档**：2026-11-18 核对。 | 分别按 API 工具、托管平台的功能和服务端缓存理解；普通 CLI 另有本地 auto memory。{[M10]}{[M15]}{[M16]} |
 
 ## 机制总览
 
@@ -33,7 +56,7 @@ Claude Code 在 system prompt 之后，以 user message 提供 `CLAUDE.md` 的�
 
 ### 新版对 `AGENTS.md` 的支持
 
-Claude Code **v2.1.277 起**可通过内置插件直接读取 `AGENTS.md`。旧版本和停用了该插件的会话可使用 `CLAUDE.md` 中的 `@AGENTS.md` 导入。对从 v2.1.276 或更早升级的部分安装，直接读取可能从第二个会话开始。v2.1.281 修正了此前 Amazon Bedrock 或关闭 telemetry 等会话无法直接读取的情况。{[M2]}
+**近 3 个月。** Claude Code 从 **v2.1.277（2026-09-18）** 起可通过内置插件直接读取 `AGENTS.md`。**v2.1.281（2026-09-23）** 将支持范围扩展到经由其他平台访问的会话（Amazon Bedrock、Google Vertex AI、Microsoft Foundry 和 LLM gateway）以及关闭 telemetry 的会话。旧版本和停用了该插件的会话可使用 `CLAUDE.md` 中的 `@AGENTS.md` 导入。对从 v2.1.276 或更早升级的部分安装，直接读取可能从第二个会话开始。{[M2]}{[M12]}
 
 | `/config` → **Project instructions** | 如何选择指令 |
 | --- | --- |
@@ -42,7 +65,7 @@ Claude Code **v2.1.277 起**可通过内置插件直接读取 `AGENTS.md`。旧�
 | `claude-md` | 使用 CLAUDE 文件；需要共享 `AGENTS.md` 时，可在 CLAUDE 文件内导入。{[M2]} |
 | `managed-only` | 启动时采用 managed `CLAUDE.md` 和已启用的 auto memory。子目录的 `CLAUDE.md` 和 `.claude/rules/` 以及有路径条件的规则仍可按需加载。{[M2]} |
 
-`pluginConfigs["cc-plugin-agents-md@builtin"].options.instructionFiles` 可配置同一选项，来源为用户设置、`--settings` 或 managed settings。v2.1.285 之前的插件 ID 是 `agents-md@builtin`；此后的版本接受两个 ID。更改此选项从下一条消息起生效。{[M2]}
+`pluginConfigs["cc-plugin-agents-md@builtin"].options.instructionFiles` 可配置同一选项，来源为用户设置、`--settings` 或 managed settings。**近 3 个月。** v2.1.285（2026-09-29）起接受 `cc-plugin-agents-md@builtin` 和原有的 `agents-md@builtin`；早期版本使用原有的插件 ID。更改此选项从下一条消息起生效。{[M2]}{[M17]}
 
 ### 路径触发和导入
 
@@ -60,24 +83,26 @@ Claude Code **v2.1.277 起**可通过内置插件直接读取 `AGENTS.md`。旧�
 | 内容 | 大小规则 |
 | --- | --- |
 | 启动时载入的 `CLAUDE.md` | 官方建议每个文件少于 200 行；文件超过 4 MiB 时，Claude Code 会跳过整个文件。`@path` 可以分开维护文件，但导入的内容一同进入上下文，仍占用 token。{[M1]} |
-| 按需载入的 CLAUDE 文件及其导入、按需加载的规则 | v2.1.309 起按单文件限制自动载入的字符数。200K token 窗口对应 40 000 字符；1M token 窗口下，Opus 4.6 和 Sonnet 4.6 对应 200 000 字符，后续模型对应 150 000 字符。超过限额时会附上可用 Read 继续读取的提示。{[M1]} |
+| 按需载入的 CLAUDE 文件及其导入、按需加载的规则 | **近 3 个月。** v2.1.309（2026-10-22）起按单文件限制自动载入的字符数。200K token 窗口对应 40 000 字符；1M token 窗口下，Opus 4.6 和 Sonnet 4.6 对应 200 000 字符，后续模型对应 150 000 字符。超过限额时会附上可用 Read 继续读取的提示。{[M1]}{[M12]} |
 | `MEMORY.md` | 200 行或 25 KB 是启动读取上限，和 CLAUDE 文件的 200 行写作建议不同。应以 `/context all` 查看实际 token 用量和已载入的 memory 文件。{[M1]}{[M3]}{[M7]} |
 
 ## Auto memory：写入、复用与维护
 
 ### 什么条件下启用
 
-本地会话默认启用 auto memory。发布记录从 v2.1.59 起列出自动保存和 `/memory`。自托管环境中的会话默认关闭，Claude Tag 会话是此条默认值的例外。`-p` 本身不跳过资源发现；`--bare` 或 safe mode 默认跳过 auto memory。{[M3]}{[M4]}{[M12]}{[M14]}
+**超过 3 个月；现行文档复核。** v2.1.59（2026-02-25）的发布记录已提到自动保存和 `/memory`，现行文档继续确认本地会话默认启用 auto memory。自托管环境中的会话默认关闭，Claude Tag 会话是此条默认值的例外。`-p` 本身不跳过资源发现；`--bare` 或 safe mode 默认跳过 auto memory。{[M3]}{[M4]}{[M12]}{[M14]}
 
 `/memory` 的开关写入 `~/.claude/settings.json` 的 `autoMemoryEnabled`；项目也可在自己的设置中控制。环境变量 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` 关闭读写，值 `0` 可覆盖 `autoMemoryEnabled: false` 或 `--bare` 的默认关闭行为。若在后台会话或由另一 Claude Code 会话启动的进程中使用 `/memory`，该开关可以关闭 auto memory；要用开关重新启用，请从终端直接启动 Claude Code。{[M3]}{[M4]}
 
 ### 路径、索引和主题文件
 
-默认目录是 `~/.claude/projects/<project>/memory/`。Claude Code 从 Git 仓库路径确定 memory 的项目键；同一仓库的不同子目录和 worktree 共享目录。Git 仓库之外以项目根目录为准。`CLAUDE_CONFIG_DIR` 可以替换 `~/.claude`；从 v2.1.234 起，在启动进程的环境中同时设置 `CLAUDE_CONFIG_DIR` 和 `CLAUDE_CODE_PROJECT_DIR_NAME`，可以给 `projects/` 下的项目目录指定固定名称。{[M3]}{[M8]}{[M9]}
+默认目录是 `~/.claude/projects/<project>/memory/`。Claude Code 从 Git 仓库路径确定 memory 的项目键；同一仓库的不同子目录和 worktree 共享目录。Git 仓库之外以项目根目录为准。`CLAUDE_CONFIG_DIR` 可以替换 `~/.claude`。{[M3]}{[M8]}{[M9]}
+
+**超过 3 个月；现行文档复核。** 从 v2.1.234（2026-08-17）起，在启动 `claude` 的环境中同时设置 `CLAUDE_CONFIG_DIR` 和 `CLAUDE_CODE_PROJECT_DIR_NAME`，可以为 `projects/` 下的项目目录指定固定名称。会话记录和 auto memory 都会使用该名称。{[M3]}{[M8]}{[M12]}
 
 `autoMemoryDirectory` 可在各设置来源中指定绝对路径或 `~/` 开头的目录。来自项目或本地设置的值遵守项目设置中 hook 所用的 workspace trust（工作区信任）规则；开启 `permissions.blockReadsOutsideWorkingDirectories` 时，Claude Code 不读写由仓库提供的设置所选的 auto memory 目录。{[M3]}{[M4]}
 
-目录中的 `MEMORY.md` 是索引，每条记忆可放一行链接，指向存有细节的 Markdown 主题文件（例如 `feedback_testing.md`）。Claude Code 在会话启动时载入索引开头的 **200 行或 25 KB，以先达到的上限为准**；Claude 用常规文件工具按需读取主题。Claude 写完索引后，客户端检查大小：接近限额时提示缩减，超过限额时写入仍然成功，但工具会提示重写索引，超出的内容下次启动时不会自动载入。25 KB 的上限自 v2.1.83 起与行数限制并用。{[M3]}{[M12]}
+目录中的 `MEMORY.md` 是索引，每条记忆可放一行链接，指向存有细节的 Markdown 主题文件（例如 `feedback_testing.md`）。Claude Code 在会话启动时载入索引开头的 **200 行或 25 KB，以先达到的上限为准**；Claude 用常规文件工具按需读取主题。Claude 写完索引后，客户端检查大小：接近限额时提示缩减，超过限额时写入仍然成功，但工具会提示重写索引，超出的内容下次启动时不会自动载入。**超过 3 个月；现行文档复核。** 25 KB 的上限从 v2.1.83（2026-03-24）起与行数上限并用。{[M3]}{[M12]}
 
 ### Claude 保存什么
 
@@ -98,7 +123,7 @@ Claude 判断某条信息对未来会话是否有用，在工作中写入或更�
 
 subagent 在自己的上下文窗口中接收委派任务。非 fork 的 subagent 通常加载适用的项目指令，但不载入主对话的 auto memory；内置 Explore 和 Plan 会跳过启动时的指令，配置 `omitClaudeMd` 的自定义 subagent 也可省略用户、项目和本地指令。fork 从父对话的 system prompt 和已有消息开始，因而继承已在父上下文中的记忆。{[M3]}{[M5]}
 
-在 subagent 定义的 YAML frontmatter 中配置 `memory`，且会话的 auto memory 已启用时，Claude Code 才加载该 subagent 的持久记忆。它会将目录读写说明和 `MEMORY.md` 的前 200 行或 25 KB 加入该 subagent 的 system prompt，并为维护记忆启用 Read、Write 和 Edit。{[M5]}
+**超过 3 个月；现行文档复核。** v2.1.33（2026-02-06）加入了 subagent 的 `memory` 字段。在 subagent 定义的 YAML frontmatter 中配置 `memory`，且会话的 auto memory 已启用时，Claude Code 才加载该 subagent 的持久记忆。它会将目录读写说明和 `MEMORY.md` 的前 200 行或 25 KB 加入该 subagent 的 system prompt，并为维护记忆启用 Read、Write 和 Edit。{[M5]}{[M12]}
 
 | `memory` 的作用域 | 目录 | 适用场景 |
 | --- | --- | --- |
@@ -109,6 +134,8 @@ subagent 在自己的上下文窗口中接收委派任务。非 fork 的 subagen
 同一 subagent 的新调用可以复用上述目录。要延续它的某次工作，则恢复原有 subagent 的会话；它的 transcript 存在父会话的 `~/.claude/projects/<project>/<session-id>/subagents/agent-<agent-id>.jsonl`，主对话压缩时不改写该记录。{[M5]}{[M9]}
 
 ## 会话记录、恢复和 context compaction
+
+以下操作依据 **现行官方文档（2026-11-18 核对）**。与重载内容有关的版本变更见压缩小节。{[M7]}{[M8]}{[M9]}
 
 ### 本地记录和恢复
 
@@ -121,6 +148,8 @@ subagent 在自己的上下文窗口中接收委派任务。非 fork 的 subagen
 ### 压缩后如何重建上下文
 
 上下文接近模型和配置决定的上限时，Claude Code 会自动摘要对话；也可使用 `/compact [instructions]`，或在 `CLAUDE.md` 里加入 `Compact Instructions` 指定要保留的工作信息。摘要通常保留任务目标、进度和关键代码片段，早期消息中的细节可能只剩概述。`/clear` 则开始新对话并重新载入启动上下文；默认保存的旧会话仍可用 `/resume` 恢复。{[M6]}{[M7]}{[M8]}{[M10]}{[M11]}
+
+**近 3 个月。** v2.1.311（2026-10-26）修复了自动压缩后仍读取旧内容的问题，涉及本次会话早先编辑过的 `MEMORY.md` 和 `CLAUDE.md`。{[M12]}
 
 | 压缩后 | 内容及来源 |
 | --- | --- |
@@ -139,7 +168,7 @@ subagent 在自己的上下文窗口中接收委派任务。非 fork 的 subagen
 4. **压缩后继续。** 执行 `/compact 保留当前修改和待验证的行为` 后，旧问答主要通过摘要延续。启动指令和索引由磁盘重新提供；再次处理匹配的 API 文件时，路径规则会按需重新载入。
 5. **下次启动。** 在同一仓库的另一 worktree 开新会话，可从同一个索引找到该主题，但此时没有上一会话的消息。需要继续原有对话时，使用 `/resume` 选择原会话。
 
-按 Piebald 的提示词快照，示例中的 `feedback_api_tests.md` 可以采用以下格式，`MEMORY.md` 中对应的一行可以写作 `- [API 集成测试使用本地 Redis](feedback_api_tests.md)`。{[M3]}{[M13]}
+参考 Piebald 的 v2.1.327 静态快照（2026-11-17，**近 3 个月**），示例中的 `feedback_api_tests.md` 可以采用以下格式，`MEMORY.md` 中对应的一行可以写作 `- [API 集成测试使用本地 Redis](feedback_api_tests.md)`。{[M3]}{[M13]}
 
 ```markdown
 ---
@@ -161,19 +190,23 @@ metadata:
 
 | 问题 | 查到的证据及待核实事项 |
 | --- | --- |
-| 是否有 auto memory 提取流程？ | Claude Code v2.1.323 的发布记录称，在 Anthropic 托管的云端会话中，`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` 不再作用于 auto memory extraction（记忆提取），主会话仍按该变量工作。记录确认该环境有单独的提取路径，未说明每个模型或会话的触发时机。{[M12]} |
-| 是否有 Claude Code 的 memory consolidation、`autoDream` 或 `/dream`？ | 截至核对的 v2.1.327 发布记录，Claude Code 的公开 memory、命令和设置文档未给出这些功能的公开启用方式、默认值或调度规则。索引接近上限时提示 Claude 整理，属于文档确认的行为；静态 Dream 模板另见下文。{[M3]}{[M4]}{[M12]}{[M13]} |
-| 是否有 remote memory？ | v2.1.172 的发布记录修复了远程会话访问已挂载的团队记忆库（`CLAUDE_MEMORY_STORES`）时的召回问题；v2.1.69 也提到过 memory sync 的文件处理优化。公开资料未给出普通 CLI 用户的启用条件、同步范围和冲突处理方式。本地仓库的 auto memory 仍按官方文档所述保存在本机。Remote Control 连接同一个本地运行的会话，云端新会话则在另一套环境运行。{[M3]}{[M12]}{[M14]} |
+| 是否有 auto memory 提取流程？ | **近 3 个月。** v2.1.323（2026-11-12）的发布记录确认 Anthropic 托管的云端会话有单独的 auto memory extraction（记忆提取）路径。从该版本起，`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` 继续控制云端主会话的压缩阈值；记忆提取的阈值独立于这个变量。各模型和会话的具体触发时机仍待核实。{[M12]} |
+| 是否有 Claude Code 的 memory consolidation、`autoDream` 或 `/dream`？ | **现行官方文档（2026-11-18 核对）。** 文档确认索引接近上限时会提示 Claude 整理。`autoDream` 和 `/dream` 的公开启用方式、默认值和调度规则仍待官方资料确认（发布记录核对至 v2.1.327）。静态 Dream 模板另见下文。{[M3]}{[M4]}{[M11]}{[M12]}{[M13]} |
+| 是否有 remote memory？ | **超过 3 个月；历史记录。** v2.1.69（2026-03-04）提到 memory sync 的文件处理优化；v2.1.172（2026-06-10）修复远程会话访问已挂载的团队记忆库（`CLAUDE_MEMORY_STORES`）时的召回问题。旧记录可用来了解当时的场景；普通 CLI 是否跨环境共享，以 **现行官方文档（2026-11-18 核对）** 为准：auto memory 留在本机上。Remote Control 连接本机运行的同一个会话，云端新会话在另一套环境中运行。{[M3]}{[M12]}{[M14]} |
 
-### Piebald-AI 的 v2.1.326 静态快照
+### Piebald-AI 的 v2.1.327 静态快照
 
-下列内容来自 Piebald-AI 的 `v2.1.326` 标签。快照包含不同版本开始收录或更新的提示词片段，以及由运行时填写的变量。它们描述选中该提示词路径时的指令，具体的路由条件与触发频率仍需按客户端版本和会话核实。{[M13]}
+**近 3 个月。** Piebald-AI 的 v2.1.327 快照发布于 **2026-11-17**，来源附有存档提交。下列片段与 v2.1.326 快照中对应的文件内容相同。每条括号中列出片段标注的版本（`ccVersion`）及该版本在 npm 的发布日期。快照用于查看提示词中的指令和变量；功能何时启用以及如何选择模板，以官方说明和实际会话为准。{[M13]}{[M17]}
 
-- **分类和文件组织。** `Memory instructions` 要求每个文件保存一条事实，以 `name` 和 `description` 供召回时判断相关性。模板列出 `user`、`feedback`、`project` 和 `reference`；对反馈与项目类条目，要求写明原因及适用方式。{[M13]}
-- **何时收集。** `memory_write update triggers and timing` 在采用该工具提示词时，要求在处理持久纠正、持续偏好或可复用的环境变化的同一回复中写入，排除只对当前任务适用的要求和短暂状态。另一个 `Memory extraction recent context only` 提醒提取子代理只考虑最近的若干消息，消息数量在模板中是变量。{[M13]}
-- **召回与整理。** 快照中的记忆选择器要求根据文件名和描述选出明确有用的文件，最多返回 5 个，也可以返回空列表。`Dream memory consolidation` 模板则要求先检查已有笔记，必要时定向查找 transcript，再合并重复内容、更新过时事实和整理索引。模板中存在团队记忆条件分支，部署情况仍以官方文档和发布记录为准。{[M13]}
+- **分类和文件组织。** `Memory instructions`（片段标注的版本 v2.1.326，2026-11-16；**近 3 个月**）要求每个文件保存一条事实，以 `name` 和 `description` 供召回时判断相关性。模板列出记忆类型（`user`、`feedback`、`project` 和 `reference`）；对反馈与项目类条目，要求写明原因及适用方式。{[M13]}
+- **写入时机。** `memory_write update triggers and timing`（片段标注的版本 v2.1.224，2026-08-07；**超过 3 个月；v2.1.327 快照仍收录**）要求在处理持久纠正、持续偏好或可复用的环境变化的同一回复中写入，排除只对当前任务适用的要求和短暂状态。{[M13]}
+- **提取范围。** `Memory extraction recent context only`（片段标注的版本 v2.1.173，2026-06-11；**超过 3 个月；v2.1.327 快照仍收录**）提醒提取子代理只考虑最近的若干消息，消息数量由模板变量传入。{[M13]}
+- **召回。** 记忆选择器（片段标注的版本 v2.1.287，2026-10-01；**近 3 个月**）要求根据文件名和描述选出明确有用的文件，最多返回 5 个，也可以返回空列表。{[M13]}
+- **整理。** `Dream memory consolidation`（片段标注的版本 v2.1.296，2026-10-09；**近 3 个月**）是 Claude Code 快照中的整理模板。它要求先检查已有笔记，必要时定向查找 transcript，再合并重复内容、更新过时事实和整理索引。模板中有团队记忆的条件分支，部署情况仍以官方文档和发布记录为准。Claude Managed Agents 的 Dreams 是另有官方文档的平台功能，见下一节。{[M13]}{[M16]}
 
 ## 与 API 和 prompt cache 的区别
+
+以下功能依据 **现行官方文档（2026-11-18 核对）**。Messages API 的工具类型标识和 Managed Agents 的 beta header 用于 API 请求；本节按文档核对日标注时效。{[M10]}{[M15]}{[M16]}
 
 | 名称 | 保存或复用的是什么 |
 | --- | --- |
@@ -205,8 +238,12 @@ metadata:
 - **[M9]** Anthropic，Explore the .claude directory：[应用数据](https://code.claude.com/docs/en/claude-directory#application-data)、[自动清理和保留期](https://code.claude.com/docs/en/claude-directory#cleaned-up-automatically)、[清除本地数据](https://code.claude.com/docs/en/claude-directory#clear-local-data)。
 - **[M10]** Anthropic，How Claude Code uses prompt caching：[请求层次](https://code.claude.com/docs/en/prompt-caching#how-the-cache-is-organized)、[压缩与缓存](https://code.claude.com/docs/en/prompt-caching#compacting-the-conversation)、[会话中修改 CLAUDE.md](https://code.claude.com/docs/en/prompt-caching#editing-claude-md-mid-session)、[缓存的有效期](https://code.claude.com/docs/en/prompt-caching#cache-lifetime)。
 - **[M11]** Anthropic，[命令参考](https://code.claude.com/docs/en/commands#all-commands)。
-- **[M12]** Anthropic，Claude Code 发布记录：[v2.1.59：auto memory 与 `/memory`](https://github.com/anthropics/claude-code/releases/tag/v2.1.59)、[v2.1.69：memory sync](https://github.com/anthropics/claude-code/releases/tag/v2.1.69)、[v2.1.83：索引的字节限制](https://github.com/anthropics/claude-code/releases/tag/v2.1.83)、[v2.1.172：远程会话的团队记忆库](https://github.com/anthropics/claude-code/releases/tag/v2.1.172)、[v2.1.323：云端记忆提取](https://github.com/anthropics/claude-code/releases/tag/v2.1.323)、[v2.1.327：本次核对的最近版本](https://github.com/anthropics/claude-code/releases/tag/v2.1.327)。
-- **[M13]** Piebald-AI，`v2.1.326` 静态快照：[Memory instructions](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.326/system-prompts/system-prompt-memory-instructions.md)、[写入时机](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.326/system-prompts/tool-description-memory-write-update-triggers-and-timing.md)、[提取采用近段历史](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.326/system-prompts/system-reminder-memory-extraction-recent-context-only.md)、[召回选择器](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.326/system-prompts/agent-prompt-determine-which-memory-files-to-attach.md)、[Dream 整理模板](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.326/system-prompts/agent-prompt-dream-memory-consolidation.md)。
+- **[M12]** Anthropic，Claude Code 发布记录（[v2.1.327：核对时的最新公开 release](https://github.com/anthropics/claude-code/releases/tag/v2.1.327)）：
+  - 本地 memory 和目录：[v2.1.33：subagent 的 `memory` 字段](https://github.com/anthropics/claude-code/releases/tag/v2.1.33)；[v2.1.59：auto memory 与 `/memory`](https://github.com/anthropics/claude-code/releases/tag/v2.1.59)；[v2.1.83：索引的字节限制](https://github.com/anthropics/claude-code/releases/tag/v2.1.83)；[v2.1.234：自定义项目目录名](https://github.com/anthropics/claude-code/releases/tag/v2.1.234)。
+  - 项目指令和压缩：[v2.1.277：直接读取 `AGENTS.md`](https://github.com/anthropics/claude-code/releases/tag/v2.1.277)；[v2.1.281：扩大 `AGENTS.md` 的适用范围](https://github.com/anthropics/claude-code/releases/tag/v2.1.281)；[v2.1.309：按需指令的大小限制](https://github.com/anthropics/claude-code/releases/tag/v2.1.309)；[v2.1.311：自动压缩后重载旧内容的修复](https://github.com/anthropics/claude-code/releases/tag/v2.1.311)。
+  - 云端和远程会话：[v2.1.323：云端记忆提取](https://github.com/anthropics/claude-code/releases/tag/v2.1.323)；[v2.1.69：memory sync 的旧记录](https://github.com/anthropics/claude-code/releases/tag/v2.1.69)；[v2.1.172：远程会话团队记忆库的旧记录](https://github.com/anthropics/claude-code/releases/tag/v2.1.172)。
+- **[M13]** Piebald-AI，[v2.1.327 静态快照](https://github.com/Piebald-AI/claude-code-system-prompts/tree/v2.1.327)（2026-11-17，[存档提交](https://github.com/Piebald-AI/claude-code-system-prompts/commit/f212301d01a776b8a0406e90fe50657bd1ec30a0)）。片段来源：[Memory instructions](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.327/system-prompts/system-prompt-memory-instructions.md)；[写入时机](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.327/system-prompts/tool-description-memory-write-update-triggers-and-timing.md)；[提取采用近段历史](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.327/system-prompts/system-reminder-memory-extraction-recent-context-only.md)；[召回选择器](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.327/system-prompts/agent-prompt-determine-which-memory-files-to-attach.md)；[Dream 整理模板](https://raw.githubusercontent.com/Piebald-AI/claude-code-system-prompts/v2.1.327/system-prompts/agent-prompt-dream-memory-consolidation.md)。
 - **[M14]** Anthropic，[云端会话能读取哪些本地配置](https://code.claude.com/docs/en/cloud-environments#what-carries-over-from-your-setup)、[Remote Control 的本机运行方式](https://code.claude.com/docs/en/remote-control)、[自托管环境的配置](https://code.claude.com/docs/en/self-hosted-environments-configuration#how-each-sessions-config-is-assembled)。
 - **[M15]** Anthropic，Messages API：[Memory tool 的客户端读写](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool#how-it-works)、[启用工具](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool#getting-started)、[与 API compaction 配合使用](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool#using-with-compaction)。
 - **[M16]** Anthropic，Claude Managed Agents：[Using agent memory](https://platform.claude.com/docs/en/managed-agents/memory)、[Dreams 的输入与输出](https://platform.claude.com/docs/en/managed-agents/dreams#how-it-works)、[开放状态](https://platform.claude.com/docs/en/managed-agents/dreams#availability)。
+- **[M17]** npm，[`@anthropic-ai/claude-code` 的注册表元数据](https://registry.npmjs.org/@anthropic-ai%2fclaude-code)（`time`：各版本的发布日期；`dist-tags`：`latest` 和 `stable` 指向的版本）。
