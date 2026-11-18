@@ -51,6 +51,7 @@ export interface MemorySettings {
   enabled: boolean;
   autoIndex: boolean;
   proactive: boolean;
+  reviewEntries: boolean;
 }
 
 export interface GlobalMemorySettingsResponse {

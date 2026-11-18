@@ -603,6 +603,7 @@ html, body { color: var(--text); background: var(--bg); }
 .memory-filters, .memory-field-grid { display: grid; gap: 10px; }
 .memory-filters { grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); }
 .memory-field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.memory-field-note { margin: -4px 0 0; color: var(--muted); font-size: var(--fs-dense); line-height: 1.5; }
 .memory-content .dialog-field { min-width: 0; font-size: var(--fs-dense); }
 .memory-content .dialog-field :is(input, select, textarea) { min-width: 0; font-weight: 400; }
 .memory-editor, .memory-form, .memory-form fieldset, .memory-fields { min-width: 0; display: grid; gap: 12px; }

@@ -8,6 +8,7 @@ import "./MemorySettings.css";
 const fields = [
   { key: "enabled", label: "Enable Memory", description: "Give the main Session access to Workspace Memory." },
   { key: "autoIndex", label: "Include short index", description: "Attach a short index of relevant entries to model requests." },
+  { key: "reviewEntries", label: "Use entries needing review", description: "Let the main Session search, index and read entries that need review." },
   { key: "proactive", label: "Proactive suggestions", description: "Include the built-in prompt that encourages the agent to suggest useful memories." },
 ] as const;
 
@@ -155,7 +156,7 @@ export const MemorySettings = forwardRef<MemorySettingsHandle, MemorySettingsPro
     <section className="settings-section" aria-labelledby={`${scope}-overrides`}>
       <div className="settings-section-title"><Folder size={17} aria-hidden="true" /><div>
         <h3 id={`${scope}-overrides`}>Workspace overrides</h3>
-        <p>You can configure the short index and proactive suggestions at any time. They take effect when Memory is on for the Workspace.</p>
+        <p>You can configure the short index, review entries and proactive suggestions at any time. They take effect when Memory is on for the Workspace.</p>
       </div></div>
       {workspacesLoading ? <div className="settings-inline-loading" role="status"><LoaderCircle size={16} aria-hidden="true" />Loading Workspaces…</div> : !selected ? <p className="memory-settings-caption">Open a Workspace to configure overrides.</p> : <>
         <div className="settings-field memory-settings-workspace">

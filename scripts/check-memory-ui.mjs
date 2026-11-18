@@ -192,11 +192,12 @@ try {
   const workspaceSelect = overridesRegion.getByRole("button", { name: "Workspace", exact: true });
   const workspaceOptions = [workspace.name, inherited.name];
   const overrideLabels = { inherit: "Use global default", on: "On", off: "Off" };
-  const fields = { enabled: "Enable Memory", autoIndex: "Include short index", proactive: "Proactive suggestions" };
+  const fields = { enabled: "Enable Memory", autoIndex: "Include short index", reviewEntries: "Use entries needing review", proactive: "Proactive suggestions" };
   const defaultSwitch = (key) => defaultsRegion.getByRole("switch", { name: fields[key], exact: true });
   const workspaceChoice = (key) => overridesRegion.getByRole("button", { name: fields[key], exact: true });
-  const allOff = { enabled: false, autoIndex: false, proactive: false };
-  const allOn = { enabled: true, autoIndex: true, proactive: true };
+  const allOff = { enabled: false, autoIndex: false, proactive: false, reviewEntries: false };
+  const allOn = { enabled: true, autoIndex: true, proactive: true, reviewEntries: true };
+  const defaultsOff = { ...allOff, reviewEntries: true };
   const onOff = (value) => value ? "On" : "Off";
 
   async function readJson(url) {
@@ -311,12 +312,12 @@ try {
   }
 
   await expect(settingsTab).toHaveAttribute("aria-current", "page");
-  for (const key of Object.keys(fields)) await expect(defaultSwitch(key)).toHaveAttribute("aria-checked", "false");
-  await expectWorkspaceSettings(workspace, allOff, legacyChoices, { ...legacyChoices, proactive: false });
+  for (const key of Object.keys(fields)) await expect(defaultSwitch(key)).toHaveAttribute("aria-checked", String(defaultsOff[key]));
+  await expectWorkspaceSettings(workspace, defaultsOff, legacyChoices, { ...legacyChoices, proactive: false, reviewEntries: true });
   await expect(settings.locator("select")).toHaveCount(0);
   await chooseOption(workspaceSelect, workspaceOptions, inherited.name);
-  await expectWorkspaceSettings(inherited, allOff, {}, allOff);
-  await expectStableDefaultChange("enabled", { ...allOff, enabled: true });
+  await expectWorkspaceSettings(inherited, defaultsOff, {}, allOff);
+  await expectStableDefaultChange("enabled", { ...defaultsOff, enabled: true });
   for (const key of ["autoIndex", "proactive"]) {
     await defaultSwitch(key).click();
     await expect(defaultSwitch(key)).toHaveAttribute("aria-checked", "true");
@@ -341,13 +342,15 @@ try {
   await setOverride("autoIndex", "off", { enabled: true, autoIndex: false }, { ...allOn, autoIndex: false });
   await setOverride("enabled", "inherit", { autoIndex: false }, { ...allOn, autoIndex: false });
   await setOverride("proactive", "off", { autoIndex: false, proactive: false }, { ...allOn, autoIndex: false, proactive: false });
+  await setOverride("reviewEntries", "off", { autoIndex: false, proactive: false, reviewEntries: false }, { ...allOn, autoIndex: false, proactive: false, reviewEntries: false });
+  await setOverride("reviewEntries", "inherit", { autoIndex: false, proactive: false }, { ...allOn, autoIndex: false, proactive: false });
   await expect(promptRegion.getByRole("status")).toHaveText(`Not included for ${inherited.name}: proactive suggestions are off.`);
 
   await page.reload();
   await expect(page).toHaveURL(settingsUrl);
   await expect(settingsTab).toHaveAttribute("aria-current", "page");
   for (const key of Object.keys(fields)) await expect(defaultSwitch(key)).toHaveAttribute("aria-checked", "true");
-  await expectWorkspaceSettings(workspace, allOn, legacyChoices, { ...legacyChoices, proactive: true });
+  await expectWorkspaceSettings(workspace, allOn, legacyChoices, { ...legacyChoices, proactive: true, reviewEntries: true });
   assert.equal(await readFile(memoryPath, "utf8"), legacyFile);
   await chooseOption(workspaceSelect, workspaceOptions, inherited.name);
   await expectWorkspaceSettings(inherited, allOn, { autoIndex: false, proactive: false }, { ...allOn, autoIndex: false, proactive: false });
@@ -421,11 +424,26 @@ try {
   await expect(editor.getByRole("heading", { name: "Save selection to Memory" })).toBeVisible();
   await expect(editor.getByLabel("Body (Markdown)")).toHaveValue(selection);
   await resize(desktop);
+  const reviewDate = editor.getByLabel("Review after", { exact: true });
+  await expect(reviewDate).toHaveAttribute("placeholder", "yyyy/mm/dd");
+  await expect(reviewDate).toHaveValue("");
+  await expect(editor.getByText("After this date the entry shows Needs review and stays in Memory.", { exact: false })).toBeVisible();
+  await expectNoHorizontalOverflow(editor, "Memory editor");
+  await page.screenshot({ path: join(screenshots, "memory-editor-1280.png") });
+  await withNarrowViewportAndLargeText(async () => {
+    await expectNoHorizontalOverflow(editor, "Memory editor at maximum text size");
+    await page.screenshot({ path: join(screenshots, "memory-editor-320.png") });
+  });
+  await reviewDate.fill("2026/13/40");
   await editor.getByLabel("Title", { exact: true }).fill("Changelog style");
   await editor.getByLabel("Summary", { exact: true }).fill("Keep changelog notes brief");
   await editor.getByRole("button", { name: "Save to Memory", exact: true }).click();
+  await expect(editor.getByRole("alert")).toHaveText("Enter the review date as yyyy/mm/dd.");
+  await reviewDate.fill("2027/01/31");
+  await editor.getByRole("button", { name: "Save to Memory", exact: true }).click();
   const note = savedEntries.locator(".memory-entry").filter({ hasText: "Changelog style" });
   await expect(note).toBeVisible();
+  await expect(note.locator(".memory-source")).toContainText("Review after 2027/01/31");
   await note.getByRole("button", { name: "Archive", exact: true }).click();
   await expect(note.locator(".status-archived")).toBeVisible();
   await note.getByRole("button", { name: "Restore", exact: true }).click();

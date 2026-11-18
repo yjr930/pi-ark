@@ -67,19 +67,20 @@ async function checkMemorySettings() {
     assert.equal(response.statusCode, 200, response.body);
     return response.json();
   };
-  const off = { enabled: false, autoIndex: false, proactive: false };
-  const on = { enabled: true, autoIndex: true, proactive: true };
-  const inheritedOff = { defaults: off, overrides: {}, effective: off };
+  const off = { enabled: false, autoIndex: false, proactive: false, reviewEntries: false };
+  const on = { enabled: true, autoIndex: true, proactive: true, reviewEntries: true };
+  const defaultsOff = { ...off, reviewEntries: true };
+  const inheritedOff = { defaults: defaultsOff, overrides: {}, effective: off };
 
   try {
-    assert.deepEqual(await json(global), { defaults: off, prompt: MEMORY_PROACTIVE_PROMPT });
+    assert.deepEqual(await json(global), { defaults: defaultsOff, prompt: MEMORY_PROACTIVE_PROMPT });
     assert.deepEqual(await json(settingsPath(inherited)), inheritedOff);
     assert.deepEqual(await json(path(inherited)), disabled);
     assert.equal((await app.inject(`${path(inherited)}/export`)).statusCode, 200);
     assert.deepEqual((await write(settingsPath(inherited), {})).json(), inheritedOff);
     assert.deepEqual((await write(settingsPath(inherited), { enabled: null })).json(), inheritedOff);
     assert.equal((await write(`${path(inherited)}/entries`, base, "POST")).statusCode, 409);
-    for (const invalid of [[], null, { enabled: "true" }, { autoIndex: 1 }, { proactive: {} }, { entries: [] }, JSON.parse('{"__proto__":false}')]) {
+    for (const invalid of [[], null, { enabled: "true" }, { autoIndex: 1 }, { proactive: {} }, { reviewEntries: "yes" }, { entries: [] }, JSON.parse('{"__proto__":false}')]) {
       assert.equal((await write(global, invalid)).statusCode, 400);
       assert.equal((await write(settingsPath(inherited), invalid)).statusCode, 400);
     }
@@ -111,10 +112,20 @@ async function checkMemorySettings() {
     assert.deepEqual(preferences.agent.systemPrompt, append);
     assert.deepEqual(preferences.memory, on);
     assert.deepEqual(JSON.parse(await readFile(config.configPath, "utf8")).preferences.memory, on);
-    assert.deepEqual(await json(settingsPath(overridden)), { defaults: on, overrides: off, effective: off });
+    assert.deepEqual(await json(settingsPath(overridden)), { defaults: on, overrides: { enabled: false, autoIndex: false, proactive: false }, effective: off });
     assert.deepEqual((await write(settingsPath(overridden), { enabled: null, proactive: null })).json(), {
       defaults: on, overrides: { autoIndex: false }, effective: { ...on, autoIndex: false },
     });
+    assert.deepEqual((await write(settingsPath(overridden), { reviewEntries: false })).json(), {
+      defaults: on, overrides: { autoIndex: false, reviewEntries: false }, effective: { ...on, autoIndex: false, reviewEntries: false },
+    });
+    assert.deepEqual((await write(settingsPath(overridden), { reviewEntries: null })).json(), {
+      defaults: on, overrides: { autoIndex: false }, effective: { ...on, autoIndex: false },
+    });
+    assert.equal((await write(global, { reviewEntries: false })).json().defaults.reviewEntries, false);
+    assert.equal((await json(settingsPath(overridden))).effective.reviewEntries, false);
+    assert.equal((await write(global, { reviewEntries: true })).json().defaults.reviewEntries, true);
+    assert.equal((await json(settingsPath(overridden))).effective.reviewEntries, true);
 
     const inheritedOn = { defaults: on, overrides: {}, effective: on };
     assert.deepEqual(await json(settingsPath(inherited)), inheritedOn);
@@ -225,7 +236,7 @@ try {
   assert.deepEqual(initial.source, origin);
   assert.deepEqual((await memory.snapshot(store)).proposals, []);
   assert.deepEqual(await memory.recall(store, "MONTHLY reporting"), [
-    { id: initial.id, type: initial.type, title: initial.title, summary: initial.summary, tags: initial.tags },
+    { id: initial.id, type: initial.type, title: initial.title, summary: initial.summary, tags: initial.tags, status: "active" },
   ]);
   assert.equal((await memory.recall(store, "按到账日生成月度报表"))[0]?.id, initial.id);
   assert.equal((await memory.recall(store, "SETTLEMENT"))[0]?.id, initial.id);
@@ -276,9 +287,18 @@ try {
   const expired = (await memory.snapshot(store)).entries.find(({ id }) => id === initial.id)!;
   assert.equal(expired.status, "review");
   assert.equal(expired.revision, edit.value.revision);
+  assert.deepEqual(await memory.recall(store, "monthly"), [
+    { id: expired.id, type: expired.type, title: expired.title, summary: expired.summary, tags: expired.tags, status: "review", reviewAfter: expired.reviewAfter },
+  ]);
+  assert.deepEqual(JSON.parse((await memory.directory(store, "monthly"))!)[0], {
+    id: expired.id, type: expired.type, title: expired.title, summary: expired.summary, status: "review", reviewAfter: expired.reviewAfter!.slice(0, 10),
+  });
+  assert.equal((await memory.read(store, initial.id)).status, "review");
+  await memory.patchSettings(store, { reviewEntries: false });
   assert.deepEqual(await memory.recall(store, "monthly"), []);
   assert.equal(await memory.directory(store, "monthly"), undefined);
   await assert.rejects(memory.read(store, initial.id), status(404));
+  await memory.patchSettings(store, { reviewEntries: null });
   assert.equal((await memory.read(store, notebook.id)).status, "active");
   const verified = await memory.update(store, initial.id, { ...replacement.draft, revision: expired.revision, reverify: true });
   assert.equal(verified.status, "active");

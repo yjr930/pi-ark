@@ -40,7 +40,7 @@ export interface MemoryProposal {
   createdAt: string;
   entryId?: string;
 }
-export type MemoryMetadata = Pick<MemoryEntry, "id" | "type" | "title" | "summary" | "tags">;
+export type MemoryMetadata = Pick<MemoryEntry, "id" | "type" | "title" | "summary" | "tags" | "status" | "reviewAfter">;
 export interface MemorySnapshot {
   enabled: boolean;
   autoIndex: boolean;
@@ -290,14 +290,16 @@ function compareStable(a: MemoryEntry, b: MemoryEntry): number {
   if (a.updatedAt !== b.updatedAt) return a.updatedAt < b.updatedAt ? 1 : -1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
-function ranked(data: Store, query: string, now: Date) {
+function ranked(data: Store, query: string, now: Date, includeReview: boolean) {
   const terms = keywords(query);
-  return data.entries.filter((entry) => effectiveEntry(entry, now).status === "active").map((entry) => ({
-    entry, relevance: 4 * score([entry.title], terms) + 3 * score(entry.tags, terms) + score([entry.summary], terms),
-  }));
+  return data.entries.map((entry) => effectiveEntry(entry, now))
+    .filter((entry) => entry.status === "active" || (includeReview && entry.status === "review"))
+    .map((entry) => ({
+      entry, relevance: 4 * score([entry.title], terms) + 3 * score(entry.tags, terms) + score([entry.summary], terms),
+    }));
 }
-function metadata({ id, type, title, summary, tags }: MemoryEntry): MemoryMetadata {
-  return { id, type, title, summary, tags };
+function metadata({ id, type, title, summary, tags, status, reviewAfter }: MemoryEntry): MemoryMetadata {
+  return { id, type, title, summary, tags, status, ...(status === "review" && reviewAfter ? { reviewAfter } : {}) };
 }
 function promptJson(value: unknown): string {
   return JSON.stringify(value).replace(/[<>\p{Cc}\p{Cf}\u2028\u2029]/gu, (character) => character.split("").map((unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`).join(""));
@@ -526,7 +528,7 @@ export class WorkspaceMemory {
     if (storeId === undefined) return [];
     const { data, settings } = await this.loadWithSettings(this.path(storeId));
     if (!settings.effective.enabled) return [];
-    return ranked(data, query, this.clock()).filter(({ relevance }) => relevance > 0)
+    return ranked(data, query, this.clock(), settings.effective.reviewEntries).filter(({ relevance }) => relevance > 0)
       .sort((a, b) => b.relevance - a.relevance || compareStable(a.entry, b.entry)).slice(0, 5).map(({ entry }) => metadata(entry));
   }
 
@@ -534,7 +536,7 @@ export class WorkspaceMemory {
     const { data, settings } = await this.loadWithSettings(this.path(storeId));
     requireEnabled(settings.effective);
     const entry = effectiveEntry(data.entries[entryIndex(data, entryId)], this.clock());
-    if (entry.status !== "active") throw error(404, "Active Memory entry not found");
+    if (entry.status === "archived" || (entry.status === "review" && !settings.effective.reviewEntries)) throw error(404, "Memory entry is not available for recall");
     return entry;
   }
 
@@ -542,12 +544,15 @@ export class WorkspaceMemory {
     if (storeId === undefined) return undefined;
     const { data, settings } = await this.loadWithSettings(this.path(storeId));
     if (!settings.effective.autoIndex) return undefined;
-    const selected = ranked(data, query, this.clock()).filter(({ entry, relevance }) => entry.pinned || relevance > 0)
+    const selected = ranked(data, query, this.clock(), settings.effective.reviewEntries).filter(({ entry, relevance }) => entry.pinned || relevance > 0)
       .sort((a, b) => Number(b.entry.pinned) - Number(a.entry.pinned) || b.relevance - a.relevance || compareStable(a.entry, b.entry));
     const lines: string[] = [];
     let bytes = 2; // JSON array delimiters.
-    for (const { entry: { id, type, title, summary } } of selected.slice(0, 8)) {
-      const line = promptJson({ id, type, title: shortPromptText(title, 160), summary: shortPromptText(summary, 320) });
+    for (const { entry: { id, type, title, summary, status, reviewAfter } } of selected.slice(0, 8)) {
+      const line = promptJson({
+        id, type, title: shortPromptText(title, 160), summary: shortPromptText(summary, 320), status,
+        ...(status === "review" && reviewAfter ? { reviewAfter: reviewAfter.slice(0, 10) } : {}),
+      });
       const next = Buffer.byteLength(line) + (lines.length ? 2 : 0);
       if (bytes + next > DIRECTORY_BYTES) break;
       lines.push(line);

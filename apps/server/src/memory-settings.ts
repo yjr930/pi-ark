@@ -2,6 +2,7 @@ export interface MemorySettings {
   enabled: boolean;
   autoIndex: boolean;
   proactive: boolean;
+  reviewEntries: boolean;
 }
 
 export interface WorkspaceMemorySettings {
@@ -11,10 +12,10 @@ export interface WorkspaceMemorySettings {
 }
 
 export type MemorySettingsPatch = { [K in keyof MemorySettings]?: boolean | null };
-export const MEMORY_SETTING_KEYS = ["enabled", "autoIndex", "proactive"] as const;
+export const MEMORY_SETTING_KEYS = ["enabled", "autoIndex", "proactive", "reviewEntries"] as const;
 
 export function normalizeMemoryDefaults(input?: unknown): MemorySettings {
-  const defaults = { enabled: false, autoIndex: false, proactive: false };
+  const defaults = { enabled: false, autoIndex: false, proactive: false, reviewEntries: true };
   if (input && typeof input === "object") {
     for (const key of MEMORY_SETTING_KEYS) {
       if (!Object.hasOwn(input, key)) continue;
@@ -57,6 +58,6 @@ export function validateLegacyMemorySettings(input: unknown): Pick<MemorySetting
 }
 
 export function effectiveMemorySettings(defaults: MemorySettings, overrides: Partial<MemorySettings>): MemorySettings {
-  const { enabled, autoIndex, proactive } = { ...defaults, ...overrides };
-  return { enabled, autoIndex: enabled && autoIndex, proactive: enabled && proactive };
+  const { enabled, autoIndex, proactive, reviewEntries } = { ...defaults, ...overrides };
+  return { enabled, autoIndex: enabled && autoIndex, proactive: enabled && proactive, reviewEntries: enabled && reviewEntries };
 }

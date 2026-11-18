@@ -273,7 +273,7 @@ Composer 将 `/reload` 作为会话操作提交给 [Session HTTP API](#session)�
 
 设置变更在主 Session 的下一轮启动时应用于工具与提示词。工具执行时仍按当前 Workspace 的注册记录和启用状态校验。子 Session 沿用原有工具与上下文；Global system prompt 预览继续展示基础指令。Settings → Memory 单独展示内置的主动提议段落和所选 Workspace 的生效状态。
 
-Memory 与短索引均启用时，`context_with_system` 把上限为 8 条、2 KiB UTF-8 的 JSON 目录作为参考数据附在最近一条 user message 的请求副本里，保留系统提示词、工具定义及消息顺序。目录仅用于本次请求；普通的 Memory 工具结果仍进入会话历史。Agent 按标题、摘要和标签查询，并用 `memory_read` 获取生效条目的正文。禁用、归档或删除影响后续召回。详见 [Memory 设计](design-memory.md)。
+Memory 与短索引均启用时，`context_with_system` 把上限为 8 条、2 KiB UTF-8 的 JSON 目录作为参考数据附在最近一条 user message 的请求副本里，保留系统提示词、工具定义及消息顺序。目录仅用于本次请求；普通的 Memory 工具结果仍进入会话历史。Agent 按标题、摘要和标签查询，并用 `memory_read` 获取条目正文。待复核条目默认同生效条目一起返回，并带上 `status` 与 `reviewAfter`，提醒 Agent 先核对现行资料；关闭 **Use entries needing review** 后，搜索、目录和正文读取都跳过待复核条目。禁用、归档或删除影响后续召回。详见 [Memory 设计](design-memory.md)。
 
 建议要可追溯到实际消息。Server 用当前 Session 的短 Message ID 和活动分支生成 `pi-ark://` 来源。确认与来源检查比较保存的分支记录和当前活动分支。已删除的来源触发待复核；历史分支仍可读，但确认建议时需要用户认可。条目更新与删除比较 `revision`，确认操作可重复请求。
 
@@ -594,7 +594,7 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
       "disabledGlobal": [],
       "disabledWorkspace": {}
     },
-    "memory": { "enabled": false, "autoIndex": false, "proactive": false }
+    "memory": { "enabled": false, "autoIndex": false, "proactive": false, "reviewEntries": true }
   }
 }
 ```
@@ -647,7 +647,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | `PI_ARK_AGENT_DIR/SYSTEM.md` | 可选 Global replacement prompt |
 | `PI_ARK_AGENT_DIR/APPEND_SYSTEM.md` | 可选 Global append prompt |
 
-Memory 的全局默认值保存在 `preferences.memory`，包含布尔字段（`enabled`、`autoIndex` 和 `proactive`）。Workspace 文件在 `overrides` 中保存显式覆盖值，缺失的覆盖字段继承全局默认值。读取没有 `overrides` 的旧版 v1 文件时，服务端将原有的 `enabled` 和 `autoIndex` 视为显式覆盖值。关闭 Memory 时，短索引和主动提议的生效值为 `false`，已保存的选择保持原值。
+Memory 的全局默认值保存在 `preferences.memory`，包含布尔字段（`enabled`、`autoIndex`、`proactive` 和 `reviewEntries`）。`reviewEntries` 控制 Agent 是否使用待复核条目，初始为开启，避免用户不常手动复核时 Memory 逐渐失去作用。Workspace 文件在 `overrides` 中保存显式覆盖值，缺失的覆盖字段继承全局默认值。读取没有 `overrides` 的旧版 v1 文件时，服务端将原有的 `enabled` 和 `autoIndex` 视为显式覆盖值。关闭 Memory 时，短索引、待复核条目和主动提议的生效值为 `false`，已保存的选择保持原值。
 
 Workspace 注册记录的 `memoryStoreId` 指向对应的 Memory 文件。新注册的 Workspace 继承全局默认值；若继承启用状态，首次写入条目或建议时分配存储标识。保存显式覆盖值也会按需分配存储标识。改名沿用该标识。
 
@@ -722,7 +722,7 @@ Terminal 使用 `pi-ark-terminal-appearance` 保存 `{ "fontFamily": "...", "fon
 | GET | `/api/workspaces/:workspaceId/download` | 原始文件 stream download；不执行 preview limit |
 | GET/PUT | `/api/workspaces/:workspaceId/notebook` | 读取或自动保存 Workspace Notebook |
 | GET | `/api/workspaces/:workspaceId/memory` | 读取生效的 `enabled` 与 `autoIndex`，以及条目与建议 |
-| GET/PATCH | `/api/workspaces/:workspaceId/memory/settings` | 返回 `{ defaults, overrides, effective }`，依次为全局默认值、显式覆盖值和 Workspace 的生效值。PATCH 支持部分字段（`enabled`、`autoIndex` 和 `proactive`）；布尔值写入覆盖，`null` 清除覆盖以恢复继承，省略字段保持原值 |
+| GET/PATCH | `/api/workspaces/:workspaceId/memory/settings` | 返回 `{ defaults, overrides, effective }`，依次为全局默认值、显式覆盖值和 Workspace 的生效值。PATCH 支持部分字段（`enabled`、`autoIndex`、`proactive` 和 `reviewEntries`）；布尔值写入覆盖，`null` 清除覆盖以恢复继承，省略字段保持原值 |
 | PUT | `/api/workspaces/:workspaceId/memory/settings` | 兼容旧客户端，接收 `enabled` 和 `autoIndex` 布尔值，将二者写为覆盖并返回与条目列表 GET 相同的结构 |
 | POST/PATCH/DELETE | `/api/workspaces/:workspaceId/memory/entries`；编辑和删除后接 `/:entryId` | 新建、修订或删除条目；删除传入 `revision` |
 | POST | `/api/workspaces/:workspaceId/memory/entries/:entryId/check-source` | 检查消息来源；来源失效时标为待复核 |
@@ -768,7 +768,7 @@ interface TerminalInfo {
 | DELETE | `/api/settings/providers/:providerId/credential` | 删除指定 Provider 的保存 credential |
 | GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |
 | GET/PUT | `/api/settings/system-prompt` | 读取 effective prompt preview，或保存 Global append |
-| GET/PATCH | `/api/settings/memory` | 返回 `{ defaults, prompt }`（`prompt` 为内置的主动提议提示词）。PATCH 支持部分布尔字段（`enabled`、`autoIndex`、`proactive`），省略字段保持原值 |
+| GET/PATCH | `/api/settings/memory` | 返回 `{ defaults, prompt }`（`prompt` 为内置的主动提议提示词）。PATCH 支持部分布尔字段（`enabled`、`autoIndex`、`proactive` 和 `reviewEntries`），省略字段保持原值 |
 | GET/PUT | `/api/settings/preferences` | GET 返回归一化的共享 preferences（包含 `terminal` 和 `memory`）；PUT 使用仅含 `files` 的 payload 更新 Files preferences |
 | GET/PUT | `/api/settings/terminal` | GET 与 PUT 均返回 `{ settings, profiles, platform }`；PUT body 为 `{ shell, executable, args, env }`，保存 Global Terminal 设置 |
 | GET | `/api/settings/release` | Pi-Ark、bundled pi core、安装状态、路径、命令和 latest release |

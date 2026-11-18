@@ -2,7 +2,7 @@ import { Archive, ArchiveRestore, BookOpen, Download, LoaderCircle, Pencil, Pin,
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../api";
 import type { MemoryDraft, MemoryEntry, MemoryEntryPatch, MemoryProposal, MemorySnapshot, MemoryStatus, MemoryType, Workspace } from "../types";
-import { cleanMemoryDraft, draftFromMemoryEntry, emptyMemoryDraft, memoryError, MemoryDraftFields, MemorySourceLink, memoryStatuses, memoryTypes } from "./MemoryDraftFields";
+import { cleanMemoryDraft, draftFromMemoryEntry, emptyMemoryDraft, memoryError, MemoryDraftFields, MemorySourceLink, memoryStatuses, memoryTypes, reviewDateText } from "./MemoryDraftFields";
 import { MemoryProposalReview } from "./MemoryProposalReview";
 
 type EntryEditorState = { kind: "create"; notebookText?: string } | { kind: "edit"; entry: MemoryEntry };
@@ -24,7 +24,7 @@ function EntryEditor({ editor, enabled, busy, failure, onSave, onClose, onReload
   const canSave = !busy && (enabled || !!entry) && !failure?.conflict;
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (canSave) onSave({ ...draft, reviewAfter: entry && draft.reviewAfter === entry.reviewAfter ? undefined : draft.reviewAfter }, { status: status === entry?.status ? undefined : status, reverify: reverify || undefined, changeReason: reason.trim() || undefined });
+    if (canSave) onSave({ ...draft, reviewAfter: entry && reviewDateText(draft.reviewAfter) === reviewDateText(entry.reviewAfter) ? undefined : draft.reviewAfter }, { status: status === entry?.status ? undefined : status, reverify: reverify || undefined, changeReason: reason.trim() || undefined });
   }
   return <form className="memory-panel memory-editor memory-form" onSubmit={submit}>
     <h3>{entry ? "Edit memory" : fromNotebook ? "Save selection to Memory" : "New memory entry"}</h3>
@@ -62,7 +62,7 @@ function EntryCard({ entry, busy, sourceAvailable, onEdit, onDelete, onCheck, on
       </div>
     </details>
     <div className="memory-entry-footer">
-      <div className="memory-source"><MemorySourceLink source={entry.source} unavailable={sourceAvailable === false} onOpenNotebook={onOpenNotebook} />{entry.source.kind === "message" && <button type="button" disabled={busy} onClick={onCheck}>Check source</button>}{entry.reviewAfter && <span>Review after <time dateTime={entry.reviewAfter}>{entry.reviewAfter.slice(0, 10)}</time></span>}</div>
+      <div className="memory-source"><MemorySourceLink source={entry.source} unavailable={sourceAvailable === false} onOpenNotebook={onOpenNotebook} />{entry.source.kind === "message" && <button type="button" disabled={busy} onClick={onCheck}>Check source</button>}{entry.reviewAfter && <span>Review after <time dateTime={entry.reviewAfter}>{reviewDateText(entry.reviewAfter)}</time></span>}</div>
       <div className="memory-actions">
         <button type="button" className="secondary-button" disabled={busy} onClick={onEdit}><Pencil size={14} />Edit</button>
         {entry.status === "archived" ? <button type="button" className="secondary-button" disabled={busy} onClick={() => onChangeStatus("active")}><ArchiveRestore size={14} />Restore</button> : <button type="button" className="secondary-button" disabled={busy} onClick={() => onChangeStatus("archived")}><Archive size={14} />Archive</button>}

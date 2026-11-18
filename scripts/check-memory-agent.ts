@@ -84,7 +84,7 @@ try {
   await agents.prompt(workspace, first.id, "Workspace Memory is off");
   assert.equal(first.requests[0].tools.includes("memory_propose"), false);
   assert.equal(first.requests[0].guide, undefined);
-  assert.deepEqual((await app.inject(defaults)).json(), { defaults: { enabled: false, autoIndex: false, proactive: false }, prompt: MEMORY_PROACTIVE_PROMPT });
+  assert.deepEqual((await app.inject(defaults)).json(), { defaults: { enabled: false, autoIndex: false, proactive: false, reviewEntries: true }, prompt: MEMORY_PROACTIVE_PROMPT });
   assert.equal((await app.inject(base)).json().enabled, false);
   assert.equal(workspaces.get(workspace.id).memoryStoreId, undefined);
 

@@ -40,7 +40,7 @@ try {
   const defaults = await config.loadGlobalPreferences();
   assert.deepEqual(defaults.agent, { systemPrompt: { append: "" } });
   assert.deepEqual(defaults.files, { showHiddenFiles: true, maxPreviewSizeMb: 10 });
-  assert.deepEqual(defaults.memory, { enabled: false, autoIndex: false, proactive: false });
+  assert.deepEqual(defaults.memory, { enabled: false, autoIndex: false, proactive: false, reviewEntries: true });
   await Promise.all([
     config.saveWorkspaceDefinitions([{ ...workspace, name: "Queued workspace" }, otherWorkspace]),
     config.saveGlobalSystemPrompt({ append: "Shared instructions" }),

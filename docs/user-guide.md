@@ -329,7 +329,7 @@ Session row 会显示当前状态：旋转图标表示 Agent 正在运行；绿�
 3. 在聊天中说「请记住：以后月报按到账日统计，因为要与银行流水对账」。Agent 提出建议后，点击聊天里的 **Review memory**，也可以从 Memory 页的 **Pending suggestions** 打开。检查内容和来源后，选择新建条目或更新已有条目，再确认保存。来自历史分支的建议需要额外确认来源。
 4. 可以新建 Session 并请 Agent 查阅 Workspace 的经验，例如「按我们记下的口径整理月报」。Memory 页可搜索、编辑、归档、恢复或删除条目，也可通过 **Open source message** 查看原消息。通过 **Export Markdown** 可以下载条目副本。
 
-项目事实默认在确认后的 90 天到期复核。归档和待复核的条目会从 Agent 的召回结果中移除；在 Memory 页面可查看和更新这些条目。关闭 Memory 保留条目，停止向 Agent 提供新的读取结果。已经出现在原 Session 的消息与工具结果继续保存在该 Session。
+条目的 **Review after** 按 `yyyy/mm/dd` 填写，留空表示不设复核日期；新增的项目事实默认在保存后的 90 天到期复核。到期后条目显示 **Needs review** 并保留在 Memory 中，主 Session 默认仍可把它当作需要核对的参考读取。归档条目会从 Agent 的召回结果中移除。关闭 **Use entries needing review** 后，Agent 不再搜索、索引或读取待复核条目。关闭 Memory 保留条目，停止向 Agent 提供新的读取结果。已经出现在原 Session 的消息与工具结果继续保存在该 Session。
 
 ### 打开内部链接
 

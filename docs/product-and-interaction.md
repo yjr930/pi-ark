@@ -83,7 +83,7 @@ Session 列表上方并列显示 Notebook 和 Memory。两个快捷入口在选�
 
 ### Workspace Memory
 
-**Memory** 展示当前 Workspace 的长期经验。页面使用紧凑的页头，条目卡片通过字号和间距区分标题、摘要及元数据，便于查看类型、状态和来源。页头单独提供 **Memory settings** 按钮，点击后进入 [Settings → Memory](#memory) 并选中当前 Workspace。列表保留搜索与筛选（类型、状态），并提供条目编辑、置顶、复核、归档、删除和导出。Notebook 里选中文本会显示 **Save to Memory**。点击后进入预填正文的草稿，用户保存后才添加条目。
+**Memory** 展示当前 Workspace 的长期经验。页面使用紧凑的页头，条目卡片通过字号和间距区分标题、摘要及元数据，便于查看类型、状态和来源。页头单独提供 **Memory settings** 按钮，点击后进入 [Settings → Memory](#memory) 并选中当前 Workspace。列表保留搜索与筛选（类型、状态），并提供条目编辑、置顶、复核、归档、删除和导出。编辑框的 **Review after** 按 `yyyy/mm/dd` 输入，字段下方说明到期后条目显示 **Needs review** 并保留在 Memory 中。Notebook 里选中文本会显示 **Save to Memory**。点击后进入预填正文的草稿，用户保存后才添加条目。
 
 主 Session 的 Agent 可以提出保存建议。聊天的工具结果显示 **Review memory**，点击后进入建议审阅。Memory 页也列出仍待确认的建议。用户可查看来源、修改内容、驳回建议，或选择新建条目与更新现有条目。来自历史分支的建议要确认已复核来源。普通工具结果展示读取记录；切换 Workspace 后显示该 Workspace 的独立列表。
 
@@ -281,7 +281,7 @@ Update Pi-Ark 根据当前操作系统与 architecture 安装完整的 release a
 
 ### Memory
 
-**Settings → Memory** 集中配置三个选项（**Enable Memory**、**Include short index**、**Proactive suggestions**），全局初始值均为关闭。用户可选择 Workspace，为每个选项分别指定继承全局、开启或关闭。Workspace 选择器与覆盖选项使用 Pi-Ark 的共用下拉菜单。展开覆盖选项的菜单时，菜单可以加宽以完整显示 **Use global default**。选项旁显示全局默认值和所选 Workspace 的生效值。保存提示位于设置组底部，开关和设置行保持原位。窄屏时，分类栏会滚动到当前类别的标签。
+**Settings → Memory** 集中配置四个选项（**Enable Memory**、**Include short index**、**Use entries needing review**、**Proactive suggestions**）。初始状态为 Memory 关闭、短索引关闭、Agent 使用待复核条目、主动提议关闭。用户可选择 Workspace，为每个选项分别指定继承全局、开启或关闭。Workspace 选择器与覆盖选项使用 Pi-Ark 的共用下拉菜单。展开覆盖选项的菜单时，菜单可以加宽以完整显示 **Use global default**。选项旁显示全局默认值和所选 Workspace 的生效值。保存提示位于设置组底部，开关和设置行保持原位。窄屏时，分类栏会滚动到当前类别的标签。
 
 展开 **Proactive suggestion prompt** 可查看 Pi-Ark 内置的主动提议提示词。页面标明该段是否在所选 Workspace 的主 Session 中生效。**Enable Memory** 和 **Proactive suggestions** 均开启时，该段会在主 Session 的下一轮加入。短索引独立配置，建议仍由用户审阅并确认。
 
