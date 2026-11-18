@@ -38,6 +38,12 @@
   flex: none;
 }
 
+.memory-settings .memory-settings-override .ark-select-menu {
+  left: auto;
+  width: max-content;
+  min-width: 100%;
+}
+
 .memory-settings-values {
   overflow: hidden;
   white-space: nowrap;

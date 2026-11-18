@@ -54,6 +54,22 @@ async function resize(viewport) {
   if (viewport !== desktop) await expect(page.locator(".sidebar")).not.toBeInViewport({ ratio: 0.001 });
 }
 
+async function withNarrowViewportAndLargeText(check) {
+  await resize(narrowMobile);
+  const fontScale = await page.evaluate(() => {
+    const style = document.documentElement.style;
+    const previous = style.getPropertyValue("--fs-scale");
+    style.setProperty("--fs-scale", "1.3");
+    return previous;
+  });
+  try {
+    await check();
+  } finally {
+    await page.evaluate((previous) => document.documentElement.style.setProperty("--fs-scale", previous), fontScale);
+    await resize(desktop);
+  }
+}
+
 async function openSelect(trigger, options) {
   await expect(trigger).toHaveClass(/\bark-select-trigger\b/);
   await expect(trigger).toHaveAttribute("aria-haspopup", "listbox");
@@ -203,6 +219,34 @@ try {
     await expectWorkspaceSettings(inherited, allOn, overrides, effective);
   }
 
+  async function expectFullOverrideLabel(trigger) {
+    await expect(trigger).toHaveText(overrideLabels.on);
+    const closedWidth = (await trigger.boundingBox()).width;
+    const menu = await openSelect(trigger, Object.values(overrideLabels));
+    const label = menu.getByRole("option", { name: overrideLabels.inherit, exact: true }).locator(".ark-select-copy > strong");
+    await expect(label).toBeVisible();
+    const { clientWidth, scrollWidth } = await label.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
+    const triggerBox = await trigger.boundingBox();
+    const menuBox = await menu.boundingBox();
+    const rightOffset = menuBox.x + menuBox.width - triggerBox.x - triggerBox.width;
+    const { width } = page.viewportSize();
+    const context = `Memory override menu at ${width}px with On selected`;
+    const tolerance = 1; // CSS pixel rounding between clientWidth and scrollWidth.
+    assert.ok(clientWidth > 0 && scrollWidth <= clientWidth + tolerance, `${context}: ${overrideLabels.inherit} needs ${scrollWidth}px but has ${clientWidth}px`);
+    assert.ok(Math.abs(triggerBox.width - closedWidth) <= tolerance, `${context}: trigger width changed from ${closedWidth}px to ${triggerBox.width}px`);
+    assert.ok(menuBox.width + tolerance >= triggerBox.width, `${context}: popup is narrower than the trigger`);
+    assert.ok(Math.abs(rightOffset) <= tolerance, `${context}: popup right edge differs from the trigger by ${rightOffset}px`);
+    await expectNoHorizontalOverflow(settingsContent, context);
+    await expectNoHorizontalOverflow(menu, context);
+    await menu.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await expect(menu).toBeInViewport({ ratio: 0.99 });
+    await menu.screenshot({ path: join(screenshots, `settings-override-menu-${width}.png`) });
+    await trigger.press("Escape");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(menu).toHaveCount(0);
+    console.log(`${context}: ${overrideLabels.inherit} text ${scrollWidth}px / ${clientWidth}px available; popup ${menuBox.width.toFixed(1)}px, trigger ${triggerBox.width.toFixed(1)}px; right-edge offset ${rightOffset.toFixed(1)}px.`);
+  }
+
   function measureSettingsRows() {
     return settingsContent.evaluate((panel) => {
       const contentTop = panel.getBoundingClientRect().top - panel.scrollTop;
@@ -278,22 +322,11 @@ try {
     await expect(defaultSwitch(key)).toHaveAttribute("aria-checked", "true");
   }
   await expectWorkspaceSettings(inherited, allOn, {}, allOn);
-  await resize(narrowMobile);
-  const fontScale = await page.evaluate(() => {
-    const style = document.documentElement.style;
-    const previous = style.getPropertyValue("--fs-scale");
-    style.setProperty("--fs-scale", "1.3");
-    return previous;
-  });
-  const defaultsWithMemoryOff = { ...allOn, enabled: false };
-  try {
-    await expectStableDefaultChange("enabled", defaultsWithMemoryOff);
+  await withNarrowViewportAndLargeText(async () => {
+    await expectStableDefaultChange("enabled", { ...allOn, enabled: false });
     await expectStableDefaultChange("enabled", allOn);
     await expectNoHorizontalOverflow(settingsContent, "Memory settings at maximum text size");
-  } finally {
-    await page.evaluate((previous) => document.documentElement.style.setProperty("--fs-scale", previous), fontScale);
-  }
-  await resize(desktop);
+  });
   const { defaults, prompt } = await readJson(defaultsApi);
   assert.deepEqual(defaults, allOn);
   assert.match(prompt, /use memory_propose in this turn/);
@@ -303,6 +336,8 @@ try {
   await expect(promptRegion.getByRole("status")).toHaveText(`Not included for ${inherited.name}: Memory is off.`);
   await setOverride("autoIndex", "on", { enabled: false, autoIndex: true }, allOff);
   await setOverride("enabled", "on", { enabled: true, autoIndex: true }, allOn);
+  await expectFullOverrideLabel(workspaceChoice("enabled"));
+  await withNarrowViewportAndLargeText(() => expectFullOverrideLabel(workspaceChoice("enabled")));
   await setOverride("autoIndex", "off", { enabled: true, autoIndex: false }, { ...allOn, autoIndex: false });
   await setOverride("enabled", "inherit", { autoIndex: false }, { ...allOn, autoIndex: false });
   await setOverride("proactive", "off", { autoIndex: false, proactive: false }, { ...allOn, autoIndex: false, proactive: false });
