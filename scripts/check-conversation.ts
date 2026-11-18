@@ -12,14 +12,19 @@ assert.equal(formatMessageTime(undefined), undefined);
 assert.equal(formatMessageTime(Number.NaN), undefined);
 
 const codemode: ContentBlock = { type: "toolCall", name: "codemode", arguments: { code: "text('tools.mcp__exa__web_search_exa({})');" } };
-const codemodeResult: AgentMessage = { role: "toolResult", toolName: "codemode", nestedCalls: { calls: [{ name: "mcp__exa__web_search_exa" }, { name: "read" }, { name: "mcp__exa__web_search_exa" }] } };
+const nestedNames = ["edit", "read", "mcp__exa__web_search_exa", "read"];
+const calls = nestedNames.map((name) => ({ name }));
+const codemodeResult: AgentMessage = { role: "toolResult", toolName: "codemode", nestedCalls: { calls } };
+const mixedLabel = "[codemode] edit | read | mcp@web_search_exa | read";
 assert.equal(toolCallLabel({ type: "toolCall", name: "mcp__playwright__browser_navigate" }), "mcp - browser_navigate");
 assert.equal(toolCallLabel(undefined, { role: "toolResult", toolName: "mcp__playwright__browser_snapshot" }), "mcp - browser_snapshot");
-assert.equal(toolCallLabel(codemode, codemodeResult), "mcp - web_search_exa");
-assert.equal(toolCallLabel(codemode, undefined, ["web_search_exa"]), "mcp - web_search_exa");
-assert.equal(toolCallLabel(codemode, { role: "toolResult", toolName: "codemode", details: { calls: [{ name: "mcp__exa__web_fetch_exa" }] } }), "mcp - web_fetch_exa");
-assert.equal(toolCallLabel(codemode, codemodeResult, ["browser_snapshot", "web_search_exa"]), "mcp - web_search_exa, browser_snapshot");
-assert.equal(toolCallLabel(codemode), "codemode");
+assert.equal(toolCallLabel(codemode, codemodeResult), mixedLabel);
+assert.equal(toolCallLabel(codemode, undefined, nestedNames), mixedLabel);
+assert.equal(toolCallLabel(codemode, { ...codemodeResult, details: { calls } }, nestedNames), mixedLabel);
+assert.equal(toolCallLabel(undefined, { ...codemodeResult, nestedCalls: undefined, details: { calls: [{ name: "mcp__exa__web_fetch_exa" }] } }), "[codemode] mcp@web_fetch_exa");
+assert.equal(toolCallLabel(codemode, { ...codemodeResult, details: { calls: [] } }), mixedLabel);
+assert.equal(toolCallLabel(codemode, undefined, ["edit", "edit"]), "[codemode] edit | edit");
+assert.equal(toolCallLabel(codemode), "[codemode]");
 assert.equal(toolCallLabel({ type: "toolCall", name: "read" }), "read");
 
 const messages: AgentMessage[] = [

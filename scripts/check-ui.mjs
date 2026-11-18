@@ -1655,7 +1655,9 @@ try {
   try {
     let mcpSocket;
     const mcpCall = { role: "assistant", content: [{ type: "toolCall", id: "mcp-script", name: "codemode", arguments: { code: "await tools.mcp__exa__web_search_exa({});" } }], timestamp: 3000, entryId: "mcp-script-call" };
-    const mcpResult = { role: "toolResult", toolCallId: "mcp-script", toolName: "codemode", nestedCalls: { calls: [{ name: "mcp__exa__web_search_exa" }, { name: "mcp__playwright__browser_snapshot" }], complete: true }, content: [{ type: "text", text: "MCP output" }], timestamp: 4000, entryId: "mcp-script-result" };
+    const nestedNames = ["edit", "read", "mcp__exa__web_search_exa", "read"];
+    const calls = nestedNames.map((name, index) => ({ id: `mcp-script/${index + 1}`, name }));
+    const mcpResult = { role: "toolResult", toolCallId: "mcp-script", toolName: "codemode", nestedCalls: { calls, complete: true }, details: { calls }, content: [{ type: "text", text: "MCP output" }], timestamp: 4000, entryId: "mcp-script-result" };
     const mcpMessages = withFixtureMessageIds([{ role: "user", content: "Use the tools", timestamp: 1000, entryId: "mcp-user" }, mcpCall, mcpResult]);
     await mcpPage.routeWebSocket(/\/ws\/agent\//, (socket) => {
       mcpSocket = socket;
@@ -1663,11 +1665,14 @@ try {
     });
     await mcpPage.goto(page.url());
     const mcpRow = mcpPage.locator(".run-collapse.active .feed-tool-details");
-    await mcpRow.locator("summary strong").getByText("codemode", { exact: true }).waitFor();
-    mcpSocket.send(JSON.stringify({ type: "agent-event", event: { type: "tool_execution_start", toolName: "mcp__exa__web_search_exa", toolCallId: "nested-search", parentToolCallId: "mcp-script" } }));
-    await mcpRow.locator("summary strong").getByText("mcp - web_search_exa", { exact: true }).waitFor();
+    const mcpLabel = mcpRow.locator("summary strong");
+    const toolsLabel = "[codemode] edit | read | mcp@web_search_exa | read";
+    await mcpLabel.getByText("[codemode]", { exact: true }).waitFor();
+    for (const { id, name } of calls) mcpSocket.send(JSON.stringify({ type: "agent-event", event: { type: "tool_execution_start", toolName: name, toolCallId: id, parentToolCallId: "mcp-script" } }));
+    await mcpLabel.getByText(toolsLabel, { exact: true }).waitFor();
     mcpSocket.send(JSON.stringify({ ...activeSnapshot, session: { ...activeSnapshot.session, messages: mcpMessages, isStreaming: true, isIdle: false } }));
-    await mcpRow.locator("summary strong").getByText("mcp - web_search_exa, browser_snapshot", { exact: true }).waitFor();
+    await mcpRow.locator("summary .feed-tool-status").getByText("Completed", { exact: true }).waitFor();
+    assert.equal(await mcpLabel.textContent(), toolsLabel);
     await mcpRow.locator("summary").click();
     await mcpRow.getByText("MCP output", { exact: true }).waitFor();
   } finally { await mcpPage.close(); }

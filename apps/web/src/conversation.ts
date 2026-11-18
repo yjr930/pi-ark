@@ -9,23 +9,28 @@ function blocks(content: AgentMessage["content"]): ContentBlock[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : content || [];
 }
 
-export function mcpToolName(name: unknown): string | undefined {
-  return typeof name === "string" ? /^mcp__[\w]+?__([\w]+)$/.exec(name)?.[1] : undefined;
+function mcpToolName(name: string): string | undefined {
+  return /^mcp__[\w]+?__([\w]+)$/.exec(name)?.[1];
 }
 
-function recordedToolNames(record: unknown): unknown[] {
+function recordedToolNames(record: unknown): string[] {
   if (!record || typeof record !== "object" || !("calls" in record) || !Array.isArray(record.calls)) return [];
-  return record.calls.map((call) => call?.name);
+  return record.calls.flatMap((call) => typeof call?.name === "string" && call.name ? [call.name] : []);
 }
 
-export function toolCallLabel(call?: ContentBlock, result?: AgentMessage, liveMcpTools: readonly string[] = []): string {
+export function toolCallLabel(call?: ContentBlock, result?: AgentMessage, liveNestedTools: readonly string[] = []): string {
   const name = call?.name || result?.toolName || "Tool";
   const direct = mcpToolName(name);
   if (direct) return `mcp - ${direct}`;
   if (name !== "codemode") return name;
-  const recorded = [...recordedToolNames(result?.nestedCalls), ...recordedToolNames(result?.details)].map(mcpToolName).filter((tool) => tool !== undefined);
-  const tools = [...new Set([...recorded, ...liveMcpTools])];
-  return tools.length ? `mcp - ${tools.join(", ")}` : name;
+  // The script and session can each record the same calls. Prefer the script's own ordered list.
+  const scriptTools = recordedToolNames(result?.details);
+  const sessionTools = scriptTools.length ? scriptTools : recordedToolNames(result?.nestedCalls);
+  const tools = sessionTools.length ? sessionTools : liveNestedTools;
+  return ["[codemode]", tools.map((tool) => {
+    const mcp = mcpToolName(tool);
+    return mcp ? `mcp@${mcp}` : tool;
+  }).join(" | ")].filter(Boolean).join(" ");
 }
 
 function hasToolActivity(message: AgentMessage): boolean {
