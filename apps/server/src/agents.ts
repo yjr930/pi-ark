@@ -33,7 +33,7 @@ type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 type QueueItemMode = "steering" | "followUp";
 interface QueueItem { id: string; mode: QueueItemMode; text: string; images: Array<NonNullable<SavedAttachment["image"]>> }
 interface RollbackMarkerData { targetId: string; restoreEntryId: string; draft: string }
-interface AgentClientState { start: number; delivered?: number; targetMessageId?: string; leafEntryId?: string; snapshotsOnly?: boolean }
+interface AgentClientState { start: number; delivered?: number; stream?: number; targetMessageId?: string; leafEntryId?: string; snapshotsOnly?: boolean }
 type SessionRuntimeState = "ready" | "running" | "error";
 interface PendingQuestion {
   toolCallId: string;
@@ -402,7 +402,7 @@ export class AgentService {
     return { id: handle.session.sessionId };
   }
 
-  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessage?: string; start?: number; leafEntryId?: string; snapshotsOnly?: boolean } = {}): Promise<() => void> {
+  async connect(workspace: WorkspaceDefinition, sessionId: string, socket: WebSocket, options: { targetMessage?: string; start?: number; leafEntryId?: string; snapshotsOnly?: boolean; stream?: string } = {}): Promise<() => void> {
     const handle = await this.getOrOpen(workspace, sessionId);
     if (options.leafEntryId !== undefined && !validLeafEntryId(options.leafEntryId)) throw Object.assign(new Error("Invalid historical branch entry"), { statusCode: 400 });
     const messages = options.leafEntryId ? buildSessionDisplayMessages(handle.session.sessionManager, undefined, options.leafEntryId) : this.snapshotMessages(handle);
@@ -410,7 +410,7 @@ export class AgentService {
     const targetIndex = resolveDisplayMessageIndex(messages, options.targetMessage);
     const targetStart = targetIndex >= 0 ? previousDisplayPageStart(messages, targetIndex + 1) : defaultStart;
     const requestedStart = Number.isInteger(options.start) ? Math.max(0, Math.min(options.start!, messages.length)) : undefined;
-    handle.clients.set(socket, { leafEntryId: options.leafEntryId, snapshotsOnly: options.snapshotsOnly, start: requestedStart ?? Math.min(defaultStart, targetStart), ...(targetIndex >= 0 ? { targetMessageId: messages[targetIndex].messageId } : {}) });
+    handle.clients.set(socket, { leafEntryId: options.leafEntryId, snapshotsOnly: options.snapshotsOnly, stream: options.stream === "2" ? 2 : undefined, start: requestedStart ?? Math.min(defaultStart, targetStart), ...(targetIndex >= 0 ? { targetMessageId: messages[targetIndex].messageId } : {}) });
     this.sendSnapshot(handle, socket, messages);
     if (handle.streamingMessage && !options.snapshotsOnly && !options.leafEntryId) send(socket, { type: "agent-event", event: { type: "message_start", message: handle.streamingMessage } });
     return () => handle.clients.delete(socket);
@@ -816,8 +816,14 @@ export class AgentService {
     handle.displayMessages = undefined;
     if (event.type === "message_update") handle.streamingMessage = event.message;
     if (event.type === "message_end" || event.type === "agent_settled") handle.streamingMessage = undefined;
-    const forwarded = event.type === "message_update" ? compactMessageUpdate(event) : event;
-    if (forwarded !== undefined) for (const [client, state] of handle.clients) if (!state.leafEntryId && !state.snapshotsOnly) send(client, { type: "agent-event", event: forwarded });
+    if (event.type === "message_update") {
+      const compact = compactMessageUpdate(event);
+      for (const [client, state] of handle.clients) {
+        if (state.leafEntryId || state.snapshotsOnly) continue;
+        const forwarded = state.stream === 2 ? compact : event;
+        if (forwarded !== undefined) send(client, { type: "agent-event", event: forwarded });
+      }
+    } else for (const [client, state] of handle.clients) if (!state.leafEntryId && !state.snapshotsOnly) send(client, { type: "agent-event", event });
     if (event.type === "message_end" || event.type === "agent_settled" || event.type === "compaction_end" || event.type === "session_info_changed") this.scheduleSnapshot(handle, event.type === "compaction_end");
   }
 
@@ -917,7 +923,7 @@ export class AgentService {
   private snapshotPayload(handle: AgentHandle, messages: ReturnType<typeof buildSessionDisplayMessages>, client: AgentClientState, full: boolean) {
     let windowStart = Math.max(0, client.start);
     if (windowStart >= messages.length && messages.length > 0) windowStart = previousDisplayPageStart(messages);
-    const incremental = !full && windowStart === client.start && client.delivered !== undefined && client.delivered >= windowStart && client.delivered <= messages.length;
+    const incremental = !full && client.stream === 2 && windowStart === client.start && client.delivered !== undefined && client.delivered >= windowStart && client.delivered <= messages.length;
     const sliceStart = incremental ? client.delivered! : windowStart;
     client.start = windowStart;
     client.delivered = messages.length;

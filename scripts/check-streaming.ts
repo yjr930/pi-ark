@@ -53,11 +53,11 @@ try {
     void (async () => {
       const output = message();
       stream.push({ type: "start", partial: output });
-      if (index === 1) {
-        output.content = [{ type: "toolCall", id: "call_read", name: "read", arguments: {} }];
+      if (index <= 3) {
+        output.content = [{ type: "toolCall", id: `call_read_${index}`, name: "read", arguments: {} }];
         stream.push({ type: "toolcall_start", contentIndex: 0, partial: output });
         stream.push({ type: "toolcall_delta", contentIndex: 0, delta: "{\"path\":\"file.txt\"}", partial: output });
-        const toolCall = { type: "toolCall" as const, id: "call_read", name: "read", arguments: { path: "file.txt" } };
+        const toolCall = { type: "toolCall" as const, id: `call_read_${index}`, name: "read", arguments: { path: "file.txt" } };
         output.content = [toolCall];
         stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: output });
         output.stopReason = "toolUse";
@@ -97,12 +97,15 @@ try {
 
   const socketMessages: Array<Record<string, any>> = [];
   const socket = { readyState: 1, OPEN: 1, send: (payload: string) => socketMessages.push(JSON.parse(payload)) };
-  await agents.connect(workspace, created.id, socket as never);
+  await agents.connect(workspace, created.id, socket as never, { stream: "2" });
+  const legacyMessages: Array<Record<string, any>> = [];
+  const legacySocket = { readyState: 1, OPEN: 1, send: (payload: string) => legacyMessages.push(JSON.parse(payload)) };
+  await agents.connect(workspace, created.id, legacySocket as never);
   const running = agents.prompt(workspace, created.id, "Stream the fixture response.");
   await waitFor(() => socketMessages.some((item) => item.type === "agent-event" && item.event?.kind === "thinking_end"), "the fixture reaches the mid-stream pause");
   const lateMessages: Array<Record<string, any>> = [];
   const lateSocket = { readyState: 1, OPEN: 1, send: (payload: string) => lateMessages.push(JSON.parse(payload)) };
-  await agents.connect(workspace, created.id, lateSocket as never);
+  await agents.connect(workspace, created.id, lateSocket as never, { stream: "2" });
   const injected = lateMessages.find((item) => item.type === "agent-event" && item.event?.type === "message_start")?.event;
   assert.equal(injected?.message?.content?.[0]?.thinking, thinkingText, "a client connecting mid-stream receives the partial message");
   resume();
@@ -110,6 +113,12 @@ try {
   await waitFor(() => socketMessages.some((item) => item.type === "agent-event" && item.event?.type === "agent_settled"), "the fixture run settled");
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.equal(lateMessages.some((item) => item.type === "agent-event" && item.event?.kind === "text_delta"), true, "the late client keeps receiving compact updates");
+  const legacySnapshots = legacyMessages.filter((item) => item.type === "snapshot").map((item) => item.session as AgentSnapshot);
+  assert.equal(legacySnapshots.every((snapshot) => snapshot.messageSliceOffset === undefined), true, "a client without the stream version receives full snapshots");
+  const lastLegacy = legacySnapshots.at(-1)!;
+  assert.equal(lastLegacy.messages.length, lastLegacy.totalDisplayMessages - lastLegacy.messageNumberOffset, "a full snapshot carries the whole display window");
+  const legacyUpdates = legacyMessages.filter((item) => item.type === "agent-event" && item.event?.type === "message_update");
+  assert.equal(legacyUpdates.every((item) => item.event.message !== undefined), true, "a legacy client receives accumulated updates");
 
   const events = socketMessages.filter((item) => item.type === "agent-event").map((item) => item.event);
   const updates = events.filter((event) => event.type === "message_update");
@@ -121,8 +130,9 @@ try {
   assert.equal(kinds.has("toolcall_delta"), false, "tool-call argument deltas are not forwarded");
   const toolStart = updates.find((event) => event.kind === "toolcall_start")!;
   assert.deepEqual(toolStart.toolCall.arguments, {}, "the start event carries no streamed arguments");
-  const toolEnd = updates.find((event) => event.kind === "toolcall_end")!;
-  assert.deepEqual(toolEnd.toolCall.arguments, { path: "file.txt" }, "the end event carries the completed call");
+  const toolEnds = updates.filter((event) => event.kind === "toolcall_end");
+  assert.equal(toolEnds.length, 3, "every tool call completes");
+  assert.deepEqual(toolEnds[0].toolCall.arguments, { path: "file.txt" }, "the end event carries the completed call");
   const thinkingStart = updates.find((event) => event.kind === "thinking_start")!;
   assert.equal(thinkingStart.thinking, undefined, "the start event carries no streamed reasoning");
   const updateBytes = Buffer.byteLength(JSON.stringify(updates));
@@ -142,6 +152,43 @@ try {
     delivered = Math.max(delivered, slice + snapshot.messages.length);
   }
   assert.equal(delivered, ordered.at(-1)!.totalDisplayMessages, "every display message is delivered once");
+
+  let view: AgentSnapshot | undefined;
+  let streamedView: AgentMessage | undefined;
+  let pending: AssistantUpdate[] = [];
+  const takeIncoming = (incoming: AgentMessage, type: string) => {
+    if (!view) return;
+    const messages = [...view.messages];
+    const last = messages.at(-1);
+    const replaceLast = type !== "message_start" && last?.role === incoming.role;
+    if (replaceLast) messages[messages.length - 1] = incoming;
+    else if (last?.timestamp !== incoming.timestamp || last?.role !== incoming.role) messages.push(incoming);
+    view = { ...view, messages, totalDisplayMessages: view.totalDisplayMessages + Math.max(0, messages.length - view.messages.length) };
+  };
+  const flushView = () => {
+    const batch = pending.splice(0);
+    if (!view || batch.length === 0) return;
+    const messages = [...view.messages];
+    const last = messages.at(-1);
+    if (!last || last.role !== "assistant") return;
+    let message = last;
+    for (const update of batch) message = applyAssistantUpdate(message, update);
+    messages[messages.length - 1] = message;
+    streamedView = message;
+    view = { ...view, messages };
+  };
+  for (const item of socketMessages) {
+    if (item.type === "snapshot") { view = mergeAgentSnapshot(view, item.session as AgentSnapshot, streamedView); continue; }
+    if (item.type !== "agent-event") continue;
+    const event = item.event;
+    if (event.type === "agent_start" || event.type === "agent_settled") { streamedView = undefined; pending = []; }
+    if (event.type === "message_start" && event.message) { if (event.message.role === "assistant") streamedView = event.message; pending = []; takeIncoming(event.message, "message_start"); }
+    if (event.type === "message_end" && event.message) { pending = []; if (event.message.role === "assistant") streamedView = undefined; takeIncoming(event.message, "message_end"); }
+    if (event.type === "message_update" && typeof event.kind === "string") { pending.push(event as AssistantUpdate); flushView(); }
+  }
+  const viewToolCalls = (view?.messages || []).flatMap((message) => Array.isArray(message.content) ? message.content.filter((block) => block.type === "toolCall") : []);
+  assert.equal(viewToolCalls.length, 3, "a connected client keeps every tool call");
+  assert.equal(view!.messages.length, ordered.at(-1)!.totalDisplayMessages - snapshots[0].messageNumberOffset, "the merged view matches the delivered projection");
 
   const assistant: AgentMessage = { role: "assistant", content: [], timestamp: 1000 };
   let streamed = applyAssistantUpdate(assistant, { type: "message_update", kind: "thinking_start", contentIndex: 0 });

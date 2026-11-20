@@ -353,7 +353,7 @@ Composer 的文件补全调用 `FileSearchIndex.search()`。每个 Workspace 在
 
 ### Snapshot
 
-连接成功后，Server 立即发送 snapshot。Snapshot message 来源是当前活动 branch 的 display projection；每条持久化 message 附加短 Message ID 和 source entry ID，assistant message 还附加 model context window。普通连接从最新约 100 条 messages 所在的 turn boundary 开始发送。带 `message` query 的 permalink 连接从包含目标 Message ID 的页面开始发送；带 `start` query 的缓存恢复连接从浏览器已经加载的全局 offset 开始发送。连接后的首次 snapshot、分页后的 snapshot 以及 rollback、restore、resource reload 后的 snapshot 包含完整 display window；运行期间的后续权威 snapshot 只包含上次投递之后新增的 messages，并用 `messageSliceOffset` 标明该 slice 的全局起点。若连接建立时 Session 正在生成回复，Server 在初始 snapshot 之后补发一次携带完整 partial message 的 `message_start`，使新连接补齐已经生成的内容，随后继续接收增量 `message_update`。
+连接成功后，Server 立即发送 snapshot。Snapshot message 来源是当前活动 branch 的 display projection；每条持久化 message 附加短 Message ID 和 source entry ID，assistant message 还附加 model context window。普通连接从最新约 100 条 messages 所在的 turn boundary 开始发送。带 `message` query 的 permalink 连接从包含目标 Message ID 的页面开始发送；带 `start` query 的缓存恢复连接从浏览器已经加载的全局 offset 开始发送。连接后的首次 snapshot、分页后的 snapshot 以及 rollback、restore、resource reload 后的 snapshot 包含完整 display window；带 `stream=2` query 的连接在运行期间接收的后续权威 snapshot 只包含上次投递之后新增的 messages，并用 `messageSliceOffset` 标明该 slice 的全局起点。连接未带 `stream=2` 时，Server 按旧协议发送完整 display window 和携带完整 partial message 的 `message_update`，因此服务更新前进行的旧页面继续正常工作。若连接建立时 Session 正在生成回复，Server 在初始 snapshot 之后补发一次携带完整 partial message 的 `message_start`，使新连接补齐已经生成的内容，随后继续接收增量 `message_update`。
 
 Snapshot 包含以下状态：
 
@@ -381,7 +381,7 @@ App 同时按 Workspace 记录一个尚未发送 message 的新 Session。再次
 
 ### Streaming events
 
-AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 的 `message_update` 携带截至当前的完整 partial message，Server 将它压缩为 `message_update` event 的 `kind`、`contentIndex`、`delta` 或完成后的 `content`/`toolCall`，只转发新增的 text/thinking 片段与完成的 tool call；tool argument 的 delta 不转发，由 Web 按 `contentIndex` 拼接到当前 assistant message。assistant message 的 `stopReason` 为 `error` 时，Web 渲染 Session 中保存的 `errorMessage`；折叠 run 的 warning 使用同一字段显示中断原因。`auto_retry_start` 与 `auto_retry_end` 更新 conversation 中的重试提示和 header status，这些提示不写入 Session。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled、session info changed 和 compaction end 后的权威 snapshot。该时序使 snapshot 包含刚完成持久化的 message。Server 为每个 client 保留 display window 起点与已投递的 message 数量，并只发送上次投递之后新增的 projection slice；Agent runtime 继续使用 pi 的 compaction-aware Session projection 生成后续模型上下文。
+AgentSession subscription 将 pi events 通过 `agent-event` 转发给所有 clients。Web 使用 message start/update/end 更新流式内容，并从 agent start 到 agent settled 保持 active run 状态。pi 的 `message_update` 携带截至当前的完整 partial message，Server 对 `stream=2` 连接将它压缩为 `message_update` event 的 `kind`、`contentIndex`、`delta` 或完成后的 `content`/`toolCall`，只转发新增的 text/thinking 片段与完成的 tool call；tool argument 的 delta 不转发，由 Web 按 `contentIndex` 拼接到当前 assistant message。未带 `stream=2` 的连接继续接收完整的 `message_update` event。assistant message 的 `stopReason` 为 `error` 时，Web 渲染 Session 中保存的 `errorMessage`；折叠 run 的 warning 使用同一字段显示中断原因。`auto_retry_start` 与 `auto_retry_end` 更新 conversation 中的重试提示和 header status，这些提示不写入 Session。pi 在 public `message_end` listener 返回后将 completed message 写入 SessionManager，因此 Server 在下一次 task 中调度 message end、agent settled、session info changed 和 compaction end 后的权威 snapshot。该时序使 snapshot 包含刚完成持久化的 message。Server 为每个 client 保留 display window 起点与已投递的 message 数量，并只发送上次投递之后新增的 projection slice；Agent runtime 继续使用 pi 的 compaction-aware Session projection 生成后续模型上下文。
 
 ### Sidebar Session status
 
@@ -829,6 +829,7 @@ Path：`/ws/agent/:workspaceId/:sessionId`
 - `start`：从指定的全局 message offset 恢复已经加载的 display window。
 - `leafEntryId`：展示历史分支，并保持当前活动 leaf；该连接使用历史 snapshot，支持 `load-earlier`。
 - `snapshotsOnly=1`：只接收 heartbeat、初始 snapshot 与后续权威 snapshot，不接收 `agent-event`、`queue-state`、`subagent-state` 与 `notice`；浏览器缓存预取使用该模式。
+- `stream=2`：接收增量 snapshot 与压缩后的 `message_update`；不带该参数时按旧协议接收完整 snapshot 与完整 `message_update`。
 
 Browser commands：
 

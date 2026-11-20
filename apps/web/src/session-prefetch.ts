@@ -126,6 +126,6 @@ export class SessionPrefetcher {
   }
 
   private url(target: SessionPrefetchTarget): string {
-    return websocketUrl(`/ws/agent/${encodeURIComponent(target.workspaceId)}/${encodeURIComponent(target.sessionId)}?snapshotsOnly=1`);
+    return websocketUrl(`/ws/agent/${encodeURIComponent(target.workspaceId)}/${encodeURIComponent(target.sessionId)}?snapshotsOnly=1&stream=2`);
   }
 }

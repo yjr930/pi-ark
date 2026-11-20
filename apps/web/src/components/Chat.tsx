@@ -479,6 +479,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     const connectionPath = `/ws/agent/${encodeURIComponent(workspace.id)}/${encodeURIComponent(session.id)}`;
     const connectionUrl = () => {
       const query = new URLSearchParams(baseQuery);
+      query.set("stream", "2");
       if (receivedSnapshot) {
         query.delete("message");
         if (windowHasEarlier) query.set("start", String(windowStart));
