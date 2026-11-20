@@ -7,6 +7,7 @@ import { buildConversationSegments, buildToolCallGroups, toolCallLabel } from ".
 import { formatMessageTime } from "../message-time";
 import { internalMessageLink, internalSessionLink, sessionPermalink } from "../permalinks";
 import { cacheSessionSnapshot, cacheSessionUiState, getCachedSessionSnapshot, getCachedSessionUiState, sessionCacheKey, type CachedSessionAttachment } from "../session-cache";
+import { applyAssistantUpdate, mergeAgentSnapshot, type AssistantUpdate } from "../streaming";
 import type { AgentMessage, AgentSnapshot, ContentBlock, QueuedMessage, QueueState, QuestionAnswer, QuestionGroupState, SessionInfo, SessionModelOption, SessionRuntimeStatus, SubagentRun, Workspace } from "../types";
 import { Markdown } from "./Markdown";
 import { NameDialog } from "./NameDialog";
@@ -420,6 +421,9 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const suggestTimerRef = useRef<number | undefined>(undefined);
   const suggestSequenceRef = useRef(0);
   const socketRef = useRef<WebSocket | null>(null);
+  const streamingRef = useRef<{ message: AgentMessage } | null>(null);
+  const pendingUpdatesRef = useRef<AssistantUpdate[]>([]);
+  const flushTimerRef = useRef<number | undefined>(undefined);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followOutputRef = useRef(restorePosition?.followOutput ?? true);
   const restoredPositionRef = useRef<typeof restorePosition>(undefined);
@@ -458,6 +462,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   }, [draft]);
   useEffect(() => {
     setInfoOpen(false); setRenameOpen(false); setForkDialog(null); setRollbackEntryId(null); setStickyUserMessageId(undefined); setLoadingEarlierMessages(false); setQueuedEditCandidate(null); setQueueBusy(false); setPendingQueuedMessages([]); setOptimisticQueueOperations([]); setRetryNotice(null); setStatus(cachedSnapshot ? "Refreshing conversation" : "Connecting session"); rollbackDraftRef.current = ""; scrolledPermalinkRef.current = ""; followOutputRef.current = restorePosition?.followOutput ?? true;
+    streamingRef.current = null; pendingUpdatesRef.current = []; window.clearTimeout(flushTimerRef.current); flushTimerRef.current = undefined;
     let active = true;
     let socket: WebSocket | null = null;
     let retryTimer: number | undefined;
@@ -482,6 +487,37 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       return websocketUrl(`${connectionPath}${query.size ? `?${query}` : ""}`);
     };
     const failPendingQueue = (error: string) => { setPendingQueuedMessages((current) => current.map((item) => item.status === "scheduling" ? { ...item, status: "failed", error } : item)); };
+    const flushStreaming = () => {
+      flushTimerRef.current = undefined;
+      const updates = pendingUpdatesRef.current.splice(0);
+      if (updates.length === 0) return;
+      setSnapshot((current) => {
+        if (!current) return current;
+        const messages = [...current.messages];
+        const last = messages.at(-1);
+        if (!last || last.role !== "assistant") return current;
+        let message = last;
+        for (const update of updates) message = applyAssistantUpdate(message, update);
+        if (message === last) return current;
+        messages[messages.length - 1] = message;
+        streamingRef.current = { message };
+        return { ...current, messages, isStreaming: true, isIdle: false };
+      });
+    };
+    const queueStreamingUpdate = (update: AssistantUpdate) => {
+      pendingUpdatesRef.current.push(update);
+      if (flushTimerRef.current !== undefined) return;
+      flushTimerRef.current = window.setTimeout(flushStreaming, 50);
+    };
+    const incomingMessages = (incoming: AgentMessage, type: string) => (current: AgentSnapshot | null) => {
+      if (!current) return current;
+      const messages = [...current.messages];
+      const last = messages.at(-1);
+      const replaceLast = type !== "message_start" && last?.role === incoming.role;
+      if (replaceLast) messages[messages.length - 1] = incoming;
+      else if (last?.timestamp !== incoming.timestamp || last?.role !== incoming.role) messages.push(incoming);
+      return { ...current, messages, totalDisplayMessages: current.totalDisplayMessages + Math.max(0, messages.length - current.messages.length), isStreaming: true, isIdle: false };
+    };
     const handleMessage = (event: MessageEvent) => {
       if (!active) return;
       lastMessageAt = Date.now();
@@ -495,7 +531,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
         setLoadingEarlierMessages(false);
         setQuestionBusyId(undefined);
         setPendingQueuedMessages((current) => current.filter((item) => nextSnapshot.queue.filter((queued) => queued.mode === "followUp" && queuedTextMatches(queued.text, item.matchText)).length < item.expectedMatchCount));
-        setSnapshot(nextSnapshot); setStatus(nextSnapshot.isStreaming ? "AI is working" : "Ready");
+        setSnapshot((current) => mergeAgentSnapshot(current || undefined, nextSnapshot, streamingRef.current?.message)); setStatus(nextSnapshot.isStreaming ? "AI is working" : "Ready");
       }
       if (payload.type === "subagent-state") {
         setSnapshot((current) => current ? { ...current, subagents: payload.subagents } : current);
@@ -505,12 +541,12 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       if (payload.type === "agent-event") {
         const agentEvent = payload.event;
         if (agentEvent.type === "compaction_start") setStatus("Compacting context");
-        if (agentEvent.type === "agent_start") { setLiveNestedTools(new Map()); setRetryNotice(null); setStatus("AI is working"); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
+        if (agentEvent.type === "agent_start") { streamingRef.current = null; pendingUpdatesRef.current = []; window.clearTimeout(flushTimerRef.current); flushTimerRef.current = undefined; setLiveNestedTools(new Map()); setRetryNotice(null); setStatus("AI is working"); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
         if (agentEvent.type === "auto_retry_start") { setRetryNotice({ attempt: agentEvent.attempt, maxAttempts: agentEvent.maxAttempts, errorMessage: agentEvent.errorMessage || "Unknown error" }); setStatus(`Retrying (${agentEvent.attempt}/${agentEvent.maxAttempts})`); setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current); }
         if (agentEvent.type === "auto_retry_end") { setRetryNotice(null); if (!agentEvent.success) setStatus(`Retry failed: ${agentEvent.finalError || "Unknown error"}`); }
         if (agentEvent.type === "message_end" && agentEvent.message?.role === "user" && !sessionListedRef.current) { sessionListedRef.current = true; onSessionChanged(); }
         if (agentEvent.type === "session_info_changed") { setSnapshot((current) => current ? { ...current, name: agentEvent.name } : current); onSessionChanged(); }
-        if (agentEvent.type === "agent_settled") { setRetryNotice(null); setStatus("Ready"); setSnapshot((current) => current ? { ...current, isStreaming: false, isIdle: true } : current); onSessionChanged(); }
+        if (agentEvent.type === "agent_settled") { streamingRef.current = null; pendingUpdatesRef.current = []; window.clearTimeout(flushTimerRef.current); flushTimerRef.current = undefined; setRetryNotice(null); setStatus("Ready"); setSnapshot((current) => current ? { ...current, isStreaming: false, isIdle: true } : current); onSessionChanged(); }
         if (agentEvent.type === "tool_execution_start") {
           setStatus(`Running ${agentEvent.toolName}`);
           setSnapshot((current) => current ? { ...current, isStreaming: true, isIdle: false } : current);
@@ -518,17 +554,24 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
           const tool = agentEvent.toolName;
           if (typeof parentId === "string" && typeof tool === "string" && tool) setLiveNestedTools((current) => new Map(current).set(parentId, [...(current.get(parentId) || []), tool]));
         }
-        if (["message_start", "message_update", "message_end"].includes(agentEvent.type) && agentEvent.message) {
-          setSnapshot((current) => {
-            if (!current) return current;
-            const messages = [...current.messages];
-            const last = messages.at(-1);
+        if (agentEvent.type === "message_start" && agentEvent.message) {
+          const incoming = agentEvent.message as AgentMessage;
+          if (incoming.role === "assistant") streamingRef.current = { message: incoming };
+          pendingUpdatesRef.current = []; window.clearTimeout(flushTimerRef.current); flushTimerRef.current = undefined;
+          setSnapshot(incomingMessages(incoming, "message_start"));
+        }
+        if (agentEvent.type === "message_end" && agentEvent.message) {
+          const incoming = agentEvent.message as AgentMessage;
+          pendingUpdatesRef.current = []; window.clearTimeout(flushTimerRef.current); flushTimerRef.current = undefined;
+          if (incoming.role === "assistant") streamingRef.current = null;
+          setSnapshot(incomingMessages(incoming, "message_end"));
+        }
+        if (agentEvent.type === "message_update") {
+          if (agentEvent.message) {
             const incoming = agentEvent.message as AgentMessage;
-            const replaceLast = agentEvent.type !== "message_start" && last?.role === incoming.role;
-            if (replaceLast) messages[messages.length - 1] = incoming;
-            else if (last?.timestamp !== incoming.timestamp || last?.role !== incoming.role) messages.push(incoming);
-            return { ...current, messages, totalDisplayMessages: current.totalDisplayMessages + Math.max(0, messages.length - current.messages.length), isStreaming: true, isIdle: false };
-          });
+            streamingRef.current = { message: incoming };
+            setSnapshot(incomingMessages(incoming, "message_update"));
+          } else if (typeof agentEvent.kind === "string") queueStreamingUpdate(agentEvent as AssistantUpdate);
         }
       }
       if (payload.type === "error") { setStatus(payload.message); setLoadingEarlierMessages(false); setQuestionBusyId(undefined); setPendingQueuedMessages((current) => { let pendingIndex = -1; for (let index = current.length - 1; index >= 0; index -= 1) if (current[index].status === "scheduling") { pendingIndex = index; break; } return pendingIndex < 0 ? current : current.map((item, index) => index === pendingIndex ? { ...item, status: "failed", error: payload.message } : item); }); }
@@ -542,6 +585,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
       if (!active) return;
       window.clearTimeout(retryTimer);
       retryTimer = undefined;
+      streamingRef.current = null; pendingUpdatesRef.current = []; window.clearTimeout(flushTimerRef.current); flushTimerRef.current = undefined;
       const previous = socket;
       const next = new WebSocket(connectionUrl());
       socket = next;
@@ -583,6 +627,8 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     return () => {
       active = false;
       window.clearTimeout(retryTimer);
+      window.clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = undefined;
       window.clearInterval(watchdog);
       window.removeEventListener("online", reconnectIfClosed);
       document.removeEventListener("visibilitychange", reconnectWhenVisible);

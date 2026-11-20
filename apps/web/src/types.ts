@@ -131,6 +131,7 @@ export interface ContentBlock {
   type: string;
   text?: string;
   thinking?: string;
+  thinkingSignature?: string;
   data?: string;
   mimeType?: string;
   name?: string;
@@ -190,6 +191,7 @@ export interface AgentSnapshot {
   name?: string;
   messages: AgentMessage[];
   messageNumberOffset: number;
+  messageSliceOffset?: number;
   totalDisplayMessages: number;
   targetMessageId?: string;
   hasEarlierMessages: boolean;

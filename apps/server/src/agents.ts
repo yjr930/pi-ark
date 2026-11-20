@@ -33,7 +33,7 @@ type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 type QueueItemMode = "steering" | "followUp";
 interface QueueItem { id: string; mode: QueueItemMode; text: string; images: Array<NonNullable<SavedAttachment["image"]>> }
 interface RollbackMarkerData { targetId: string; restoreEntryId: string; draft: string }
-interface AgentClientState { start: number; targetMessageId?: string; leafEntryId?: string; snapshotsOnly?: boolean }
+interface AgentClientState { start: number; delivered?: number; targetMessageId?: string; leafEntryId?: string; snapshotsOnly?: boolean }
 type SessionRuntimeState = "ready" | "running" | "error";
 interface PendingQuestion {
   toolCallId: string;
@@ -67,10 +67,43 @@ interface AgentHandle {
   pendingError?: string;
   errorMessage?: string;
   compactionStartedAt?: number;
+  streamingMessage?: Extract<AgentSessionEvent, { type: "message_update" }>["message"];
 }
 
 function send(socket: WebSocket, payload: unknown): void {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(payload));
+}
+
+/**
+ * Streaming updates carry the whole partial message, so forwarding them unchanged grows
+ * traffic with the square of the response length. Keep only the appended text or thinking
+ * and send completed tool calls once.
+ */
+function compactMessageUpdate(event: Extract<AgentSessionEvent, { type: "message_update" }>): Record<string, unknown> | undefined {
+  const update = event.assistantMessageEvent;
+  const partial = "partial" in update ? update.partial : undefined;
+  const base = { type: "message_update", messageTimestamp: partial?.timestamp };
+  const content = partial?.content?.["contentIndex" in update ? update.contentIndex : -1];
+  switch (update.type) {
+    case "text_start": return { ...base, kind: "text_start", contentIndex: update.contentIndex };
+    case "text_delta": return { ...base, kind: "text_delta", contentIndex: update.contentIndex, delta: update.delta };
+    case "text_end": return { ...base, kind: "text_end", contentIndex: update.contentIndex, content: update.content };
+    case "thinking_start": {
+      const block = content?.type === "thinking" && content.redacted ? content : undefined;
+      return { ...base, kind: "thinking_start", contentIndex: update.contentIndex, ...(block?.thinking ? { thinking: block.thinking } : {}), ...(block?.thinkingSignature ? { thinkingSignature: block.thinkingSignature } : {}) };
+    }
+    case "thinking_delta": return { ...base, kind: "thinking_delta", contentIndex: update.contentIndex, delta: update.delta };
+    case "thinking_end": {
+      const block = content?.type === "thinking" ? content : undefined;
+      return { ...base, kind: "thinking_end", contentIndex: update.contentIndex, content: update.content, ...(block?.thinkingSignature ? { thinkingSignature: block.thinkingSignature } : {}) };
+    }
+    case "toolcall_start": {
+      const block = content?.type === "toolCall" ? content : undefined;
+      return { ...base, kind: "toolcall_start", contentIndex: update.contentIndex, ...(block ? { toolCall: { type: "toolCall", id: block.id, name: block.name, arguments: {} } } : {}) };
+    }
+    case "toolcall_end": return { ...base, kind: "toolcall_end", contentIndex: update.contentIndex, toolCall: update.toolCall };
+    default: return undefined;
+  }
 }
 
 function isCompletedAssistantOutput(message: { role: string; content?: unknown; stopReason?: string }): boolean {
@@ -118,6 +151,7 @@ export class AgentService {
   private readonly opening = new Map<string, Promise<AgentHandle>>();
   readonly subagents: SubagentService;
   private readonly scheduledSnapshots = new WeakSet<AgentHandle>();
+  private readonly fullSnapshots = new WeakSet<AgentHandle>();
 
   private readonly sessionReader: SessionReader;
 
@@ -258,7 +292,7 @@ export class AgentService {
     handle.session.refreshContext();
     handle.displayMessages = undefined;
     const rollback = this.rollbackState(handle)!;
-    this.sendSnapshot(handle);
+    this.sendSnapshot(handle, undefined, undefined, { full: true });
     return rollback;
   }
 
@@ -274,7 +308,7 @@ export class AgentService {
       handle.session.sessionManager.appendCustomEntry("pi-ark.rollback-restored", { rollbackId: rollback.id });
       handle.session.refreshContext();
       handle.displayMessages = undefined;
-      this.sendSnapshot(handle);
+      this.sendSnapshot(handle, undefined, undefined, { full: true });
     });
   }
 
@@ -378,6 +412,7 @@ export class AgentService {
     const requestedStart = Number.isInteger(options.start) ? Math.max(0, Math.min(options.start!, messages.length)) : undefined;
     handle.clients.set(socket, { leafEntryId: options.leafEntryId, snapshotsOnly: options.snapshotsOnly, start: requestedStart ?? Math.min(defaultStart, targetStart), ...(targetIndex >= 0 ? { targetMessageId: messages[targetIndex].messageId } : {}) });
     this.sendSnapshot(handle, socket, messages);
+    if (handle.streamingMessage && !options.snapshotsOnly && !options.leafEntryId) send(socket, { type: "agent-event", event: { type: "message_start", message: handle.streamingMessage } });
     return () => handle.clients.delete(socket);
   }
 
@@ -604,7 +639,7 @@ export class AgentService {
       if (replacement.modelFallbackMessage) this.broadcast(handle, { type: "notice", message: replacement.modelFallbackMessage });
     } finally {
       handle.displayMessages = undefined;
-      this.sendSnapshot(handle);
+      this.sendSnapshot(handle, undefined, undefined, { full: true });
     }
   }
 
@@ -779,8 +814,11 @@ export class AgentService {
       handle.pendingError = undefined;
     }
     handle.displayMessages = undefined;
-    for (const [client, state] of handle.clients) if (!state.leafEntryId && !state.snapshotsOnly) send(client, { type: "agent-event", event });
-    if (event.type === "message_end" || event.type === "agent_settled" || event.type === "compaction_end" || event.type === "session_info_changed") this.scheduleSnapshot(handle);
+    if (event.type === "message_update") handle.streamingMessage = event.message;
+    if (event.type === "message_end" || event.type === "agent_settled") handle.streamingMessage = undefined;
+    const forwarded = event.type === "message_update" ? compactMessageUpdate(event) : event;
+    if (forwarded !== undefined) for (const [client, state] of handle.clients) if (!state.leafEntryId && !state.snapshotsOnly) send(client, { type: "agent-event", event: forwarded });
+    if (event.type === "message_end" || event.type === "agent_settled" || event.type === "compaction_end" || event.type === "session_info_changed") this.scheduleSnapshot(handle, event.type === "compaction_end");
   }
 
   private setRuntimeStatus(handle: AgentHandle, state: SessionRuntimeState, errorMessage?: string): void {
@@ -790,12 +828,14 @@ export class AgentService {
     handle.statusRevision += 1;
   }
 
-  private scheduleSnapshot(handle: AgentHandle): void {
+  private scheduleSnapshot(handle: AgentHandle, full = false): void {
+    if (full) this.fullSnapshots.add(handle);
     if (this.scheduledSnapshots.has(handle)) return;
     this.scheduledSnapshots.add(handle);
     setTimeout(() => {
       this.scheduledSnapshots.delete(handle);
-      if ([...this.handles.values()].includes(handle)) this.sendSnapshot(handle);
+      const sendFull = this.fullSnapshots.delete(handle);
+      if ([...this.handles.values()].includes(handle)) this.sendSnapshot(handle, undefined, undefined, { full: sendFull });
     }, 0);
   }
 
@@ -874,19 +914,24 @@ export class AgentService {
     return handle.displayMessages;
   }
 
-  private snapshotPayload(handle: AgentHandle, messages: ReturnType<typeof buildSessionDisplayMessages>, client: AgentClientState) {
-    let start = Math.max(0, client.start);
-    if (start >= messages.length && messages.length > 0) start = previousDisplayPageStart(messages);
+  private snapshotPayload(handle: AgentHandle, messages: ReturnType<typeof buildSessionDisplayMessages>, client: AgentClientState, full: boolean) {
+    let windowStart = Math.max(0, client.start);
+    if (windowStart >= messages.length && messages.length > 0) windowStart = previousDisplayPageStart(messages);
+    const incremental = !full && windowStart === client.start && client.delivered !== undefined && client.delivered >= windowStart && client.delivered <= messages.length;
+    const sliceStart = incremental ? client.delivered! : windowStart;
+    client.start = windowStart;
+    client.delivered = messages.length;
     return {
       type: "snapshot",
       session: {
         id: handle.session.sessionId,
         name: handle.session.sessionName,
-        messages: messages.slice(start),
-        messageNumberOffset: start,
+        messages: messages.slice(sliceStart),
+        messageNumberOffset: windowStart,
+        messageSliceOffset: incremental ? sliceStart : undefined,
         totalDisplayMessages: messages.length,
         targetMessageId: client.targetMessageId,
-        hasEarlierMessages: start > 0,
+        hasEarlierMessages: windowStart > 0,
         isStreaming: client.leafEntryId ? false : handle.session.isStreaming,
         isIdle: client.leafEntryId ? true : handle.session.isIdle,
         leafEntryId: client.leafEntryId,
@@ -905,15 +950,15 @@ export class AgentService {
     };
   }
 
-  private sendSnapshot(handle: AgentHandle, oneClient?: WebSocket, projectedMessages?: ReturnType<typeof buildSessionDisplayMessages>): void {
+  private sendSnapshot(handle: AgentHandle, oneClient?: WebSocket, projectedMessages?: ReturnType<typeof buildSessionDisplayMessages>, options: { full?: boolean } = {}): void {
     const messages = projectedMessages || this.snapshotMessages(handle);
     const clientMessages = (state: AgentClientState) => state.leafEntryId ? buildSessionDisplayMessages(handle.session.sessionManager, undefined, state.leafEntryId) : messages;
     if (oneClient) {
       const client = handle.clients.get(oneClient);
-      if (client) send(oneClient, this.snapshotPayload(handle, clientMessages(client), client));
+      if (client) send(oneClient, this.snapshotPayload(handle, clientMessages(client), client, options.full !== false));
       return;
     }
-    for (const [client, state] of handle.clients) send(client, this.snapshotPayload(handle, clientMessages(state), state));
+    for (const [client, state] of handle.clients) send(client, this.snapshotPayload(handle, clientMessages(state), state, options.full === true));
   }
 
   private broadcast(handle: AgentHandle, payload: unknown): void {

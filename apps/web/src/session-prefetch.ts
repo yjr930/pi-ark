@@ -1,5 +1,6 @@
 import { websocketUrl } from "./api";
 import { cacheSessionSnapshot, sessionCacheKey } from "./session-cache";
+import { mergeAgentSnapshot } from "./streaming";
 import type { AgentSnapshot } from "./types";
 
 export interface SessionPrefetchTarget { workspaceId: string; sessionId: string }
@@ -27,6 +28,7 @@ export class SessionPrefetcher {
   private targets = new Map<string, SessionPrefetchTarget>();
   private sockets = new Map<string, PrefetchSocket>();
   private retryAt = new Map<string, number>();
+  private latest = new Map<string, AgentSnapshot>();
   private skipKey: string | undefined;
   private active = true;
   private disposed = false;
@@ -49,6 +51,7 @@ export class SessionPrefetcher {
     if (this.disposed) return;
     const next = new Map<string, SessionPrefetchTarget>();
     for (const target of targets) next.set(sessionCacheKey(target.workspaceId, target.sessionId), target);
+    for (const key of [...this.latest.keys()]) if (!next.has(key)) this.latest.delete(key);
     this.targets = next;
     this.skipKey = skipKey;
     this.reconcile();
@@ -63,6 +66,7 @@ export class SessionPrefetcher {
   dispose(): void {
     this.disposed = true;
     this.targets.clear();
+    this.latest.clear();
     for (const key of [...this.sockets.keys()]) this.close(key);
     this.retryAt.clear();
   }
@@ -114,7 +118,11 @@ export class SessionPrefetcher {
     let payload: { type?: string; session?: AgentSnapshot };
     try { payload = JSON.parse(String(data)); }
     catch { return; }
-    if (payload?.type === "snapshot" && payload.session) this.cache(key, payload.session);
+    if (payload?.type === "snapshot" && payload.session) {
+      const merged = mergeAgentSnapshot(this.latest.get(key), payload.session);
+      this.latest.set(key, merged);
+      this.cache(key, merged);
+    }
   }
 
   private url(target: SessionPrefetchTarget): string {
