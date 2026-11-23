@@ -76,6 +76,20 @@ function requestStub(token: string): FastifyRequest {
   return { cookies: { [instanceCookieSettings().name]: token } } as unknown as FastifyRequest;
 }
 
+async function storedExpiry(sessionFile: string): Promise<number> {
+  const parsed = JSON.parse(await readFile(sessionFile, "utf8")) as { sessions: Record<string, number> };
+  return Object.values(parsed.sessions)[0] ?? 0;
+}
+
+async function waitForExtendedExpiry(sessionFile: string, baseline: number): Promise<number> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const expiry = await storedExpiry(sessionFile);
+    if (expiry > baseline) return expiry;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`Session expiry in ${sessionFile} was not extended`);
+}
+
 const authDirectory = await mkdtemp(join(tmpdir(), "pi-ark-auth-"));
 try {
   const sessionFile = join(authDirectory, "auth-sessions.json");
@@ -88,9 +102,12 @@ try {
   const login = replyStub();
   assert.equal(await auth.login("ark", "correct horse battery staple", login.reply), true);
   assert.ok(login.state.cookie);
-  assert.equal(login.state.cookie.options.maxAge, 24 * 60 * 60);
+  assert.equal(login.state.cookie.options.maxAge, 30 * 24 * 60 * 60);
   const token = login.state.cookie.value;
   assert.equal(auth.authenticated(requestStub(token)), true);
+  const withinInterval = replyStub();
+  assert.equal(auth.authenticated(requestStub(token), withinInterval.reply), true);
+  assert.equal(withinInterval.state.cookie, undefined);
   assert.equal((await readFile(sessionFile, "utf8")).includes(token), false);
   if (process.platform !== "win32") assert.equal((await stat(sessionFile)).mode & 0o777, 0o600);
 
@@ -116,6 +133,27 @@ try {
   const recovered = new AuthService("ark", changedPasswordHash, sessionFile);
   await recovered.initialize();
   assert.equal(recovered.authenticated(requestStub(replacementToken)), false);
+
+  const renewFile = join(authDirectory, "renew-sessions.json");
+  const renewing = new AuthService("ark", passwordHash, renewFile, 50);
+  await renewing.initialize();
+  const renewLogin = replyStub();
+  assert.equal(await renewing.login("ark", "correct horse battery staple", renewLogin.reply), true);
+  assert.equal(renewLogin.state.cookie!.options.maxAge, 30 * 24 * 60 * 60);
+  const renewToken = renewLogin.state.cookie!.value;
+  const initialExpiry = await storedExpiry(renewFile);
+  assert.ok(initialExpiry > Date.now() + 30 * 24 * 60 * 60 * 1000 - 60000);
+  const throttled = replyStub();
+  assert.equal(renewing.authenticated(requestStub(renewToken), throttled.reply), true);
+  assert.equal(throttled.state.cookie, undefined);
+  assert.equal(await storedExpiry(renewFile), initialExpiry);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const renewal = replyStub();
+  assert.equal(renewing.authenticated(requestStub(renewToken), renewal.reply), true);
+  assert.equal(renewal.state.cookie?.value, renewToken);
+  assert.equal(renewal.state.cookie?.options.maxAge, 30 * 24 * 60 * 60);
+  const renewedExpiry = await waitForExtendedExpiry(renewFile, initialExpiry);
+  assert.ok(renewedExpiry > initialExpiry);
 } finally {
   await rm(authDirectory, { recursive: true, force: true });
 }

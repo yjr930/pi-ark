@@ -144,17 +144,17 @@ Renderer 在解析后把 `style`、`script`、`link`、`meta`、`base`、`iframe
 
 ## Authentication
 
-Password 使用 scrypt 保存为 `scrypt$salt$digest`。登录成功后，AuthService 生成随机 token，将 token 的 SHA-256 哈希与 24 小时后的 expiry 写入 `PI_ARK_HOME/auth-sessions.json`。文件使用 `0o600`，并通过同目录临时文件与 rename 原子替换。Server 启动时在注册 routes 前读取该文件，因此服务重启后浏览器已有 cookie 继续有效。
+Password 使用 scrypt 保存为 `scrypt$salt$digest`。登录成功后，AuthService 生成随机 token，将 token 的 SHA-256 哈希与 30 天后的 expiry 写入 `PI_ARK_HOME/auth-sessions.json`。文件使用 `0o600`，并通过同目录临时文件与 rename 原子替换。Server 启动时在注册 routes 前读取该文件，因此服务重启后浏览器已有 cookie 继续有效。
 
 Cookie 属性如下：
 
 - `HttpOnly`
 - `Secure`
 - `SameSite=Strict`
-- Path `/`
-- Max-Age 24 小时
+- Path 为实例的 base path（例如 `/pi-ark/`），没有 base path 时为 `/`
+- Max-Age 30 天
 
-登录 session 使用固定的 24 小时有效期，与 cookie 的 Max-Age 一致。Logout 删除当前 token 并立即持久化。文件同时保存当前 username 与 password hash 的指纹；密码或用户名变化后，启动时丢弃全部旧 session。文件损坏或版本不匹配时，AuthService 以空 session 集合启动并重写文件。
+登录 session 的有效期为 30 天。认证通过的请求把该 token 的 expiry 与浏览器 cookie 的 Max-Age 一起顺延到 30 天之后，因此持续使用不会失效。同一个 token 每小时最多顺延一次，会话文件的写入频率与请求频率解耦。Logout 删除当前 token 并立即持久化。文件同时保存当前 username 与 password hash 的指纹；密码或用户名变化后，启动时丢弃全部旧 session。文件损坏或版本不匹配时，AuthService 以空 session 集合启动并重写文件。
 
 Fastify `onRequest` hook 保护所有 `/api/` 和 `/ws/` 路径；health 和 login routes 保持公开。WebSocket upgrade 使用相同的 cookie 认证。
 

@@ -5,7 +5,8 @@ import { promisify } from "node:util";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 const scrypt = promisify(scryptCallback);
-const SESSION_TTL = 24 * 60 * 60 * 1000;
+const SESSION_LIFETIME = 30 * 24 * 60 * 60 * 1000;
+const SESSION_RENEW_INTERVAL = 60 * 60 * 1000;
 const SESSION_FILE_VERSION = 1;
 
 interface PersistedAuthSessions {
@@ -42,11 +43,12 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 
 export class AuthService {
   private readonly sessions = new Map<string, number>();
+  private readonly renewedAt = new Map<string, number>();
   private readonly cookie = instanceCookieSettings();
   private readonly fingerprint: string;
   private writeQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly username: string, private readonly passwordHash: string, private readonly sessionFile: string) {
+  constructor(private readonly username: string, private readonly passwordHash: string, private readonly sessionFile: string, private readonly renewInterval = SESSION_RENEW_INTERVAL) {
     this.fingerprint = createHash("sha256").update(`${username}\0${passwordHash}`).digest("base64url");
   }
 
@@ -59,6 +61,7 @@ export class AuthService {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error(`Cannot read authentication sessions: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.sessions.clear();
+    this.renewedAt.clear();
     let changed = !persisted;
     const now = Date.now();
     for (const [key, expires] of Object.entries(persisted?.sessions || {})) {
@@ -71,23 +74,28 @@ export class AuthService {
   async login(username: string, password: string, reply: FastifyReply): Promise<boolean> {
     if (username !== this.username || !(await verifyPassword(password, this.passwordHash))) return false;
     this.pruneExpired();
+    const now = Date.now();
     const token = randomBytes(32).toString("base64url");
-    this.sessions.set(this.sessionKey(token), Date.now() + SESSION_TTL);
+    const key = this.sessionKey(token);
+    this.sessions.set(key, now + SESSION_LIFETIME);
+    this.renewedAt.set(key, now);
     await this.persist();
-    reply.setCookie(this.cookie.name, token, { httpOnly: true, secure: true, sameSite: "strict", path: this.cookie.path, maxAge: SESSION_TTL / 1000 });
+    reply.setCookie(this.cookie.name, token, this.cookieOptions());
     return true;
   }
 
   async logout(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const token = request.cookies[this.cookie.name];
     if (token) {
-      this.sessions.delete(this.sessionKey(token));
+      const key = this.sessionKey(token);
+      this.sessions.delete(key);
+      this.renewedAt.delete(key);
       await this.persist();
     }
     reply.clearCookie(this.cookie.name, { path: this.cookie.path, secure: true, sameSite: "strict" });
   }
 
-  authenticated(request: FastifyRequest): boolean {
+  authenticated(request: FastifyRequest, reply?: FastifyReply): boolean {
     const token = request.cookies[this.cookie.name];
     if (!token) return false;
     const key = this.sessionKey(token);
@@ -95,11 +103,28 @@ export class AuthService {
     if (!expires || expires <= Date.now()) {
       if (expires !== undefined) {
         this.sessions.delete(key);
+        this.renewedAt.delete(key);
         void this.persist();
       }
       return false;
     }
+    this.renew(key, token, reply);
     return true;
+  }
+
+  // Throttle renewal so the request rate does not drive session file writes.
+  private renew(key: string, token: string, reply?: FastifyReply): void {
+    const now = Date.now();
+    const renewedAt = this.renewedAt.get(key);
+    if (renewedAt !== undefined && now - renewedAt < this.renewInterval) return;
+    this.renewedAt.set(key, now);
+    this.sessions.set(key, now + SESSION_LIFETIME);
+    reply?.setCookie(this.cookie.name, token, this.cookieOptions());
+    void this.persist();
+  }
+
+  private cookieOptions(): Parameters<FastifyReply["setCookie"]>[2] {
+    return { httpOnly: true, secure: true, sameSite: "strict", path: this.cookie.path, maxAge: SESSION_LIFETIME / 1000 };
   }
 
   private sessionKey(token: string): string {
@@ -108,7 +133,11 @@ export class AuthService {
 
   private pruneExpired(): void {
     const now = Date.now();
-    for (const [key, expires] of this.sessions) if (expires <= now) this.sessions.delete(key);
+    for (const [key, expires] of this.sessions) {
+      if (expires > now) continue;
+      this.sessions.delete(key);
+      this.renewedAt.delete(key);
+    }
   }
 
   private persist(): Promise<void> {

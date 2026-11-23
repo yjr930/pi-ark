@@ -82,7 +82,7 @@ await app.register(websocket, { options: { maxPayload: 28 * 1024 * 1024 } });
 app.addHook("onRequest", async (request, reply) => {
   const protectedPath = request.url.startsWith("/api/") || request.url.startsWith("/ws/");
   const publicPath = request.url === "/api/health" || request.url === "/api/auth/login";
-  if (protectedPath && !publicPath && !auth.authenticated(request)) await reply.code(401).send({ error: "Authentication required" });
+  if (protectedPath && !publicPath && !auth.authenticated(request, reply)) await reply.code(401).send({ error: "Authentication required" });
 });
 
 app.setErrorHandler((error, _request, reply) => {

@@ -220,7 +220,7 @@ npm start
 
 ## 登录与退出
 
-登录页使用初始化时配置的用户名和密码。登录成功后，浏览器获得 Secure、HttpOnly 和 SameSite=Strict cookie。登录 session 以 token 哈希保存在 `PI_ARK_HOME/auth-sessions.json`，服务重启后当前浏览器继续使用已有登录，不需要重新输入密码。
+登录页使用初始化时配置的用户名和密码。登录成功后，浏览器获得 Secure、HttpOnly 和 SameSite=Strict cookie。登录 session 以 token 哈希保存在 `PI_ARK_HOME/auth-sessions.json`，服务重启后当前浏览器继续使用已有登录，不需要重新输入密码。登录有效期为 30 天，每次认证通过的访问把有效期顺延到 30 天之后，因此持续使用的浏览器保持登录。
 
 退出入口位于 Settings → Global → Account。退出后，当前浏览器 cookie 失效并返回登录页。
 
