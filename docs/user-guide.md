@@ -104,8 +104,8 @@ node "$HOME/.local/share/pi-ark/bin/pi-ark.mjs" start
 同一个 hostname 的 Linux 系统安装可以使用以下独立布局：
 
 ```text
+/opt/pi-ark/           /var/lib/pi-ark/           pi-ark.service           /usr/local/bin/pi-ark
 /opt/pi-ark-dev/       /var/lib/pi-ark-dev/       pi-ark-dev.service       /usr/local/bin/pi-ark-dev
-/opt/pi-ark-backup/    /var/lib/pi-ark-backup/    pi-ark-backup.service    /usr/local/bin/pi-ark-backup
 ```
 
 Installer 使用以下参数创建实例：
@@ -158,7 +158,7 @@ npm run dev
 
 Vite 默认使用 `http://localhost:5173`，并将 API 和 WebSocket 请求转发给本地 Pi-Ark HTTPS 服务。
 
-日常迭代使用 `<next-version>-dev.<iteration>` 版本，其中 `<next-version>` 取大于所有已发布 tag 与已安装正式版本产物的最小正式版本，`<iteration>` 在同一正式版本下从 1 开始递增。双实例部署中的主力开发版从 `/opt/pi-ark-dev/releases/<dev-version>` 运行；备用正式版从 `/opt/pi-ark-backup/releases/<release-version>` 运行。日常流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起安装时，按以下顺序完成自替换：
+日常迭代使用 `<next-version>-dev.<iteration>` 版本，其中 `<next-version>` 取大于所有已发布 tag 与已安装正式版本产物的最小正式版本，`<iteration>` 在同一正式版本下从 1 开始递增。双实例部署中的主力开发版从 `/opt/pi-ark-dev/releases/<dev-version>` 运行并挂载在 `/pi-ark-dev/`；备份实例从 `/opt/pi-ark/releases/<release-version>` 运行并挂载在 `/pi-ark/`。日常流程不创建 Git tag 或 GitHub Release。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起安装时，按以下顺序完成自替换：
 
 1. 构建已提交源码的安装包，执行安装包的 `verify --release`，并使用独立的配置与数据目录确认安装包可以启动、`/api/health` 正常且实际运行版本符合预期。源码工作区提供 `npm run check:release -- "path/to/extracted-artifact"` 完成独立的安装、启动、重启与认证保持检查。
 2. 确认目标实例的 prefix、data directory、service account、listen 配置和恢复版本，沿用现有实例参数调用安装器。
@@ -169,8 +169,8 @@ Vite 默认使用 `http://localhost:5173`，并将 API 和 WebSocket 请求转�
 Nginx 在同一个 server block 中先配置具体的 instance path，再保留其他应用的 location。Pi-Ark upstream 使用 HTTPS，并转发 WebSocket headers：
 
 ```nginx
-location = /pi-ark { return 301 /pi-ark/; }
-location ^~ /pi-ark/ {
+location = /pi-ark-dev { return 301 /pi-ark-dev/; }
+location ^~ /pi-ark-dev/ {
   proxy_pass https://127.0.0.1:14116/;
   proxy_ssl_verify off;
   proxy_http_version 1.1;
@@ -184,9 +184,9 @@ location ^~ /pi-ark/ {
   proxy_buffering off;
 }
 
-location = /pi-ark-backup { return 301 /pi-ark-backup/; }
-location ^~ /pi-ark-backup/ {
-  proxy_pass https://127.0.0.1:14117/;
+location = /pi-ark { return 301 /pi-ark/; }
+location ^~ /pi-ark/ {
+  proxy_pass https://127.0.0.1:31415/;
   proxy_ssl_verify off;
   proxy_http_version 1.1;
   proxy_set_header Host $host;
@@ -200,7 +200,7 @@ location ^~ /pi-ark-backup/ {
 }
 ```
 
-备用实例用于主力开发版的恢复与高风险部署。主力开发版无法访问时，从 `/pi-ark-backup/` 打开对应的 Workspace，并在新的 Session 中修复 source checkout 或重新安装主力开发版。
+备份实例（default）用于主力开发版的恢复与高风险部署。主力开发版无法访问时，从 `/pi-ark/` 打开对应的 Workspace，并在新的 Session 中修复 source checkout 或重新安装主力开发版。
 
 常用项目命令：
 
@@ -232,7 +232,7 @@ npm start
 node "<prefix>/bin/pi-ark.mjs" password
 ```
 
-`passwd` 是相同命令的简写。该 command 更新安装实例的 `config.json` 并重启对应的后台进程或 systemd service。Linux 双实例部署也可以使用 `pi-ark-dev password` 与 `pi-ark-backup password`。
+`passwd` 是相同命令的简写。该 command 更新安装实例的 `config.json` 并重启对应的后台进程或 systemd service。Linux 双实例部署也可以使用 `pi-ark-dev password` 与 `pi-ark password`。
 
 指定配置文件或延后重启：
 
@@ -865,7 +865,7 @@ Portable 的 `start` 在后台启动，`stop` 通过本机管理通道请求停�
 
 例如，macOS 可以执行 `node "$HOME/Library/Application Support/Pi-Ark/app/bin/pi-ark.mjs" status`，Windows PowerShell 可以执行 `node "$env:LOCALAPPDATA\Pi-Ark\app\bin\pi-ark.mjs" status`。
 
-Linux 的系统安装通过 systemd 执行 start/stop/restart，`status` 显示 service 状态，`logs` 持续显示 service journal。双实例的 command name 分别为 `pi-ark-dev` 与 `pi-ark-backup`。
+Linux 的系统安装通过 systemd 执行 start/stop/restart，`status` 显示 service 状态，`logs` 持续显示 service journal。双实例的 command name 分别为 `pi-ark-dev` 与 `pi-ark`。
 
 `update` 安装 GitHub latest stable release，`rollback` 恢复 previous release，随后重新启动并执行 health check。`--no-restart` 可以将 release 切换与重启分开安排。两个操作都保留 Global data 与 Workspace data。`update` 依次输出检查 latest release、下载（包含已下载大小）、校验、安装和重启的状态；等待期间持续输出已等待时间。
 
@@ -936,7 +936,7 @@ node "<prefix>/bin/pi-ark.mjs" update
 node "<prefix>/bin/pi-ark.mjs" status
 ```
 
-非 default instance 使用对应的 CLI 文件名。指定版本的安装可以下载对应的正式安装包，再使用[安装与初始化](#安装与初始化)中的安装器参数保留该实例的 prefix 和 data directory。主力开发实例从自身 Session 安装时，按[开发模式](#开发模式)中的自替换步骤完成重启前的确认，并使用 `--deferred-restart <seconds>` 安排 systemd timer，随后返回结果。
+正式发版完成后默认把正式版安装到备份实例（`pi-ark`）。指定版本的安装可以下载对应的正式安装包，再使用[安装与初始化](#安装与初始化)中的安装器参数保留备份实例的 prefix `/opt/pi-ark`、data directory `/var/lib/pi-ark` 和 service `pi-ark.service`。主力开发实例保持当前迭代版本，不随发版更新。备份实例的重启不影响主力开发实例。
 
 从独立的管理终端执行更新时，上线后确认 `/api/health`、实际运行路径与 Settings → Global → Maintenance 中的运行版本。Linux 系统安装可以通过 systemd MainPID 定位实际的 Server 子进程，再核对该进程命令行中的 Server 入口与对应的 artifact。需要恢复上一版本时，执行稳定 CLI 的 `rollback`，再确认 health 与运行版本。发布工作区和实例安装状态分别保存，实例管理员按选定的上线安排执行更新。
 

@@ -89,7 +89,7 @@ npm run dev
 
 Vite 默认位于 `http://localhost:5173`，并将 API 和 WebSocket 转发到本地 Pi-Ark HTTPS 服务。
 
-日常迭代使用 `<next-version>-dev.<iteration>` 版本：`<next-version>` 取大于所有已发布 tag 与已安装正式版本产物的最小正式版本，`<iteration>` 在同一正式版本下从 1 开始递增。日常迭代不创建 Git tag 或 GitHub Release。双实例部署中的主力开发版使用 `/opt/pi-ark-dev`、`/var/lib/pi-ark-dev` 和 `pi-ark-dev.service`；备用正式版使用 `/opt/pi-ark-backup`、`/var/lib/pi-ark-backup` 和 `pi-ark-backup.service`。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起部署时，先在独立配置与数据目录中确认安装包的启动、health 与版本，再由安装器验证候选 systemd unit 和加载状态，最后使用 `--deferred-restart 30` 登记 transient systemd timer。当前 Agent 在重启前返回检查结果与重启安排，随后结束本轮操作。完整步骤见[使用手册](docs/user-guide.md#开发模式)。
+日常迭代使用 `<next-version>-dev.<iteration>` 版本：`<next-version>` 取大于所有已发布 tag 与已安装正式版本产物的最小正式版本，`<iteration>` 在同一正式版本下从 1 开始递增。日常迭代不创建 Git tag 或 GitHub Release。双实例部署中的主力开发版使用 `/opt/pi-ark-dev`、`/var/lib/pi-ark-dev` 和 `pi-ark-dev.service`，挂载在 `/pi-ark-dev/`；备份实例使用 `/opt/pi-ark`、`/var/lib/pi-ark` 和 `pi-ark.service`，挂载在 `/pi-ark/`。日常迭代更新主力开发版，正式发版完成后更新备份实例。正式 release 仅在明确安排发布时创建。主力开发版从自身 Session 发起部署时，先在独立配置与数据目录中确认安装包的启动、health 与版本，再由安装器验证候选 systemd unit 和加载状态，最后使用 `--deferred-restart 30` 登记 transient systemd timer。当前 Agent 在重启前返回检查结果与重启安排，随后结束本轮操作。完整步骤见[使用手册](docs/user-guide.md#开发模式)。
 
 项目命令：
 
@@ -155,7 +155,7 @@ node "<prefix>/bin/pi-ark.mjs" rollback
 
 `serve` 在前台运行；portable 的 `start` 在后台运行，`logs --follow` 持续显示新日志。Linux 的系统安装同时提供 `/usr/local/bin/pi-ark`。
 
-双实例部署使用对应的 command name：主力开发版使用 `pi-ark-dev`，备用正式版使用 `pi-ark-backup`；稳定入口的文件名相应为 `pi-ark-dev.mjs` 与 `pi-ark-backup.mjs`。
+双实例部署使用对应的 command name：主力开发版使用 `pi-ark-dev`，备份实例使用 `pi-ark`；稳定入口的文件名相应为 `pi-ark-dev.mjs` 与 `pi-ark.mjs`。
 
 Release workflow 在 `main` 或 `release/**` 分支 push 时，为上述平台构建原生安装包并执行安装 smoke，也支持 `workflow_dispatch`。正式 tag 使用同一候选 commit 的安装包发布 GitHub Release。
 

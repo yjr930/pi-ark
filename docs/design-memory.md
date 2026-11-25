@@ -49,7 +49,7 @@
 
 Memory 的全局默认值存于 `PI_ARK_HOME/config.json` 的 `preferences.memory`。用户在 [Settings → Memory](user-guide.md#memory) 为每个选项分别选择继承、开启或关闭；显式选择会覆盖全局默认值。旧版 v1 文件中已保存的启用和短索引值继续作为 Workspace 的覆盖值，缺失字段继承全局默认值。
 
-Workspace 的覆盖值与条目和建议一起存于 `PI_ARK_HOME/memory/<store-id>.json`。每条正文仍是 Markdown。存储标识跟随 Workspace 的注册记录，改名时继续沿用。新注册的 Workspace 如果继承了启用状态，首次写入条目或建议时才分配存储标识；保存显式覆盖值也会按需分配标识。用户可在移除 Workspace 前导出，关闭 Workspace 时默认保留原文件，也可选择同时删除 Memory。重新注册后的 Workspace 从全局默认值起步。开发与备用实例各用自己的 `PI_ARK_HOME`，分别管理同一代码目录的注册。{[`arkHome` 与 Workspace 配置](../apps/server/src/config.ts)；[Workspace 注册及重命名](../apps/server/src/workspaces.ts)。}
+Workspace 的覆盖值与条目和建议一起存于 `PI_ARK_HOME/memory/<store-id>.json`。每条正文仍是 Markdown。存储标识跟随 Workspace 的注册记录，改名时继续沿用。新注册的 Workspace 如果继承了启用状态，首次写入条目或建议时才分配存储标识；保存显式覆盖值也会按需分配标识。用户可在移除 Workspace 前导出，关闭 Workspace 时默认保留原文件，也可选择同时删除 Memory。重新注册后的 Workspace 从全局默认值起步。开发与备份实例各用自己的 `PI_ARK_HOME`，分别管理同一代码目录的注册。{[`arkHome` 与 Workspace 配置](../apps/server/src/config.ts)；[Workspace 注册及重命名](../apps/server/src/workspaces.ts)。}
 
 首版用一个小型存储文件统一保存条目与建议，按存储标识串行更新；每次写入比较修订号，再用同目录临时文件替换。服务端从当前数据生成目录和 Markdown 导出，省去模型手动维护正文文件与索引文件的同步工作。`MEMORY.md` 形式可用作导出格式。如果后续用户希望直接编辑多个 Markdown 文件，可以在保留条目接口的前提下更换存储方式。{设计依据：[Notebook 的串行写入方式](../apps/server/src/workspace-notebook.ts)；[从业者对索引与引用的观察](research-claude-code-memory.md#从业者分析)。}
 
