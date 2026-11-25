@@ -29,12 +29,18 @@ export interface SkillSelection {
   disabledWorkspace: Record<string, string[]>;
 }
 
+export interface ApprovalSettings {
+  /** Pauses bash commands that delete files until the user approves them. */
+  deleteCommands: boolean;
+}
+
 export interface GlobalPreferences {
   agent: { systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
   terminal: TerminalSettings;
   skills: SkillSelection;
   memory: MemorySettings;
+  approvals: ApprovalSettings;
 }
 
 export const arkHome = resolve(process.env.PI_ARK_HOME || join(homedir(), ".pi-ark"));
@@ -166,7 +172,34 @@ function normalizeGlobalPreferences(input?: Partial<GlobalPreferences>): GlobalP
     terminal: normalizeTerminalSettings(input?.terminal),
     skills: normalizeSkillSelection(input?.skills),
     memory: normalizeMemoryDefaults(input?.memory),
+    approvals: normalizeApprovalSettings(input?.approvals),
   };
+}
+
+export function normalizeApprovalSettings(input: unknown): ApprovalSettings {
+  const raw = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
+  return { deleteCommands: typeof raw.deleteCommands === "boolean" ? raw.deleteCommands : true };
+}
+
+export async function loadApprovalSettings(): Promise<ApprovalSettings> {
+  try {
+    const parsed = JSON.parse(await readFile(configPath, "utf8")) as { preferences?: { approvals?: unknown } };
+    return normalizeApprovalSettings(parsed.preferences?.approvals);
+  } catch {
+    return normalizeApprovalSettings(undefined);
+  }
+}
+
+export async function saveApprovalSettings(input: unknown): Promise<ApprovalSettings> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) throw Object.assign(new Error("Invalid approval settings"), { statusCode: 400 });
+  const raw = input as Record<string, unknown>;
+  if (typeof raw.deleteCommands !== "boolean") throw Object.assign(new Error("deleteCommands must be a boolean"), { statusCode: 400 });
+  const approvals: ApprovalSettings = { deleteCommands: raw.deleteCommands };
+  const next = await updateGlobalConfig((current) => ({
+    ...current,
+    preferences: { ...normalizeGlobalPreferences(current.preferences), approvals },
+  }));
+  return next.preferences.approvals;
 }
 
 export async function loadMemoryDefaults(): Promise<MemorySettings> {

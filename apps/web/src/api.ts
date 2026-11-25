@@ -68,6 +68,7 @@ export const api = {
   closeTerminal: (workspaceId: string, terminalId: string) => request<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}/terminals/${encodeURIComponent(terminalId)}`, { method: "DELETE" }),
   globalPreferences: () => request<import("./types").GlobalPreferences>("/api/settings/preferences"),
   saveGlobalPreferences: (settings: { files: import("./types").GlobalPreferences["files"] }) => request<import("./types").GlobalPreferences>("/api/settings/preferences", { method: "PUT", body: JSON.stringify(settings) }),
+  saveApprovalSettings: (settings: { deleteCommands: boolean }) => request<import("./types").GlobalPreferences["approvals"]>("/api/settings/approvals", { method: "PUT", body: JSON.stringify(settings) }),
   globalSystemPrompt: () => request<{ content: string; systemPromptPath: string; appendSystemPromptPath: string }>("/api/settings/system-prompt"),
   saveGlobalSystemPrompt: (setting: import("./types").GlobalPreferences["agent"]["systemPrompt"]) => request<import("./types").GlobalPreferences>("/api/settings/system-prompt", { method: "PUT", body: JSON.stringify(setting) }),
   skills: (workspaceId: string) => request<import("./types").SkillsResponse>(`/api/skills?workspaceId=${encodeURIComponent(workspaceId)}`),

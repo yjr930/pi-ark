@@ -86,6 +86,7 @@ docs/               产品、架构、使用和集成文档
 | Subagent tool | `apps/server/src/agent-tools/subagent.ts` | 任务委派的参数与进度回调 |
 | Question tool | `apps/server/src/agent-tools/question.ts` | `question` 与 `question_background` 的参数结构、说明和返回值 |
 | Question state | `apps/server/src/questions.ts` | 问题参数规范化、答案解析、状态推导与回答文本 |
+| Tool approval | `apps/server/src/tool-approvals.ts`、`agent-tools/tool-approval.ts` | 删除命令识别、审批原因文本、`tool_call` 拦截与审批请求类型 |
 | Web fetch tool | `apps/server/src/agent-tools/webfetch.ts` | `webfetch` 的参数、HTML 转 Markdown、响应体上限与错误处理 |
 | Subagent runtime | `apps/server/src/subagents.ts`、`subagent-types.ts` | 子 Session 的创建、调度、停止与结果汇总 |
 | Subagent store | `apps/server/src/subagent-store.ts` | 委派记录的保存、关系查询与中断恢复 |
@@ -305,6 +306,14 @@ Server 自动附加父 Session 最近的 user message 作为来源，并保存�
 
 HTTP routes `POST /api/workspaces/:workspaceId/sessions/:sessionId/questions/:toolCallId/answer` 与 `.../dismiss` 提供答案与放弃入口；Agent WebSocket 对应 `answer-question` 与 `dismiss-question` 命令。已结算的问题返回 409。Snapshot 携带 `questions`（当前 branch 的全部问题组及状态）与 `waitingForAnswer`，Session status 同步携带 `waitingForAnswer`。
 
+### Tool approval
+
+`AgentService` 通过 `createWorkspaceResourceLoader({ extensionFactories })` 为每个 Session 注册删除审批扩展（`createDeleteApprovalExtension`）。扩展监听 pi 的 `tool_call` 事件，只处理 `bash`，用 `detectDeleteCommand()` 检查命令中的删除命令，再读取 `preferences.approvals.deleteCommands`；命中且开关开启时，扩展调用 `AgentService.requestDeleteApproval()` 并等待 Promise。批准时扩展返回 `undefined`，拒绝时返回 `{ block: true, reason }`，pi 将 `reason` 写成该调用的错误 tool result。
+
+`requestDeleteApproval()` 把待审批项登记在 Session runtime 的 `pendingApprovals`，键为随机 `approvalId`。子 Session 的待审批项登记在父 Session 的 runtime，`SubagentStore.findTask()` 提供父 Session ID、`subagent` 工具调用 ID 与任务标题；审批卡片因此显示在父 Session，并带上子 Session 链接。`finishApproval()` 结算 Promise 并重新发送 snapshot。会话 Stop、删除与回滚分别把待审批项结算为 `aborted`、`deleted` 与 `rollback`，工具调用的中止信号同样结算为 `aborted`。
+
+HTTP routes `POST /api/workspaces/:workspaceId/sessions/:sessionId/approvals/:approvalId/approve` 与 `.../deny` 提供决策入口；Agent WebSocket 对应 `approve-tool` 与 `deny-tool` 命令。已结算的审批返回 409。Snapshot 携带 `approvals` 与 `waitingForApproval`，历史分支视图不返回审批，Session status 同步携带 `waitingForApproval`。识别范围、审批状态字段与界面行为见 [删除指令审批](design-tool-approval.md)。
+
 ### Pi-Ark link 读取工具
 
 `AgentService` 接收当前 `WorkspaceService` registry，并在创建和恢复 AgentSession 时通过 `createAgentSession({ customTools })` 注册 `read_pi_ark_link`。显式 `tools` 列表在父子 Session 中均包含该名称，并统一启用文件工具（`read`、`bash`、`edit` 和 `write`）与 `webfetch`。Global effective system prompt preview 使用相同的文件工具和自带工具定义。工具提供 `description`、`promptSnippet` 和 `promptGuidelines`，引导 Agent 使用工具读取用户提供的内部链接。
@@ -484,7 +493,7 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。Global settings 分布在以下文件：
 
-- Workspace registry 和共享 `preferences`（Global prompt append、Files preferences、Terminal shell 设置、Skills 停用清单和 Memory 全局默认值）：`PI_ARK_HOME/config.json`。
+- Workspace registry 和共享 `preferences`（Global prompt append、Files preferences、Terminal shell 设置、Skills 停用清单、Memory 全局默认值和删除审批开关）：`PI_ARK_HOME/config.json`。
 - Enabled models、default provider/model/thinking、queue modes、compaction 和 retry：`PI_ARK_AGENT_DIR/settings.json`。
 - Credentials：`PI_ARK_AGENT_DIR/auth.json`。
 - Custom models：`PI_ARK_AGENT_DIR/models.json`。
@@ -594,12 +603,13 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
       "disabledGlobal": [],
       "disabledWorkspace": {}
     },
-    "memory": { "enabled": false, "autoIndex": false, "proactive": false, "reviewEntries": true }
+    "memory": { "enabled": false, "autoIndex": false, "proactive": false, "reviewEntries": true },
+    "approvals": { "deleteCommands": true }
   }
 }
 ```
 
-缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，`preferences.skills` 保存 Skills 的停用清单，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词、文件偏好与 Terminal 设置。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append；Terminal PUT 使用 `TerminalSettings` 更新 `preferences.terminal`。这些写入入口共享 Global config 的串行原子写入，各入口保留其他设置字段。
+缺少 preferences 的既有 Global config 使用以上默认值。`GlobalPreferences.agent` 仅包含 `systemPrompt.append`，`preferences.skills` 保存 Skills 的停用清单，`preferences.approvals.deleteCommands` 保存删除审批开关，读取配置时归一化为上述结构，历史 Global `agent.tools` 选择由统一启用的文件工具列表替代。历史 `<workspace>/.pi-ark/config.json` 保留为历史数据，当前实现从 Global 取得提示词、文件偏好与 Terminal 设置。`ensureWorkspaceState()` 创建 Session directory。Preferences GET 返回归一化后的 preferences，PUT payload 仅包含 `files`；system prompt PUT 使用独立的 `{ "append": "..." }` payload 更新 append；Terminal PUT 使用 `TerminalSettings` 更新 `preferences.terminal`；approvals PUT 使用 `{ "deleteCommands": true }` payload 更新删除审批开关。这些写入入口共享 Global config 的串行原子写入，各入口保留其他设置字段。
 
 ### Settings 的页面缓存
 
@@ -633,7 +643,7 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 
 | 路径 | 内容 |
 |---|---|
-| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry 和共享 preferences（提示词、Files、Terminal shell、Skills 停用清单与 Memory 全局默认值） |
+| `PI_ARK_HOME/config.json` | Listen、TLS、auth hash、Workspace registry 和共享 preferences（提示词、Files、Terminal shell、Skills 停用清单、Memory 全局默认值与删除审批开关） |
 | `PI_ARK_HOME/tls/` | Setup 生成的 TLS key 和 certificate |
 | `PI_ARK_HOME/memory/<store-id>.json` | 单个 Workspace 注册的 Memory 覆盖选项、条目与建议；按存储标识串行原子写入 |
 | `PI_ARK_HOME/auth-sessions.json` | 登录 token 的 SHA-256 哈希、expiry 与 credential fingerprint |
@@ -769,7 +779,8 @@ interface TerminalInfo {
 | GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |
 | GET/PUT | `/api/settings/system-prompt` | 读取 effective prompt preview，或保存 Global append |
 | GET/PATCH | `/api/settings/memory` | 返回 `{ defaults, prompt }`（`prompt` 为内置的主动提议提示词）。PATCH 支持部分布尔字段（`enabled`、`autoIndex`、`proactive` 和 `reviewEntries`），省略字段保持原值 |
-| GET/PUT | `/api/settings/preferences` | GET 返回归一化的共享 preferences（包含 `terminal` 和 `memory`）；PUT 使用仅含 `files` 的 payload 更新 Files preferences |
+| GET/PUT | `/api/settings/preferences` | GET 返回归一化的共享 preferences（包含 `terminal`、`memory` 和 `approvals`）；PUT 使用仅含 `files` 的 payload 更新 Files preferences |
+| PUT | `/api/settings/approvals` | 使用 `{ deleteCommands }` payload 更新删除指令审批开关 |
 | GET/PUT | `/api/settings/terminal` | GET 与 PUT 均返回 `{ settings, profiles, platform }`；PUT body 为 `{ shell, executable, args, env }`，保存 Global Terminal 设置 |
 | GET | `/api/settings/release` | Pi-Ark、bundled pi core、安装状态、路径、命令和 latest release |
 | POST | `/api/settings/release/update` | 安装并切换到 latest Pi-Ark release |
@@ -1020,4 +1031,4 @@ npm run release:build
 
 `check:terminal` 将对应的服务源码转为 JavaScript，再以独立 Node 进程使用临时配置与实际 PTY；该进程沿用安装版的 helper 启动方式，并在超时后清理进程树。该检查覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
 
-Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state/Session list cache 与占用统计、流式 message_update 压缩与增量 snapshot 合并、running Session snapshot 预取、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间、手动 compact 命令解析。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB Session 列表、draft/attachment/disclosure 恢复、running Session 预取后的立即打开、Browser cache 存储大小与清理、连接中断后的自动重连与草稿和阅读位置保持、`/` 候选中插入内置 compact 命令、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。
+Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state/Session list cache 与占用统计、流式 message_update 压缩与增量 snapshot 合并、running Session snapshot 预取、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Session actions、system prompt、删除命令识别与审批原因文本、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间、手动 compact 命令解析。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB Session 列表、draft/attachment/disclosure 恢复、running Session 预取后的立即打开、Browser cache 存储大小与清理、连接中断后的自动重连与草稿和阅读位置保持、`/` 候选中插入内置 compact 命令、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

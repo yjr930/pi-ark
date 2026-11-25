@@ -1,4 +1,4 @@
-import { BookOpen, Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, Puzzle, RefreshCw, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
+import { BookOpen, Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, Puzzle, RefreshCw, RotateCcw, Save, Search, ShieldAlert, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { clearSessionCache, flushSessionCache, formatCacheSize, getSessionCacheSummary } from "../session-cache";
@@ -92,6 +92,7 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
   const globalSaveRevision = useRef(0);
   const modelSaveRevision = useRef(0);
   const filesSaveRevision = useRef(0);
+  const approvalsSaveRevision = useRef(0);
   const contentRef = useRef<HTMLElement>(null);
   const tabsRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef<Partial<Record<SettingsCategory, number>>>({});
@@ -378,6 +379,23 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
     return task;
   }
 
+  function persistApprovalSettings(approvals: GlobalPreferences["approvals"], success: string): Promise<void> {
+    const revision = ++approvalsSaveRevision.current;
+    setGlobal((current) => current ? { ...current, approvals } : current); setSaving(true); setNotice(null);
+    const task = preferencesSaveQueue.current.catch(() => undefined).then(async () => {
+      const saved = await api.saveApprovalSettings(approvals);
+      if (revision === approvalsSaveRevision.current) { setGlobal((current) => current ? { ...current, approvals: saved } : current); setNotice({ kind: "success", text: success }); }
+    }).catch(async (reason) => {
+      if (revision === approvalsSaveRevision.current) {
+        setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot save approval setting" });
+        const restored = await api.globalSettings().catch(() => null);
+        if (restored && revision === approvalsSaveRevision.current) setGlobal((current) => current ? { ...current, approvals: restored.approvals } : current);
+      }
+    }).finally(() => { if (revision === approvalsSaveRevision.current) setSaving(false); });
+    preferencesSaveQueue.current = task;
+    return task;
+  }
+
   function updateAppearance(patch: Partial<AppearanceSettings>) {
     onAppearanceChange({ ...appearance, ...patch });
   }
@@ -510,6 +528,10 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
               <div className="settings-row"><div><strong>Automatic compaction</strong><span>Summarize older context when the model context approaches its limit.</span></div><Toggle checked={global.compactionEnabled} onChange={(checked) => void persistAgentDefaults({ ...global, compactionEnabled: checked }, "Automatic compaction setting saved.")} /></div>
               <div className="settings-row"><div><strong>Automatic retry</strong><span>Retry transient provider failures with pi defaults.</span></div><Toggle checked={global.retryEnabled} onChange={(checked) => void persistAgentDefaults({ ...global, retryEnabled: checked }, "Automatic retry setting saved.")} /></div>
             </div>
+          </section>
+          <section className="settings-section">
+            <div className="settings-section-title"><ShieldAlert size={17} /><div><h3>Command approval</h3><p>Pause Agent commands that delete files until you approve them.</p></div></div>
+            <div className="settings-rows"><div className="settings-row"><div><strong>Delete commands</strong><span>Bash commands that delete files wait for your approval. Applies to subagent Sessions and takes effect on the next tool call.</span></div><Toggle checked={global.approvals.deleteCommands} onChange={(checked) => void persistApprovalSettings({ ...global.approvals, deleteCommands: checked }, "Delete command approval saved.")} /></div></div>
           </section>
           </div>
           <div className="settings-category" hidden={category !== "account"}>

@@ -7,7 +7,7 @@ import Fastify from "fastify";
 import { AgentService } from "./agents.js";
 import { AuthFlowService } from "./auth-flows.js";
 import { AuthService } from "./auth.js";
-import { arkHome, ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadGlobalPreferences, loadMemoryDefaults, piArkAgentDir, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveMemoryDefaults, saveTerminalSettings, type TerminalSettings, type GlobalPreferences, type WorkspaceDefinition } from "./config.js";
+import { arkHome, ensurePiArkAgentState, ensureWorkspaceState, loadConfig, loadGlobalPreferences, loadMemoryDefaults, piArkAgentDir, saveApprovalSettings, saveWorkspaceDefinitions, saveGlobalPreferences, saveGlobalSystemPrompt, saveMemoryDefaults, saveTerminalSettings, type TerminalSettings, type GlobalPreferences, type WorkspaceDefinition } from "./config.js";
 import { createSessionGroup, deleteSessionGroup, listSessionGroups, renameSessionGroup } from "./session-metadata.js";
 import { McpService } from "./mcp.js";
 import { SkillService } from "./skills.js";
@@ -183,6 +183,7 @@ app.get("/api/settings/terminal", async () => terminalSettingsResponse((await lo
 app.put<{ Body: TerminalSettings }>("/api/settings/terminal", async (request) => terminalSettingsResponse(await saveTerminalSettings(request.body)));
 app.get("/api/settings/preferences", async () => loadGlobalPreferences());
 app.put<{ Body: { files: GlobalPreferences["files"] } }>("/api/settings/preferences", async (request) => saveGlobalPreferences(request.body));
+app.put<{ Body: { deleteCommands?: unknown } }>("/api/settings/approvals", async (request) => saveApprovalSettings(request.body));
 app.get<{ Querystring: { workspaceId?: string } }>("/api/skills", async (request) => skills.list(workspaceFromQuery(request.query.workspaceId)));
 app.put<{ Body: unknown }>("/api/skills/selection", async (request) => {
   const saved = await skills.saveSelection(request.body);
@@ -308,6 +309,14 @@ app.post<{ Params: { workspaceId: string; sessionId: string; toolCallId: string 
   await agents.dismissQuestion(workspaces.get(request.params.workspaceId), request.params.sessionId, request.params.toolCallId);
   return reply.code(204).send();
 });
+app.post<{ Params: { workspaceId: string; sessionId: string; approvalId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/approvals/:approvalId/approve", async (request, reply) => {
+  await agents.decideApproval(workspaces.get(request.params.workspaceId), request.params.sessionId, request.params.approvalId, true);
+  return reply.code(204).send();
+});
+app.post<{ Params: { workspaceId: string; sessionId: string; approvalId: string } }>("/api/workspaces/:workspaceId/sessions/:sessionId/approvals/:approvalId/deny", async (request, reply) => {
+  await agents.decideApproval(workspaces.get(request.params.workspaceId), request.params.sessionId, request.params.approvalId, false);
+  return reply.code(204).send();
+});
 
 app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { message?: string; start?: string; leafEntryId?: string; snapshotsOnly?: string; stream?: string } }>("/ws/agent/:workspaceId/:sessionId", { websocket: true }, (socket, request) => {
   startHeartbeat(socket, { notice: true });
@@ -317,7 +326,7 @@ app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { mes
   const connection = agents.connect(workspace, request.params.sessionId, socket, { targetMessage, leafEntryId: request.query.leafEntryId, snapshotsOnly: request.query.snapshotsOnly === "1", stream: request.query.stream, start: Number.isInteger(requestedStart) && requestedStart >= 0 ? requestedStart : undefined });
   const onMessage = async (raw: Buffer) => {
     try {
-      const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; instructions?: string; attachments?: Array<{ name: string; mimeType: string; data: string }>; toolCallId?: string; answers?: unknown };
+      const message = JSON.parse(raw.toString()) as { type?: string; text?: string; name?: string; provider?: string; model?: string; level?: string; instructions?: string; attachments?: Array<{ name: string; mimeType: string; data: string }>; toolCallId?: string; answers?: unknown; approvalId?: string };
       if (request.query.leafEntryId && message.type !== "load-earlier") throw Object.assign(new Error("Open the current conversation to send commands"), { statusCode: 409 });
       if (message.type === "prompt" && (message.text?.trim() || message.attachments?.length)) await agents.prompt(workspace, request.params.sessionId, message.text || "", message.attachments || []);
       else if (message.type === "load-earlier") agents.loadEarlier(workspace, request.params.sessionId, socket);
@@ -325,6 +334,8 @@ app.get<{ Params: { workspaceId: string; sessionId: string }; Querystring: { mes
       else if (message.type === "compact") await agents.compact(workspace, request.params.sessionId, message.instructions);
       else if (message.type === "answer-question" && message.toolCallId) await agents.answerQuestion(workspace, request.params.sessionId, message.toolCallId, message.answers);
       else if (message.type === "dismiss-question" && message.toolCallId) await agents.dismissQuestion(workspace, request.params.sessionId, message.toolCallId);
+      else if (message.type === "approve-tool" && message.approvalId) await agents.decideApproval(workspace, request.params.sessionId, message.approvalId, true);
+      else if (message.type === "deny-tool" && message.approvalId) await agents.decideApproval(workspace, request.params.sessionId, message.approvalId, false);
       else if (message.type === "rename-session" && message.name?.trim()) await agents.updateSession(workspace, request.params.sessionId, { name: message.name });
       else if (message.type === "set-model" && message.provider && message.model) await agents.setModel(workspace, request.params.sessionId, message.provider, message.model);
       else if (message.type === "set-thinking-level" && message.level) await agents.setThinkingLevel(workspace, request.params.sessionId, message.level);

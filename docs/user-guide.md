@@ -420,6 +420,16 @@ Agent 需要你确认或选择时，会在会话中显示一张问题卡片。
 - 不想回答时点击 Unanswered，或者直接发送下一条 message；Agent 会收到未作答，并按自己的判断继续。
 - 副标题为 `Answer when you have time` 的问题不阻塞 Agent，你可以稍后在卡片上作答；已经作答或放弃的卡片保留结果，可以回看。
 
+### 批准删除命令
+
+Agent 准备执行包含删除文件的 bash 命令时，会在会话中暂停并显示审批卡片。
+
+- 查看卡片中的完整命令与识别到的删除命令（如 `rm`、`git clean`）。
+- 点击 Approve 允许执行；点击 Deny 拒绝，Agent 会收到拒绝原因并改用其他方式。
+- 子 Agent 执行的删除命令在父 Session 中审批。点击卡片中的 `Open subagent session` 可以打开子会话查看上下文。
+- 等待审批期间，会话状态显示 `Waiting for approval`，Composer 顶部的提示按钮可以滚动到卡片。
+- 多个删除命令同时等待审批时，每个命令各显示一张卡片。
+
 ### Queue
 
 AI 正在工作时，Send 标记为 Send follow-up，新 message 默认进入 Follow-up Queue。点击 Send follow-up 后，Queue 立即显示该 message 和 Scheduling；Server 通过轻量 Queue state 确认 item 后，Scheduling row 自动替换为正式 row。提交或连接失败时，该 row 显示 Failed，并提供清除按钮。每个正式 queued message 标记为 Steering 或 Follow-up。Queue mutation 使用 operation ID 和 revision 协调 optimistic UI 与 pi 的权威 Queue；快速连续操作共用当前 rebuild，并在目标 Queue 变化时追加一次 rebuild pass。Queue 使用紧凑的 message rows 和独立的滚动区域；Queue 增高时 conversation 自动使用剩余高度。
@@ -621,6 +631,10 @@ PI_ARK_AGENT_DIR/APPEND_SYSTEM.md
 - Automatic retry：按 pi 默认行为重试临时 provider failure。
 
 以上选择和开关会立即保存。
+
+### Agent behavior → Command approval
+
+Delete commands 开关控制删除指令审批。开启时，Agent 的 bash 命令包含删除文件的命令会暂停并等待你批准；关闭时命令直接执行。该开关默认开启，改动对下一次工具调用生效，父 Session 与子 Session 共用该设置。
 
 ### Memory
 

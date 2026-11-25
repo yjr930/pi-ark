@@ -1,6 +1,6 @@
 import { FormEvent, createContext, useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useId, type ClipboardEvent as ReactClipboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronUp, CircleStop, Clock3, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronUp, CircleStop, Clock3, Copy, File as FileIcon, GitFork, Info, Link2, LoaderCircle, Paperclip, Pencil, RotateCcw, ShieldAlert, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { api, websocketUrl } from "../api";
 import { connectionWatchdogIntervalMs, isConnectionStale, reconnectDelay } from "../connection-retry";
 import { buildConversationSegments, buildToolCallGroups, toolCallLabel } from "../conversation";
@@ -8,7 +8,7 @@ import { formatMessageTime } from "../message-time";
 import { internalMessageLink, internalSessionLink, sessionPermalink } from "../permalinks";
 import { cacheSessionSnapshot, cacheSessionUiState, getCachedSessionSnapshot, getCachedSessionUiState, sessionCacheKey, type CachedSessionAttachment } from "../session-cache";
 import { applyAssistantUpdate, mergeAgentSnapshot, type AssistantUpdate } from "../streaming";
-import type { AgentMessage, AgentSnapshot, ContentBlock, QueuedMessage, QueueState, QuestionAnswer, QuestionGroupState, SessionInfo, SessionModelOption, SessionRuntimeStatus, SubagentRun, Workspace } from "../types";
+import type { AgentMessage, AgentSnapshot, ContentBlock, QueuedMessage, QueueState, QuestionAnswer, QuestionGroupState, SessionInfo, SessionModelOption, SessionRuntimeStatus, SubagentRun, ToolApprovalRequest, Workspace } from "../types";
 import { Markdown } from "./Markdown";
 import { NameDialog } from "./NameDialog";
 import { Select } from "./Select";
@@ -17,6 +17,7 @@ import { applySuggestion, detectTrigger, filterSuggestItems, splitMcpQuery, type
 import { compactCommandInstructions, reloadCommandArguments, withBuiltinCommands } from "../slash-commands";
 import { SubagentBadge, SubagentList, SessionReference } from "./SubagentRun";
 import { QuestionCard } from "./QuestionCard";
+import { ToolApprovalCard } from "./ToolApprovalCard";
 import { subagentListItems } from "../subagent-view";
 import { pinnedPiArkLink } from "../../../server/src/internal-links";
 
@@ -40,6 +41,15 @@ interface QuestionUi {
 }
 
 const QuestionUiContext = createContext<QuestionUi | undefined>(undefined);
+
+interface ToolApprovalUi {
+  /** Pending approvals grouped by the tool call that shows the card: the bash call, or the parent `subagent` call. */
+  byToolCall: Map<string, ToolApprovalRequest[]>;
+  busyId?: string;
+  onDecide: (approvalId: string, approve: boolean) => void;
+}
+
+const ToolApprovalUiContext = createContext<ToolApprovalUi | undefined>(undefined);
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -256,6 +266,8 @@ function ToolFeedItem({ call, callTimestamp, result, summaryMessage, messageId, 
   const open = disclosureOpen ?? (target && !running);
   const questionUi = useContext(QuestionUiContext);
   const question = !isSummary && call?.id ? questionUi?.groups.get(call.id) : undefined;
+  const approvalUi = useContext(ToolApprovalUiContext);
+  const approvalCards = call?.id ? approvalUi?.byToolCall.get(call.id) || [] : [];
   if (question) return <div className={`feed-tool-item question-tool-item ${target ? "permalink-target" : ""}`}>
     {resultMessageId && <span id={`message-${resultMessageId}`} data-message-id={resultMessageId} data-message-role="toolResult" data-entry-id={result?.entryId} className="message-inline-anchor" />}
     <QuestionCard group={question} busy={questionUi?.busyId === question.toolCallId} onSubmit={(answers) => questionUi?.onAnswer(question.toolCallId, answers)} onDismiss={() => questionUi?.onDismiss(question.toolCallId)} />
@@ -268,6 +280,7 @@ function ToolFeedItem({ call, callTimestamp, result, summaryMessage, messageId, 
       return null;
     })}</div></section>}{isCompaction && summaryMessage?.compaction && <section className="compact-generation-details"><strong>Compaction details</strong><dl><div><dt>Trigger</dt><dd>{summaryMessage.compaction.reason || "—"}</dd></div><div><dt>Duration</dt><dd>{compactDuration(summaryMessage.compaction.durationMs)}</dd></div>{summaryMessage.compaction.summarizerInputTokens !== undefined && <div><dt>Summarizer input tokens</dt><dd>{summaryMessage.compaction.summarizerInputTokens}</dd></div>}{summaryMessage.compaction.summarizerOutputTokens !== undefined && <div><dt>Summarizer output tokens</dt><dd>{summaryMessage.compaction.summarizerOutputTokens}</dd></div>}</dl><p>≈ Token estimates from pi SDK</p></section>}{summaryMessage?.summary && <section><strong>Summary</strong><Markdown source={summaryMessage.summary} className="message-markdown" onImageOpen={onImageOpen} /></section>}{!isSummary && <MessageTime timestamp={result?.timestamp ?? callTimestamp} className="feed-tool-time" />}</div></details>
     {proposalId && <ReviewMemoryAction proposalId={proposalId} />}
+    {approvalCards.length > 0 && <div className="feed-tool-approvals">{approvalCards.map((approval) => <ToolApprovalCard request={approval} busy={approvalUi?.busyId === approval.approvalId} onDecide={(approvalId, approve) => approvalUi?.onDecide(approvalId, approve)} key={approval.approvalId} />)}</div>}
   </div>;
 }
 
@@ -318,6 +331,7 @@ function RunCollapse({ active, duration, toolMessages, target, stateKey, disclos
 }
 
 function ToolCallSequence({ calls, target, stateKey, disclosureOpen, onDisclosureChange, children }: { calls: ContentBlock[]; target: boolean; stateKey: string; disclosureOpen?: boolean; onDisclosureChange: DisclosureChange; children: (hiddenCalls: ReadonlySet<ContentBlock>) => ReactNode }) {
+  const approvalUi = useContext(ToolApprovalUiContext);
   const expanded = disclosureOpen ?? target;
   const targetOpenedRef = useRef(false);
   useLayoutEffect(() => {
@@ -326,7 +340,7 @@ function ToolCallSequence({ calls, target, stateKey, disclosureOpen, onDisclosur
       if (disclosureOpen !== true) onDisclosureChange(stateKey, true);
     }
   }, [disclosureOpen, onDisclosureChange, stateKey, target]);
-  const collapsedCalls = calls.slice(0, -3).filter((call) => call.name !== "question" && call.name !== "question_background" && call.name !== "memory_propose");
+  const collapsedCalls = calls.slice(0, -3).filter((call) => call.name !== "question" && call.name !== "question_background" && call.name !== "memory_propose" && !(call.id && approvalUi?.byToolCall.has(call.id)));
   const hiddenCalls = new Set(expanded ? [] : collapsedCalls);
   return <div className="feed-tool-sequence">{collapsedCalls.length > 0 && <button type="button" className="tool-sequence-toggle" aria-expanded={expanded} onClick={() => onDisclosureChange(stateKey, !expanded)}>{expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}{expanded ? "show fewer tool calls" : `show more tool calls (${collapsedCalls.length})`}</button>}{children(hiddenCalls)}</div>;
 }
@@ -416,6 +430,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const [optimisticQueueOperations, setOptimisticQueueOperations] = useState<OptimisticQueueOperation[]>([]);
   const [retryNotice, setRetryNotice] = useState<{ attempt: number; maxAttempts: number; errorMessage: string } | null>(null);
   const [questionBusyId, setQuestionBusyId] = useState<string>();
+  const [approvalBusyId, setApprovalBusyId] = useState<string>();
   const [suggest, setSuggest] = useState<ComposerSuggestState | null>(null);
   const suggestCacheRef = useRef<{ workspaceId: string; skills?: SuggestItem[]; commands?: SuggestItem[]; configured?: import("../types").McpConfiguredServer[]; servers?: import("../types").McpServerView[]; prefetching?: boolean }>({ workspaceId: "" });
   const suggestTimerRef = useRef<number | undefined>(undefined);
@@ -678,7 +693,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
   const runtimeStatus = sessionStatuses[session.id];
   const reloading = reloadNotice?.kind === "working";
   const runtimeError = !reloadNotice && status === "Ready" && runtimeStatus?.state === "error" ? runtimeStatus.errorMessage || "Session error" : undefined;
-  const displayStatus = reloadNotice?.message ?? (runtimeError ? "Error" : Boolean(snapshot?.waitingForAnswer) ? "Waiting for answer" : status === "AI is working" && isSubagent ? "SubAgent is working" : status);
+  const displayStatus = reloadNotice?.message ?? (runtimeError ? "Error" : Boolean(snapshot?.waitingForApproval) ? "Waiting for approval" : Boolean(snapshot?.waitingForAnswer) ? "Waiting for answer" : status === "AI is working" && isSubagent ? "SubAgent is working" : status);
   const allMessages = useMemo(() => snapshot?.messages.filter((message) => message.role !== "system") || [], [snapshot]);
   const messageNumberOffset = snapshot?.messageNumberOffset || 0;
   const stickyUserMessage = stickyUserMessageId ? allMessages.find((message) => message.messageId === stickyUserMessageId) : undefined;
@@ -696,6 +711,18 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     onAnswer: (toolCallId, answers) => { if (!send({ type: "answer-question", toolCallId, answers })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
     onDismiss: (toolCallId) => { if (!send({ type: "dismiss-question", toolCallId })) setStatus("Connection is not ready"); else setQuestionBusyId(toolCallId); },
   }), [snapshot?.questions, questionBusyId]);
+  const pendingApprovals = snapshot?.approvals || [];
+  const toolApprovalUi = useMemo<ToolApprovalUi>(() => {
+    const approvals = snapshot?.approvals || [];
+    const byToolCall = new Map<string, ToolApprovalRequest[]>();
+    for (const approval of approvals) byToolCall.set(approval.anchorToolCallId, [...byToolCall.get(approval.anchorToolCallId) || [], approval]);
+    const busy = approvals.some((approval) => approval.approvalId === approvalBusyId) ? approvalBusyId : undefined;
+    return {
+      byToolCall,
+      busyId: busy,
+      onDecide: (approvalId, approve) => { if (!send({ type: approve ? "approve-tool" : "deny-tool", approvalId })) setStatus("Connection is not ready"); else setApprovalBusyId(approvalId); },
+    };
+  }, [snapshot?.approvals, approvalBusyId]);
   const statusIsError = reloadNotice ? reloadNotice.kind === "error" : Boolean(runtimeError) || !["Connecting session", "Loading conversation", "Refreshing conversation", "Reconnecting…", "Compacting context", "AI is working", "Ready", "Changing model", "Changing thinking level", "Preparing fork", "Forking session", "Rolling back latest message", "Restoring rolled back message"].includes(status) && !status.startsWith("Running ");
 
   function applyAuthoritativeQueueState(state: QueueState) {
@@ -993,8 +1020,8 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     finally { setPreparingAttachments(false); }
   }
 
-  return <RoleLabels.Provider value={roles}><SubagentRunsContext.Provider value={subagentRuns}><LiveNestedToolsContext.Provider value={liveNestedTools}><QuestionUiContext.Provider value={questionUi}><OpenMemoryContext.Provider value={onOpenMemory}><section className={`chat-page ${leafEntryId ? "historical-branch" : ""} chat-width-${chatWidth}`} aria-busy={isLoading}>
-    <div className="chat-top">{origin && <div className="parent-agent-bar" aria-label="Parent Agent status"><Sparkles size={14} /><span>Parent Agent</span>{origin.parentDeleted ? <strong>Session deleted</strong> : <SessionReference className="parent-agent-title" link={internalSessionLink(workspace.id, origin.parentSessionId)}>{parentSession?.name || parentSession?.firstMessage || "Parent Agent"}</SessionReference>}<SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} /><span className={`status-dot ${parentStatus?.state === "error" ? "error" : ""}`} title={parentStatus?.errorMessage}><i className={parentStatus?.state === "running" ? "working" : parentStatus?.state === "error" ? "error" : ""} /><span>{parentStatus?.state || "ready"}</span></span>{!origin.parentDeleted && <SessionReference className="parent-request-link" link={origin.parentLink} leafEntryId={origin.parentLeafEntryId}>Open parent request</SessionReference>}</div>}<header className="page-header chat-header">
+  return <RoleLabels.Provider value={roles}><SubagentRunsContext.Provider value={subagentRuns}><LiveNestedToolsContext.Provider value={liveNestedTools}><QuestionUiContext.Provider value={questionUi}><ToolApprovalUiContext.Provider value={toolApprovalUi}><OpenMemoryContext.Provider value={onOpenMemory}><section className={`chat-page ${leafEntryId ? "historical-branch" : ""} chat-width-${chatWidth}`} aria-busy={isLoading}>
+    <div className="chat-top">{origin && <div className="parent-agent-bar" aria-label="Parent Agent status"><Sparkles size={14} /><span>Parent Agent</span>{origin.parentDeleted ? <strong>Session deleted</strong> : <SessionReference className="parent-agent-title" link={internalSessionLink(workspace.id, origin.parentSessionId)}>{parentSession?.name || parentSession?.firstMessage || "Parent Agent"}</SessionReference>}<SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} /><span className={`status-dot ${parentStatus?.state === "error" ? "error" : ""}`} title={parentStatus?.errorMessage}><i className={parentStatus?.state === "running" ? "working" : parentStatus?.state === "error" ? "error" : ""} /><span>{parentStatus?.waitingForApproval ? "waiting for approval" : parentStatus?.state || "ready"}</span></span>{!origin.parentDeleted && <SessionReference className="parent-request-link" link={origin.parentLink} leafEntryId={origin.parentLeafEntryId}>Open parent request</SessionReference>}</div>}<header className="page-header chat-header">
       <div className="chat-title"><h2>{title}</h2><button className="subtle-icon-button" title="Rename session" disabled={isLoading || Boolean(leafEntryId)} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button>{!isSubagent && <SubagentBadge items={agentItems} open={subagentListOpen} onToggle={() => setSubagentListOpen((open) => !open)} />}<span className={`status-dot ${statusIsError ? "error" : ""}`} role="status" title={runtimeError || (statusIsError || reloadNotice ? displayStatus : undefined)}><i className={statusIsError ? "error" : active || isLoading || reloading ? "working" : ""} /><span>{displayStatus}</span></span></div>
       <div className="chat-header-actions"><span className="chat-context-usage" aria-label={sessionContextPercent == null ? "Context usage unavailable" : `Context usage ${sessionContextPercent.toFixed(1)}%`}>{sessionContextPercent == null ? "—" : `${sessionContextPercent.toFixed(1)}%`}</span><div className="session-info-root" ref={infoRef}><button className="subtle-icon-button" title="Session information" disabled={isLoading} aria-expanded={infoOpen} onClick={() => setInfoOpen((current) => !current)}><Info size={16} /></button>{infoOpen && <div className="session-info-panel"><h3>Session information</h3><dl><div><dt>Created</dt><dd>{new Date(session.created).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(session.modified).toLocaleString()}</dd></div><div><dt>Messages</dt><dd>{snapshot?.totalDisplayMessages ?? session.messageCount}</dd></div><div><dt>Context</dt><dd>{sessionContextPercent == null ? "Unknown" : `${sessionContextPercent.toFixed(1)}% · ${number(snapshot?.stats?.contextUsage?.tokens || 0)} / ${number(snapshot?.stats?.contextUsage?.contextWindow || 0)}`}</dd></div><div><dt>Input total</dt><dd>{number(snapshot?.stats?.tokens.input ?? 0)}</dd></div><div><dt>Output total</dt><dd>{number(snapshot?.stats?.tokens.output ?? 0)}</dd></div><div><dt>Cost</dt><dd>${number(snapshot?.stats?.cost ?? 0)}</dd></div></dl><div className="session-info-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(sessionPermalink(workspace.id, session.id, undefined, leafEntryId)).then(() => { setSessionLinkCopied(true); window.setTimeout(() => setSessionLinkCopied(false), 1200); })}>{sessionLinkCopied ? <Check size={14} /> : <Link2 size={14} />}{sessionLinkCopied ? "Session URL copied" : "Copy session URL"}</button><div className="chat-width-control" aria-label="Conversation width">{(["compact", "wide", "full"] as const).map((width) => <button className={chatWidth === width ? "active" : ""} title={`${width} conversation width`} onClick={() => selectWidth(width)} key={width}>{width}</button>)}</div></div></div>}</div></div>
     </header>
@@ -1005,6 +1032,7 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     </div>
     {!isLoading && snapshot?.subagents?.managed && !leafEntryId && <div className="subagent-managed-notice"><span>The parent is managing this task.</span><button type="button" className="stop-button" title="Stop" onClick={() => send({ type: "abort" })}><CircleStop size={18} /></button></div>}
     {!isLoading && !leafEntryId && !isSubagent && <form className="composer" onSubmit={(event) => void submit(event)}>
+      {pendingApprovals.length > 0 && <div className="tool-approval-notice" role="status"><ShieldAlert size={14} /><span>{pendingApprovals.length === 1 ? "A delete command is waiting for approval." : `${pendingApprovals.length} delete commands are waiting for approval.`}</span><button type="button" onClick={() => document.getElementById(`approval-${pendingApprovals[0].approvalId}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}>Show request</button></div>}
       {suggest && <ComposerSuggest kind={suggest.trigger.kind} query={suggest.trigger.query} items={suggest.items} selected={suggest.selected} loading={suggest.loading} truncated={suggest.truncated} onHover={(index) => setSuggest((current) => current ? { ...current, selected: index } : current)} onSelect={applySuggestItem} />}
       {snapshot?.rollback && <div className="rollback-restore"><span><Undo2 size={14} />Latest message rolled back</span><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => void restoreRollback()}><Undo2 size={13} />Restore message</button></div>}
       {(displayedQueue.length + pendingQueuedMessages.length > 0) && <div className="message-queue"><div className="message-queue-title"><div><strong>Queue</strong><span>Steering runs before follow-up</span></div><button type="button" className="queue-merge-button" disabled={queueBusy || queuedFollowUpCount < 2} onClick={() => void mergeQueuedFollowUps()}>Merge follow-ups</button></div>{displayedQueue.map((item) => { const sameMode = displayedQueue.filter((queued) => queued.mode === item.mode); const position = sameMode.findIndex((queued) => queued.id === item.id); return <div className="queued-message" key={item.id}><span className={`queue-mode ${item.mode}`}>{item.mode === "steering" ? "Steering" : "Follow-up"}</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div><button type="button" title="Edit queued message" aria-label="Edit queued message" disabled={queueBusy} onClick={() => editQueuedMessage(item)}><Pencil size={12} /></button><button type="button" title="Move queued message up" disabled={queueBusy || position === 0} onClick={() => void updateQueue(item.id, { direction: "up" })}><ArrowUp size={13} /></button><button type="button" title="Move queued message down" disabled={queueBusy || position === sameMode.length - 1} onClick={() => void updateQueue(item.id, { direction: "down" })}><ArrowDown size={13} /></button><button type="button" disabled={queueBusy} onClick={() => void updateQueue(item.id, { mode: item.mode === "steering" ? "followUp" : "steering" })}>{item.mode === "steering" ? "Make follow-up" : "Make steering"}</button></div></div>; })}{pendingQueuedMessages.map((item) => <div className={`queued-message pending ${item.status}`} key={item.id}><span className="queue-mode followUp">Follow-up</span><strong title={item.text}>{item.text.split("\n")[0]}</strong><div className="queue-pending-state" title={item.error}><span>{item.status === "scheduling" ? <LoaderCircle className="queue-pending-spinner" size={12} /> : <TriangleAlert size={12} />}{item.status === "scheduling" ? "Scheduling" : "Failed"}</span>{item.status === "failed" && <button type="button" title="Dismiss failed queued message" aria-label="Dismiss failed queued message" onClick={() => setPendingQueuedMessages((current) => current.filter((pending) => pending.id !== item.id))}><X size={12} /></button>}</div></div>)}</div>}
@@ -1017,5 +1045,5 @@ export function Chat({ workspace, session, sessions, sessionStatuses, targetMess
     {!isLoading && rollbackEntryId && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !actionBusy) setRollbackEntryId(null); }}><div className="dialog-card compact-dialog rollback-dialog" role="dialog" aria-modal="true" aria-labelledby="rollback-session-title"><div className="dialog-header no-close"><div className="dialog-icon rollback-dialog-icon"><RotateCcw size={18} /></div><div><h2 id="rollback-session-title">Roll back latest message?</h2><p>This removes the latest conversation turn and returns its message to the composer. Project files stay unchanged.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={actionBusy} onClick={() => setRollbackEntryId(null)}>Cancel</button><button type="button" className="secondary-button rollback-confirm-button" disabled={actionBusy} onClick={() => void confirmRollback()}><RotateCcw size={14} />Roll back conversation</button></div></div></div>}
     {!isLoading && queuedEditCandidate && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !queueBusy) setQueuedEditCandidate(null); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="replace-composer-title"><div className="dialog-header no-close"><div className="dialog-icon"><Pencil size={18} /></div><div><h2 id="replace-composer-title">Replace composer draft?</h2><p>The composer already contains content. Replace it with the queued message?</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={queueBusy} onClick={() => setQueuedEditCandidate(null)}>Cancel</button><button type="button" className="secondary-button" disabled={queueBusy} onClick={() => void takeQueuedMessageForEdit(queuedEditCandidate)}><Pencil size={14} />Replace draft</button></div></div></div>}
     {imageOpen && <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Image preview" onMouseDown={(event) => { if (event.target === event.currentTarget) setImageOpen(null); }}><button type="button" title="Close image preview" onClick={() => setImageOpen(null)}><X size={19} /></button><img src={imageOpen.source} alt={imageOpen.alt} /></div>}
-  </section></OpenMemoryContext.Provider></QuestionUiContext.Provider></LiveNestedToolsContext.Provider></SubagentRunsContext.Provider></RoleLabels.Provider>;
+  </section></OpenMemoryContext.Provider></ToolApprovalUiContext.Provider></QuestionUiContext.Provider></LiveNestedToolsContext.Provider></SubagentRunsContext.Provider></RoleLabels.Provider>;
 }

@@ -514,6 +514,28 @@ html, body { color: var(--text); background: var(--bg); }
 .question-buttons { display: flex; align-items: center; gap: 7px; }
 .question-buttons > button { min-height: 32px; padding: 0 12px; font-size: var(--fs-ui); }
 
+/* Delete command approval: one card per pending command, stacked in the tool row that issued it. */
+.feed-tool-approvals { display: grid; gap: 6px; margin-top: 6px; }
+.tool-approval-card { display: grid; gap: 9px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--tool-line)); border-radius: 8px; background: color-mix(in srgb, var(--warning) 5%, var(--tool-surface)); }
+.tool-approval-header { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.tool-approval-icon { width: 24px; height: 24px; display: grid; place-items: center; color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--tool-line)); border-radius: 6px; background: var(--surface-2); }
+.tool-approval-title { min-width: 0; display: grid; gap: 2px; }
+.tool-approval-title strong { color: var(--text); font-size: var(--fs-ui); font-weight: 620; }
+.tool-approval-title span { color: var(--muted-2); font-size: var(--fs-caption); }
+.tool-approval-state { padding: 2px 7px; color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--line)); border-radius: 999px; font-size: var(--fs-micro); letter-spacing: .04em; text-transform: uppercase; }
+.tool-approval-command { max-height: 180px; margin: 0; padding: 8px 9px; color: var(--text-soft); border: 1px solid var(--tool-line); border-radius: 7px; background: var(--input); font: var(--fs-dense)/1.5 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
+.tool-approval-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--muted-2); font-size: var(--fs-caption); }
+.tool-approval-meta code { padding: 1px 5px; color: var(--text-soft); border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); font: var(--fs-caption) "SFMono-Regular", Consolas, monospace; }
+.tool-approval-session { color: var(--accent); font-size: var(--fs-caption); text-decoration: none; }
+.tool-approval-session:hover { text-decoration: underline; }
+.tool-approval-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.tool-approval-actions > button { min-height: 32px; padding: 0 12px; font-size: var(--fs-ui); }
+.tool-approval-notice { min-height: 32px; margin-bottom: 8px; padding: 5px 6px 5px 9px; display: flex; align-items: center; gap: 8px; color: var(--text-soft); border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--warning) 7%, var(--input)); font-size: var(--fs-dense); }
+.tool-approval-notice > svg { flex: none; color: var(--warning); }
+.tool-approval-notice > span { min-width: 0; flex: 1; }
+.tool-approval-notice > button { min-height: 26px; padding: 0 8px; flex: none; border: 1px solid var(--line); border-radius: 6px; color: var(--accent); background: var(--surface); font-size: var(--fs-caption); cursor: pointer; }
+.tool-approval-notice > button:hover { background: var(--hover); }
+
 /* Dialog headers stack the icon above the title so the title, description and fields share one left edge. */
 .dialog-header { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 10px; }
 .dialog-header.no-close { grid-template-columns: minmax(0, 1fr); }

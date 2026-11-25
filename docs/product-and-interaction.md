@@ -103,7 +103,7 @@ Server 初始 snapshot 默认只包含最新约 100 条 messages，并提供完�
 
 ### 空 Session 与运行状态
 
-没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态；标题组不占用剩余空间；标题使用实际文字宽度并受当前 max-width 限制，编辑按钮紧跟标题。右侧只显示 context 百分比数字和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、重连、工作、运行工具和就绪之间变化。会话连接中断后，状态显示 `Reconnecting…`，页面按 500 ms 起步、逐次翻倍、上限 10 秒的间隔自动重连，成功后显示最新的 conversation 内容，composer 草稿和阅读位置保持原样。Server 以 1008 关闭连接并拒绝重连时，状态显示 `Disconnected`；`Disconnected` 和其他错误状态使用完整红灯，并增加红色系底色和边框；移动端只省略过长的状态文字，不裁切红灯。移动端 Chat 主列始终限制在 viewport 内，header、conversation、sticky User row、Running 和 composer 不产生页面横向溢出。存在等待作答的问题时，状态显示 `Waiting for answer`。
+没有 message 的 Session 显示欢迎内容和 composer。发送 message 后，user message 通过流式 event 立即进入 conversation；Server 在 message 持久化完成后发送权威 snapshot。会话状态栏左侧依次显示标题、编辑标题按钮和状态；标题组不占用剩余空间；标题使用实际文字宽度并受当前 max-width 限制，编辑按钮紧跟标题。右侧只显示 context 百分比数字和 Session information。复制 Session URL 与 conversation width 选项位于 Session information panel。状态在连接、加载、重连、工作、运行工具和就绪之间变化。会话连接中断后，状态显示 `Reconnecting…`，页面按 500 ms 起步、逐次翻倍、上限 10 秒的间隔自动重连，成功后显示最新的 conversation 内容，composer 草稿和阅读位置保持原样。Server 以 1008 关闭连接并拒绝重连时，状态显示 `Disconnected`；`Disconnected` 和其他错误状态使用完整红灯，并增加红色系底色和边框；移动端只省略过长的状态文字，不裁切红灯。移动端 Chat 主列始终限制在 viewport 内，header、conversation、sticky User row、Running 和 composer 不产生页面横向溢出。存在等待作答的问题时，状态显示 `Waiting for answer`；存在等待审批的删除命令时，状态显示 `Waiting for approval`。
 
 每个 turn 的 User 内容显示为一条独立的全宽色带，并保留用户头像、`User` 标签、短 Message ID、内部链接与 Rollback。User 色带使用与 conversation 和 AI feed 有区分的 theme background，只有上、下 separator，没有左右 border、圆角或阴影；色带延伸到当前 conversation 内容列的左右边界。上下 separator 的外侧保留更大的垂直间距。色带内部使用非对称 padding，其中左侧和上侧的留白大于右侧和下侧。Ark Dark、Graphite、Midnight、Paper 和 Snow 分别使用与自身背景和 AI accent 协调的 User palette；User accent 与 AI accent 保持可区分。User 与 AI 的头像和名称都使用更大的尺寸。该轮 AI response 只在开头显示一次 AI 头像和 `AI` 标签，后续 text、image、reasoning、tool 与 Compact items 按原始顺序连续排列。User 与 AI 的角色头像只占用 header 行，后续 feed 内容继续使用 conversation 的完整宽度。
 
@@ -140,6 +140,19 @@ Agent 可以通过提问工具向用户提交一个带选项的问题组。问�
 - 用户直接发送新 message 时，未作答的问题被记为 Unanswered，新 message 按当前运行状态发送或进入 Follow-up Queue。
 
 问题卡片使用 `--fs-*` 字号变量，与 Appearance 中的整体字号倍率一起缩放。
+
+### 删除指令审批
+
+Agent 的 `bash` 命令包含删除文件的命令时，Pi-Ark 暂停该命令并在会话中显示审批卡片。该功能默认开启，可在 **Settings → Agent behavior** 的 **Delete commands** 中关闭，开关改动对下一次工具调用生效。
+
+- 卡片显示在发起命令的工具行下方，顶部为盾牌图标、`Delete command needs approval` 和 `Waiting` 状态。
+- 卡片正文用等宽字体显示完整命令，并标明识别到的删除命令（如 `rm`、`git clean`）。
+- 底部提供 `Deny` 与 `Approve`。批准后命令执行，工具行回到正常的 Running 与 Completed 状态；拒绝后该调用显示 Failed，并附上拒绝原因。
+- 子 Session 执行的删除命令在父 Session 中审批。卡片标明 `Subagent` 与任务标题，并提供 `Open subagent session` 链接，便于查看上下文。多个待审批请求各自显示一张卡片，按请求顺序堆叠。
+- 等待审批时 header status 显示 `Waiting for approval`，Session 列表中对应的 Session 显示盾牌图标；子 Session 页面的 Parent Agent 状态显示 `waiting for approval`。
+- Composer 顶部显示待审批数量和 `Show request` 按钮，点击后滚动到第一张卡片。待审批的工具调用不进入 `show more tool calls` 折叠。
+
+审批卡片使用 `--fs-*` 字号变量，与 Appearance 中的整体字号倍率一起缩放。
 
 ### Message 标识与链接
 
@@ -257,7 +270,7 @@ Settings 中的 Server 设置由实例保存，其中 Memory 提供全局默认�
 
 - Appearance：Theme 区域使用紧凑的色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）；Text size 区域用滑杆调整全部界面文字的整体倍率，范围 90% 到 130%，并列出七个字号等级的名称、用途与当前像素值；Sidebar 区域包含 Working session count 开关；Conversation 区域包含 Hide reasoning 和 Keep line breaks。这些设置都保存在当前浏览器，改动立即生效。
 - Models & providers：Provider credential 管理、write-only API key、subscription login、模型清单刷新、模型可见清单、default model 和 default thinking level。
-- Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction 和 automatic retry。
+- Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction、automatic retry 和 Delete commands 审批开关。
 - Memory：全局默认值、Workspace 覆盖选项和主动提议提示词预览。
 - Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。
 - MCP：MCP server 列表、启用开关、连接状态、诊断与浏览器运行时。

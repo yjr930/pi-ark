@@ -56,7 +56,7 @@ try {
   const sessionStatus = () => agents.statuses(workspace).find((status) => status.id === manager.getSessionId());
   const runtimeId = sessionStatus()?.runtimeId;
   assert.ok(runtimeId);
-  const statusFields = { id: manager.getSessionId(), runtimeId, waitingForAnswer: false };
+  const statusFields = { id: manager.getSessionId(), runtimeId, waitingForAnswer: false, waitingForApproval: false };
   assert.deepEqual(sessionStatus(), { ...statusFields, state: "ready", statusRevision: 0, updateRevision: 0 });
   service.onEvent(handle, { type: "agent_start" });
   assert.equal(sessionStatus()?.state, "running");

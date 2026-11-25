@@ -1,6 +1,7 @@
 import type { SubagentOrigin, SubagentSessionState } from "../../server/src/subagent-types";
 export type { SubagentSessionState, SubagentRun, SubagentOrigin } from "../../server/src/subagent-types";
 export type { QuestionAnswer, QuestionGroupState, QuestionItem, QuestionOption } from "../../server/src/questions";
+export type { ToolApprovalRequest } from "../../server/src/tool-approvals";
 
 export interface Workspace {
   id: string;
@@ -116,6 +117,7 @@ export interface SessionRuntimeStatus {
   id: string;
   state: "ready" | "running" | "error";
   waitingForAnswer?: boolean;
+  waitingForApproval?: boolean;
   runtimeId: string;
   statusRevision: number;
   updateRevision: number;
@@ -205,7 +207,9 @@ export interface AgentSnapshot {
   queue: QueuedMessage[];
   queueRevision: number;
   questions?: import("../../server/src/questions").QuestionGroupState[];
+  approvals?: import("../../server/src/tool-approvals").ToolApprovalRequest[];
   waitingForAnswer?: boolean;
+  waitingForApproval?: boolean;
   rollbackEntryId?: string;
   rollback?: { id: string; targetId: string; restoreEntryId: string; draft: string };
   stats: {
@@ -487,4 +491,5 @@ export interface GlobalPreferences {
   agent: { systemPrompt: { append: string } };
   files: { showHiddenFiles: boolean; maxPreviewSizeMb: number };
   terminal: TerminalSettings;
+  approvals: { deleteCommands: boolean };
 }

@@ -16,12 +16,14 @@ import { COMPACTION_TIMING_TYPE, type CompactionTiming } from "./compaction-stat
 import { createSubagentTool, SUBAGENT } from "./agent-tools/subagent.js";
 import { createWebfetchTool, WEBFETCH } from "./agent-tools/webfetch.js";
 import { createQuestionTools } from "./agent-tools/question.js";
+import { createDeleteApprovalExtension, type DeleteApprovalInput } from "./agent-tools/tool-approval.js";
+import { formatApprovalDenialReason, type ToolApprovalDecision, type ToolApprovalRequest } from "./tool-approvals.js";
 import { createMemoryExtension, createMemoryTools, MEMORY_TOOLS } from "./agent-tools/memory.js";
 import type { MemoryMessageSource, WorkspaceMemory } from "./workspace-memory.js";
 import { answeredOutcome, deriveQuestionGroups, formatOutcomeMessage, normalizeQuestions, QUESTION_ANSWER_TYPE, QUESTION_TOOLS, questionToken, unansweredOutcome, type QuestionGroupState, type QuestionItem, type QuestionMode, type QuestionOutcome, type QuestionReason } from "./questions.js";
 import { SubagentService, SUBAGENT_ROLE_PROMPT, type SubagentConfiguration } from "./subagents.js";
 import { type SubagentTaskInput } from "./subagent-types.js";
-import { validLeafEntryId } from "./internal-links.js";
+import { internalSessionLink, validLeafEntryId } from "./internal-links.js";
 import { createResourceLoader as createWorkspaceResourceLoader } from "./resource-loader.js";
 import { extensionToolNames } from "./extensions.js";
 export { buildSessionDisplayMessages, MAX_SESSION_MESSAGES, sessionMessageId } from "./session-display.js";
@@ -44,11 +46,20 @@ interface PendingQuestion {
   cleanup?: () => void;
 }
 
+interface PendingApproval {
+  request: ToolApprovalRequest;
+  /** Handle whose Session interface displays the approval card. Subagent calls route to the parent. */
+  owner: AgentHandle;
+  resolve: (decision: ToolApprovalDecision) => void;
+  cleanup?: () => void;
+}
+
 interface AgentHandle {
   workspace: WorkspaceDefinition;
   systemPromptAppend: string;
   session: AgentSession;
   pendingQuestions: Map<string, PendingQuestion>;
+  pendingApprovals: Map<string, PendingApproval>;
   clients: Map<WebSocket, AgentClientState>;
   unsubscribe: () => void;
   queue: QueueItem[];
@@ -196,6 +207,7 @@ export class AgentService {
       id: handle.session.sessionId,
       state: handle.runtimeState,
       waitingForAnswer: handle.pendingQuestions.size > 0,
+      waitingForApproval: handle.pendingApprovals.size > 0,
       runtimeId: handle.runtimeId,
       statusRevision: handle.statusRevision,
       updateRevision: handle.updateRevision,
@@ -272,6 +284,7 @@ export class AgentService {
       if (!handle.session.isIdle) await handle.session.abort();
       await handle.session.waitForIdle();
     }
+    if (handle.pendingApprovals.size > 0) this.settleApprovals(handle, "rollback");
     if (!handle.session.isIdle || handle.session.pendingMessageCount > 0) throw Object.assign(new Error("Wait for the session and queue to finish before rolling back"), { statusCode: 409 });
     const manager = handle.session.sessionManager;
     if (this.rollbackState(handle)) throw Object.assign(new Error("Restore the rolled back message or send a new message before another rollback"), { statusCode: 409 });
@@ -382,6 +395,7 @@ export class AgentService {
       this.broadcast(handle, { type: "session-deleted" });
       handle.session.clearQueue();
       await this.settleQuestions(handle, "deleted");
+      this.settleApprovals(handle, "deleted");
       if (!handle.session.isIdle) await handle.session.abort();
       handle.unsubscribe();
       await this.shutdownSession(handle.session);
@@ -538,6 +552,58 @@ export class AgentService {
     await handle.session.sendCustomMessage({ customType: QUESTION_ANSWER_TYPE, content: [{ type: "text", text: formatOutcomeMessage(pending.token, pending.questions, outcome) }], display: true, details }, { triggerTurn, deliverAs: "followUp" });
   }
 
+  async decideApproval(workspace: WorkspaceDefinition, sessionId: string, approvalId: string, approved: boolean): Promise<void> {
+    const handle = await this.getOrOpen(workspace, sessionId);
+    this.assertInteractive(workspace, sessionId);
+    const pending = handle.pendingApprovals.get(approvalId);
+    if (!pending) throw Object.assign(new Error("This approval request is no longer open"), { statusCode: 409 });
+    this.finishApproval(pending, approved ? { approved: true } : { approved: false, reason: formatApprovalDenialReason(pending.request.command, "denied") });
+  }
+
+  private finishApproval(pending: PendingApproval, decision: ToolApprovalDecision): void {
+    if (pending.owner.pendingApprovals.get(pending.request.approvalId) !== pending) return;
+    pending.owner.pendingApprovals.delete(pending.request.approvalId);
+    pending.cleanup?.();
+    pending.resolve(decision);
+    this.scheduleSnapshot(pending.owner);
+  }
+
+  private settleApprovals(handle: AgentHandle, reason: "aborted" | "deleted" | "rollback"): void {
+    for (const pending of [...handle.pendingApprovals.values()]) this.finishApproval(pending, { approved: false, reason: formatApprovalDenialReason(pending.request.command, reason) });
+  }
+
+  /** `tool_call` hook for bash delete commands. Subagent calls are shown in the parent Session. */
+  private async requestDeleteApproval(workspace: WorkspaceDefinition, input: DeleteApprovalInput): Promise<ToolApprovalDecision> {
+    const issued = this.handles.get(this.key(workspace, input.sessionId));
+    const task = this.subagents.store.findTask(workspace, input.sessionId);
+    const parent = task ? this.handles.get(this.key(workspace, task.run.parentSessionId)) : undefined;
+    const owner = parent ?? issued;
+    if (!owner) return { approved: false, reason: formatApprovalDenialReason(input.command, "unavailable") };
+    const approvalId = randomUUID();
+    const request: ToolApprovalRequest = {
+      approvalId,
+      toolCallId: input.toolCallId,
+      anchorToolCallId: task ? task.run.toolCallId : input.parentToolCallId ?? input.toolCallId,
+      toolName: "bash",
+      command: input.command,
+      matched: input.matched,
+      sessionId: input.sessionId,
+      ...(task ? { sessionLink: internalSessionLink(workspace.id, input.sessionId), sessionTitle: task.task.title } : {}),
+      requestedAt: Date.now(),
+    };
+    return await new Promise<ToolApprovalDecision>((resolve) => {
+      const pending: PendingApproval = { request, owner, resolve };
+      owner.pendingApprovals.set(approvalId, pending);
+      const abort = () => this.finishApproval(pending, { approved: false, reason: formatApprovalDenialReason(input.command, "aborted") });
+      if (input.signal) {
+        if (input.signal.aborted) { abort(); return; }
+        input.signal.addEventListener("abort", abort, { once: true });
+        pending.cleanup = () => input.signal?.removeEventListener("abort", abort);
+      }
+      this.scheduleSnapshot(owner);
+    });
+  }
+
   private questionGroups(handle: AgentHandle): QuestionGroupState[] {
     return deriveQuestionGroups(this.snapshotMessages(handle));
   }
@@ -572,6 +638,7 @@ export class AgentService {
       await this.withRuntimeOperation(handle, async () => {
         handle.session.clearQueue();
         await this.settleQuestions(handle, "aborted");
+        this.settleApprovals(handle, "aborted");
         await Promise.all([stopping, handle.session.isIdle ? Promise.resolve() : handle.session.abort()]);
       });
     } finally { await stopping; }
@@ -604,7 +671,7 @@ export class AgentService {
   private canReloadResources(handle: AgentHandle): boolean {
     return !handle.closing && !handle.resourceReload && handle.activeOperations === 0 && !handle.rebuildingQueue
       && handle.runtimeState !== "running" && handle.session.isIdle && !handle.session.isBashRunning
-      && handle.session.pendingMessageCount === 0 && handle.queue.length === 0 && handle.pendingQuestions.size === 0
+      && handle.session.pendingMessageCount === 0 && handle.queue.length === 0 && handle.pendingQuestions.size === 0 && handle.pendingApprovals.size === 0
       && !this.subagents.managesSession(handle.workspace, handle.session.sessionId);
   }
 
@@ -612,7 +679,7 @@ export class AgentService {
     const handle = await this.getOrOpen(workspace, sessionId);
     if (this.subagents.store.state(workspace, sessionId).origin) throw Object.assign(new Error("Reload resources from the parent Session"), { statusCode: 409 });
     this.assertRuntimeAvailable(handle);
-    if (!this.canReloadResources(handle)) throw Object.assign(new Error("Wait for the session and queue to finish, and resolve pending questions before reloading"), { statusCode: 409 });
+    if (!this.canReloadResources(handle)) throw Object.assign(new Error("Wait for the session and queue to finish, and resolve pending questions and approvals before reloading"), { statusCode: 409 });
     await this.reloadRuntime(handle);
   }
 
@@ -718,7 +785,7 @@ export class AgentService {
     const ensureMemoryStore = this.ensureMemoryStore?.bind(this, workspace);
     const resourceLoader = await createWorkspaceResourceLoader({
       workspace, globalAppend: origin ? `${systemPromptAppend}\n\n${SUBAGENT_ROLE_PROMPT}` : systemPromptAppend,
-      settingsManager, extensionFactories: memory ? [createMemoryExtension(memory, memoryStoreId)] : undefined,
+      settingsManager, extensionFactories: [...(memory ? [createMemoryExtension(memory, memoryStoreId)] : []), createDeleteApprovalExtension((input) => this.requestDeleteApproval(workspace, input))],
       refreshExtensions: Boolean(previous),
     });
     if (previous) {
@@ -765,6 +832,7 @@ export class AgentService {
       systemPromptAppend,
       session,
       pendingQuestions: new Map(),
+      pendingApprovals: new Map(),
       clients: new Map(),
       unsubscribe: () => undefined,
       queue: [...session.getSteeringMessages().map((text) => ({ id: randomUUID(), mode: "steering" as const, text, images: [] })), ...session.getFollowUpMessages().map((text) => ({ id: randomUUID(), mode: "followUp" as const, text, images: [] }))],
@@ -947,7 +1015,9 @@ export class AgentService {
         availableThinkingLevels: handle.session.getAvailableThinkingLevels(),
         queue: handle.queue.map(({ id, mode, text }) => ({ id, mode, text })),
         questions: deriveQuestionGroups(messages),
+        approvals: client.leafEntryId ? [] : [...handle.pendingApprovals.values()].map((pending) => pending.request),
         waitingForAnswer: client.leafEntryId ? false : handle.pendingQuestions.size > 0,
+        waitingForApproval: client.leafEntryId ? false : handle.pendingApprovals.size > 0,
         queueRevision: handle.queueRevision,
         rollbackEntryId: client.leafEntryId || this.subagents.store.state(handle.workspace, handle.session.sessionId).managed ? undefined : this.rollbackEntryId(handle),
         rollback: client.leafEntryId ? undefined : this.rollbackState(handle),
