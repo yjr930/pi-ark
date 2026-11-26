@@ -600,7 +600,19 @@ Conversation 区域包含两个开关。Hide reasoning 控制所有 Workspace �
 5. 点击模型行右侧的星标，将已勾选模型指定为新 Session 的 default。选择尚未勾选的模型作为 default 时，Pi-Ark 会同时勾选该模型。
 6. 选择 default model 支持的 Default thinking level。
 
-Refresh models 重新读取 `models.json` 并从 Provider 目录拉取最新模型清单。刷新在运行中的服务里完成，不重启服务，进行中的 Session 保持当前模型。刷新期间按钮显示 Refreshing，模型 checkbox 与星标暂时不可操作；完成后提示新增模型数量，没有新增时提示 No new models。某个 Provider 的目录请求失败时，列表保留刷新前的内容，并提示该 Provider 名称。新出现的模型是否勾选取决于已保存的模型清单：之前勾选全部模型时，新模型自动启用；之前保存了显式清单时，新模型保持未勾选，手动勾选后进入模型菜单。
+#### Right Code 中转站
+
+Pi-Ark 内置 Right Code Provider（标识为 `rightcode`），用来接入 `https://rightapi.io`。Right Code 的 API Key 在创建时绑定一个渠道，这个 Key 只能调用该渠道下的模型；可用模型以 Right Code 控制台的模型列表为准。
+
+1. 在 Settings → Models & providers 的 Manage Provider 选择 Right Code。Provider 状态显示 Authentication required。
+2. 在 API key 输入 Right Code 控制台创建的 Key，点击 Save API key。Key 保存在服务端的 `auth.json`。
+3. 点击 Models shown in Pi-Ark 的 Refresh models。Pi-Ark 用这个 Key 请求 `https://rightapi.io/v1/models`，把可用模型加入列表。模型按名称使用对应的原生协议：Claude 走 Messages，GPT、Codex 与 Grok 走 Responses，Gemini 走 Gemini 原生，其余模型优先 Messages 或 Completions。
+4. 勾选需要出现在模型菜单中的模型，点击星标设置 default model。
+5. 上游发布新模型后再次点击 Refresh models。Pi-Ark 重新请求 Right Code 的模型列表，不需要编辑 `models.json`。
+
+Right Code 的公共模型目录 `https://rightapi.io/models/public` 用于补充价格、上下文窗口与支持的协议。`models.json` 的 `modelOverrides` 可以调整某个模型的上下文窗口、reasoning 与价格等元数据。
+
+Refresh models 重新读取 `models.json` 并刷新 Provider 目录。pi 自带 Provider 从 pi.dev 目录刷新；带 `refreshModels` 的 Provider Extension（包括内置 Right Code）按扩展实现拉取模型；只声明静态模型的 `models.json` Provider 重新读取文件内容。刷新在运行中的服务里完成，不重启服务，进行中的 Session 保持当前模型。刷新期间按钮显示 Refreshing，模型 checkbox 与星标暂时不可操作；完成后提示新增模型数量，没有新增时提示 No new models。某个 Provider 的目录请求失败时，列表保留刷新前的内容，并提示该 Provider 名称。新出现的模型是否勾选取决于已保存的模型清单：之前勾选全部模型时，新模型自动启用；之前保存了显式清单时，新模型保持未勾选，手动勾选后进入模型菜单。
 
 模型 checkbox、default 和 Default thinking level 在选择后立即保存。切换普通模型的启用状态时，当前 default 和 Default thinking level 保持原值。关闭 default 模型时，Pi-Ark 从列表中选择第一个仍启用的模型作为新 default，并调整 thinking level 以匹配新 default。最后一个启用的模型保持启用，页面显示 Select at least one model 提示。已有 Session 会继续恢复它记录的当前模型；如果该模型后来取消勾选，composer 仍显示当前的 `provider/model` reference，模型菜单显示当前已勾选的模型。API key 输入是 write-only；输入后使用该区域内的 Save API key 或 Cancel。浏览器接收 credential 状态与来源，credential 内容保存在服务端。
 
@@ -708,10 +720,10 @@ Built-in 目录由 release 整体替换；Global 与 Workspace 目录由用户�
 
 ### Extensions
 
-1. 打开 Settings → Extensions。页面显示已安装扩展、加载状态、注册工具数量与扩展目录。
+1. 打开 Settings → Extensions。页面先显示 Built-in extensions；Pi-Ark 当前内置 Right Code provider，显示 Loaded 与 `builtin:rightcode`，它随 Pi-Ark 更新，不需要安装文件。下方显示用户安装扩展、加载状态、注册工具数量与扩展目录。
 2. 把扩展文件放入页面 Install directory 显示的目录。单文件直接放在该目录，多文件扩展放一个子目录并按下面三种布局之一组织。
 3. 在列表中确认扩展状态变为 Loaded。注册的工具显示在 Tools 一行，注册的命令显示在 Commands 一行；带 ` · on demand` 的工具不会自动加入模型工具列表。扩展命令同时出现在 Composer 的 `/` 列表中，选中后插入 `/命令名`。
-4. 新建 Session 使用新扩展。要为符合条件的空闲 Session 批量应用新扩展，请点击 Refresh。要刷新当前主 Session，请执行 [`/reload`](#发送-message)。
+4. 新建 Session 使用新扩展。要为符合条件的空闲 Session 批量应用新扩展，请点击 Refresh；Refresh 同时重新注册 Settings 使用的 Provider Extension。要刷新当前主 Session，请执行 [`/reload`](#发送-message)。
 5. 加载失败时，行内显示错误原因。修正文件后再次点击 Refresh。
 6. 需要卸载时，从扩展目录移走对应文件或目录，然后点击 Refresh。
 

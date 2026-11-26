@@ -22,7 +22,7 @@ const categories = [
   { id: "memory", label: "Memory", description: "Changes save automatically and take effect on the next turn in the main Session.", icon: BookOpen },
   { id: "skills", label: "Skills", description: "Agent skills available globally and in each workspace.", icon: Sparkles },
   { id: "mcp", label: "MCP", description: "Agent tool servers, connection state, and browser runtime.", icon: Plug },
-  { id: "extensions", label: "Extensions", description: "User-installed extensions and the tools they register.", icon: Puzzle },
+  { id: "extensions", label: "Extensions", description: "Built-in and user-installed extensions with the tools they register.", icon: Puzzle },
   { id: "files", label: "Files", description: "File browsing and preview preferences.", icon: Eye },
   { id: "terminal", label: "Terminal", description: "Server shell profiles and browser font preferences.", icon: TerminalSquare },
   { id: "maintenance", label: "Maintenance", description: "Version, installation, service management, and browser cache.", icon: PackageOpen },
@@ -215,6 +215,8 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
     try {
       const result = await api.refreshModels();
       setModelPreferences(result.preferences);
+      const refreshed = await api.globalSettings().catch(() => null);
+      if (refreshed) setGlobal(refreshed);
       if (result.errors.length) setNotice({ kind: "error", text: `Model catalog refreshed with errors: ${result.errors.map((error) => error.provider).join(", ")}` });
       else setNotice({ kind: "success", text: result.added.length ? `Model catalog refreshed. ${result.added.length} new models available.` : "Model catalog refreshed. No new models." });
     } catch (reason) { setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot refresh model catalog" }); }

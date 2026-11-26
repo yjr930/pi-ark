@@ -61,7 +61,7 @@ const memory = new WorkspaceMemory(join(arkHome, "memory"), undefined, loadMemor
 const agents = new AgentService(settings, workspaces, memory, ensureMemoryStore);
 const skills = new SkillService(workspaces, () => agents.reloadIdleSessions());
 const mcp = new McpService(() => agents.reloadIdleSessions());
-const extensions = new ExtensionService(workspaces, async (workspace) => createResourceLoader({ workspace, globalAppend: (await loadGlobalPreferences()).agent.systemPrompt.append }), () => agents.reloadIdleSessions());
+const extensions = new ExtensionService(workspaces, async (workspace) => createResourceLoader({ workspace, globalAppend: (await loadGlobalPreferences()).agent.systemPrompt.append }), () => agents.reloadIdleSessions(), () => settings.getExtensionProviderDiagnostics());
 const fileSearch = new FileSearchIndex();
 await mcp.ensureConfig();
 
@@ -193,7 +193,7 @@ app.put<{ Body: unknown }>("/api/skills/selection", async (request) => {
 });
 app.post("/api/skills/reload", async () => ({ reloaded: await skills.reloadIdleSessions() }));
 app.get<{ Querystring: { workspaceId?: string } }>("/api/extensions", async (request) => extensions.list(workspaceFromQuery(request.query.workspaceId)));
-app.post("/api/extensions/reload", async () => ({ reloaded: await extensions.reloadIdleSessions() }));
+app.post("/api/extensions/reload", async () => { await settings.reloadExtensions(); return { reloaded: await extensions.reloadIdleSessions() }; });
 app.get<{ Querystring: { workspaceId?: string } }>("/api/mcp", async (request) => mcp.list(workspaceFromQuery(request.query.workspaceId)));
 app.put<{ Params: { name: string }; Body: { enabled?: unknown; workspaceId?: string } }>("/api/mcp/servers/:name/state", async (request) => {
   if (typeof request.body?.enabled !== "boolean") throw Object.assign(new Error("MCP server state must be a boolean"), { statusCode: 400 });

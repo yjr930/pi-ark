@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCodemodeExtension, createMcpExtension, DefaultResourceLoader, type ExtensionFactory, type Skill } from "@earendil-works/pi-coding-agent";
+import { createRightApiExtension } from "./rightapi-extension.js";
 import { ensureWorkspaceTrust, loadSkillSelectionSync, piArkAgentDir, type SkillSelection, type WorkspaceDefinition } from "./config.js";
 import { createGlobalSettingsManager } from "./settings.js";
 
@@ -146,7 +147,7 @@ export async function createResourceLoader(options: CreateResourceLoaderOptions)
     appendSystemPrompt: existsSync(appendSystemPromptPath) ? [appendSystemPromptPath] : [],
     appendSystemPromptOverride: (base) => [resourceGuide(workspace), ...base, ...(options.globalAppend ? [options.globalAppend] : [])],
     additionalSkillPaths,
-    extensionFactories: [createMcpExtension(), createCodemodeExtension(), ...options.extensionFactories ?? []],
+    extensionFactories: [createMcpExtension(), createCodemodeExtension(), createRightApiExtension(), ...options.extensionFactories ?? []],
     skillsOverride: ({ skills, diagnostics }) => ({ skills: skills.filter((skill) => !isDisabled(skill)), diagnostics }),
   });
   ensureWorkspaceTrust(workspace.path);

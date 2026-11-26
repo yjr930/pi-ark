@@ -435,6 +435,7 @@ export interface ExtensionView {
   tools: ExtensionToolView[];
   commands: ExtensionCommandView[];
   diagnostics: string[];
+  description?: string;
 }
 
 export interface ExtensionDiagnostic {
@@ -444,6 +445,7 @@ export interface ExtensionDiagnostic {
 
 export interface ExtensionsResponse {
   directory: string;
+  builtin: ExtensionView[];
   extensions: ExtensionView[];
   diagnostics: ExtensionDiagnostic[];
 }

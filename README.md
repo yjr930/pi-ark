@@ -13,7 +13,7 @@ Pi-Ark 是一个以 Workspace 为边界管理 pi coding agent 的 Web UI。它�
 - 内置 `exa` 远程 MCP server 提供网页检索与页面抓取，默认启用且不需要密钥；`playwright` 提供浏览器自动化，由用户按需启用。
 - 提供 Files 文本、Markdown 与图片预览、可配置的预览上限，以及所有文件的原始下载；会话中的文件链接与自动识别的路径可直接打开 Files。
 - 通过 xterm.js 和 node-pty 提供以 Workspace 为 cwd 的多 Tab Terminal，支持跨平台 shell 配置与中文字体，切换页面时保留终端界面，浏览器刷新后重连 Server 当前运行期间保留的进程和输出。
-- 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、Pi-Ark release update/rollback、全局 system prompt 和文件浏览设置。
+- 提供 Global provider/model defaults、model-specific thinking、subscription OAuth、内置 Right Code 中转站 Provider 与 Extension Provider 模型发现、Pi-Ark release update/rollback、全局 system prompt 和文件浏览设置。
 - 提供桌面可调整侧栏、移动端 drawer、五种 theme、全局 reasoning visibility、Session group、Workspace Notebook、permalink 和内部链接。
 - 使用 HTTPS、scrypt password、持久化登录 session、Secure cookie 和服务端 Workspace path guard。
 

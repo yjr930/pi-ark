@@ -106,6 +106,7 @@ try {
   const providerLabels = page.locator(".ark-select-menu .ark-select-copy strong");
   const allProviders = await providerLabels.allTextContents();
   assert.ok(allProviders.length > 1);
+  assert.ok(allProviders.includes("Right Code"));
   const needle = allProviders[0].slice(0, 6).toLowerCase();
   await providerSearch.fill(needle);
   const filteredProviders = await providerLabels.allTextContents();
@@ -270,6 +271,12 @@ try {
     await select("Appearance");
     if (theme === "Ark Dark") await page.screenshot({ path: join(screenshots, "settings-dark-desktop.png") });
   }
+  await select("Extensions");
+  await page.getByRole("heading", { name: "Built-in extensions", exact: true }).waitFor();
+  const builtinExtensionRow = page.locator(".agent-resource-row").filter({ hasText: "Right Code provider" });
+  assert.equal(await builtinExtensionRow.count(), 1);
+  await expect(builtinExtensionRow.getByText("Loaded", { exact: true })).toBeVisible();
+  await page.screenshot({ path: join(screenshots, "settings-extensions-builtin.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   const closeSidebar = page.getByRole("button", { name: "Close sidebar", exact: true });
   if (await closeSidebar.isVisible()) await closeSidebar.click();

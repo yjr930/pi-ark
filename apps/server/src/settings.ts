@@ -1,8 +1,9 @@
 import { join } from "node:path";
-import { ModelRuntime, SettingsManager, resolveModelScopeWithDiagnostics, type ScopedModel } from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, ModelRuntime, SettingsManager, resolveModelScopeWithDiagnostics, type ScopedModel } from "@earendil-works/pi-coding-agent";
 import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { loadConfig, piArkAgentDir } from "./config.js";
 import type { AuthFlowInteraction } from "./auth-flows.js";
+import { createRightApiExtension } from "./rightapi-extension.js";
 
 export interface GlobalAgentDefaultsInput {
   steeringMode: "all" | "one-at-a-time";
@@ -32,13 +33,71 @@ export function createGlobalSettingsManager(cwd: string): SettingsManager {
 }
 
 export class SettingsService {
-  private constructor(private readonly manager: SettingsManager, private readonly models: ModelRuntime) {}
+  private extensionLoader?: DefaultResourceLoader;
+  private readonly extensionProviderIds = new Set<string>();
+  private readonly extensionVirtualModelRefs = new Set<string>();
+  private readonly extensionProviderDiagnostics: Array<{ path: string; message: string }> = [];
+
+  private constructor(private readonly manager: SettingsManager, private readonly models: ModelRuntime, private readonly cwd: string) {}
 
   static async create(cwd: string): Promise<SettingsService> {
     const agentDir = piArkAgentDir;
     const manager = createGlobalSettingsManager(cwd);
     const models = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"), refreshOnCreate: true });
-    return new SettingsService(manager, models);
+    const service = new SettingsService(manager, models, cwd);
+    await service.reloadExtensions();
+    return service;
+  }
+
+  async reloadExtensions(): Promise<void> {
+    this.extensionLoader ??= new DefaultResourceLoader({
+      cwd: this.cwd,
+      agentDir: piArkAgentDir,
+      settingsManager: this.manager,
+      extensionFactories: [createRightApiExtension()],
+      noSkills: true,
+      noPromptTemplates: true,
+      noThemes: true,
+      noContextFiles: true,
+    });
+    await this.extensionLoader.reload();
+    const result = this.extensionLoader.getExtensions();
+    for (const providerId of this.extensionProviderIds) this.models.unregisterProvider(providerId);
+    for (const reference of this.extensionVirtualModelRefs) {
+      const [providerId, modelId] = reference.split("\0");
+      if (providerId && modelId) this.models.unregisterVirtualModel(providerId, modelId);
+    }
+    this.extensionProviderIds.clear();
+    this.extensionVirtualModelRefs.clear();
+    this.extensionProviderDiagnostics.length = 0;
+    for (const { name, config, extensionPath } of result.runtime.pendingProviderRegistrations) {
+      try {
+        this.models.registerProvider(name, config);
+        this.extensionProviderIds.add(name);
+      } catch (error) {
+        this.extensionProviderDiagnostics.push({ path: extensionPath, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    for (const { provider, extensionPath } of result.runtime.pendingNativeProviderRegistrations) {
+      try {
+        this.models.registerNativeProvider(provider);
+        this.extensionProviderIds.add(provider.id);
+      } catch (error) {
+        this.extensionProviderDiagnostics.push({ path: extensionPath, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    for (const { definition, extensionPath } of result.runtime.pendingVirtualModelRegistrations) {
+      try {
+        this.models.registerVirtualModel(definition);
+        this.extensionVirtualModelRefs.add(`${definition.provider}\0${definition.id}`);
+      } catch (error) {
+        this.extensionProviderDiagnostics.push({ path: extensionPath, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
+
+  getExtensionProviderDiagnostics(): Array<{ path: string; message: string }> {
+    return [...this.extensionProviderDiagnostics];
   }
 
   private async getModelScope(): Promise<{ available: ReturnType<ModelRuntime["getAvailableSnapshot"]>; enabled: ReturnType<ModelRuntime["getAvailableSnapshot"]>; scopedModels: ScopedModel[] }> {
