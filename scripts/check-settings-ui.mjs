@@ -309,6 +309,8 @@ try {
   await addProviderDialog.getByRole("button", { name: "Add provider", exact: true }).click();
   await addProviderDialog.waitFor({ state: "detached" });
   await expect(providerTrigger).toContainText("UI Mock Relay");
+  await expect(page.getByRole("button", { name: "Filter models by Provider", exact: true })).toContainText("UI Mock Relay");
+  await expect(page.getByText("Click Refresh models to load models.", { exact: true })).toBeVisible();
   await page.screenshot({ path: join(screenshots, "settings-custom-provider.png") });
   await page.getByRole("button", { name: "Delete provider", exact: true }).click();
   const deleteProviderDialog = page.getByRole("dialog", { name: /Delete UI Mock Relay\?/ });

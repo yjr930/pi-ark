@@ -170,9 +170,10 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
   const selectedDefaultModel = useMemo(() => modelPreferences?.models.find((model) => model.provider === modelPreferences.defaultProvider && model.id === modelPreferences.defaultModel), [modelPreferences]);
   const modelProviderOptions = useMemo(() => {
     const providers = new Map<string, string>();
+    for (const provider of global?.providers || []) if (provider.configured) providers.set(provider.id, provider.name);
     for (const model of modelPreferences?.models || []) providers.set(model.provider, model.providerName);
     return [...providers.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }));
-  }, [modelPreferences]);
+  }, [global, modelPreferences]);
   const activeModelProvider = useMemo(() => {
     if (modelProviderOptions.some((option) => option.value === modelProviderFilter)) return modelProviderFilter;
     return (modelProviderOptions.find((option) => option.value === providerId) || modelProviderOptions.find((option) => option.value === modelPreferences?.defaultProvider) || modelProviderOptions[0])?.value || "";

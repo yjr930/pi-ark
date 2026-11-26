@@ -286,7 +286,7 @@ Settings 在首次访问后保留在当前页面的内存中。页面切换保�
 
 模型 checkbox 使用填色表示启用，使用空白状态表示关闭。切换非默认模型的启用状态时，页面保留当前的 default model 和 Default thinking level。关闭 default model 时，页面选择模型列表中第一个仍启用的模型作为新 default，并将 thinking level 调整为新 default 支持的等级。最后一个启用的模型保持启用，并显示 Select at least one model 提示。
 
-Models shown in Pi-Ark 标题行在标题说明右侧依次提供 Provider 筛选器、Refresh models 按钮与搜索框。Provider 筛选器只列出模型清单中已有模型的已连接 Provider，不提供全部选项；初次进入时选中当前管理的 Provider，该 Provider 没有模型时选中 default model 所在的 Provider，其次列表中的第一个 Provider。列表只显示所选 Provider 的模型，搜索框在所选 Provider 内匹配模型名称与标识。点击 Refresh models 后按钮显示 Refreshing，模型 checkbox 与星标暂时不可操作；刷新完成后列表原地更新，提示显示新增模型数量，没有新增时显示 No new models。刷新不重启服务，当前 Session 的模型保持不变。部分 Provider 目录请求失败时，列表保留刷新前的内容，并提示失败的 Provider 名称。
+Models shown in Pi-Ark 标题行在标题说明右侧依次提供 Provider 筛选器、Refresh models 按钮与搜索框。Provider 筛选器列出全部已连接的 Provider，包括尚未加载模型的实例，不提供全部选项；初次进入时选中当前管理的 Provider，该 Provider 没有模型时选中 default model 所在的 Provider，其次列表中的第一个 Provider。列表只显示所选 Provider 的模型，搜索框在所选 Provider 内匹配模型名称与标识。所选 Provider 没有加载到模型时，列表提示点击 Refresh models 获取模型。点击 Refresh models 后按钮显示 Refreshing，模型 checkbox 与星标暂时不可操作；刷新完成后列表原地更新，提示显示新增模型数量，没有新增时显示 No new models。刷新不重启服务，当前 Session 的模型保持不变。部分 Provider 目录请求失败时，列表保留刷新前的内容，并提示失败的 Provider 名称。
 
 自定义 Provider 由 Provider 插件与 Provider 实例组成。Provider 插件是 `PI_ARK_AGENT_DIR/provider-plugins` 下的 JSON 文件，定义 Provider 类型、base URL、模型列表地址、鉴权方式与协议映射；首次初始化会写入 Right Code 插件 `rightcode.json`。Provider 实例在 Settings 中创建：点击 Add custom provider，选择 Provider type，输入渠道名作为 Provider name，粘贴 API key，然后点击 Add provider。实例使用插件配置注册为独立 Provider，名称是用户输入的渠道名，Provider 标识由名称生成。Refresh models 调用该插件实例的模型发现逻辑。Reload provider plugins 重新读取插件文件并重新注册实例，插件参数更新后使用这个操作。
 
