@@ -67,6 +67,8 @@ Provider 插件定义一种 Provider 类型，例如 Right Code。用户可以�
 - `modelDefaults.reasoningMatch`：匹配的模型使用 thinking。
 - `modelDefaults.contextWindow` 与 `modelDefaults.maxTokens`：默认上下文窗口与最大输出。
 - `modelDefaults.contextWindowRules` 与 `modelDefaults.maxTokensRules`：按模型 id 正则覆盖默认值。
+- `modelDefaults.compat`：应用到所有模型的 pi API 兼容字段。
+- `modelDefaults.compatRules`：按模型 id 正则覆盖 `compat`，例如 `{ "forceAdaptiveThinking": true }`。
 - 公共目录中的价格与上下文窗口会覆盖 `modelDefaults` 的默认上下文窗口。
 
 `models.url` 与 `models.metadataUrl` 至少提供一个。Right Code 同时使用两个。
@@ -123,6 +125,8 @@ Provider 插件定义一种 Provider 类型，例如 Right Code。用户可以�
 - 协议映射：Claude 使用 Messages，GPT、Codex 与 Grok 使用 Responses，Gemini 使用 Gemini 原生，DeepSeek、GLM、Kimi 与 MiniMax 优先 Messages。
 - 公共目录提供价格、上下文窗口与支持的协议；模型列表来自该 key 的 `/v1/models`。
 - `models.auth` 依次尝试 `bearer`、`x-api-key`、`x-goog-api-key`，以适配不同渠道的 key。
+- Claude 5、Opus 4.7 与 Opus 4.8 使用 adaptive thinking，模板在 `modelDefaults.compatRules` 中为这些模型设置 `forceAdaptiveThinking: true`。Opus 5.5 缺少该设置时会返回 `requires adaptive thinking` 400；不要只设置 `reasoning: true`。
+- 旧的 Claude 模型如果需要 budget thinking，保持 `compatRules` 不匹配这些模型。
 
 用户更新了 Right Code 的地址或模型规则时，直接编辑 `rightcode.json` 并点击 Reload provider plugins。不要修改 Pi-Ark 的源码。
 
@@ -133,4 +137,5 @@ Provider 插件定义一种 Provider 类型，例如 Right Code。用户可以�
 - 实例消失：插件文件被移动或删除。恢复插件并 Reload。
 - Refresh models 报 Provider rejected the API key：API key 与实例对应渠道不匹配，或 key 已失效。
 - Refresh models 没有模型：检查 `models.url`、`models.auth`、`models.format`，以及公共目录是否可用。
+- 请求返回 `requires adaptive thinking`：在插件的 `modelDefaults.compatRules` 中为对应模型设置 `{ "forceAdaptiveThinking": true }`，然后 Reload provider plugins。
 - 插件已更新但模型仍用旧地址：点击 Reload provider plugins，再点击 Refresh models。

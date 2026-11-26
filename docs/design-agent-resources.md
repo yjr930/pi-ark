@@ -76,7 +76,7 @@ Pi 只在受信任的项目里读取 `.pi/mcp.json`。Pi-Ark 把注册进配置�
 
 Provider 插件是 Pi-Ark 自己的 JSON 文件，不使用 pi extension。每个插件定义一个 Provider 类型，包含 `version`、`name`、`description`、`baseUrl`、`api`、`models`、`protocols`、`defaultProtocol` 与 `modelDefaults` 等字段。插件文件放在 `PI_ARK_AGENT_DIR/provider-plugins/<id>.json`，文件名是插件 id。
 
-`models.url` 返回 OpenAI 格式的模型列表；`models.auth` 支持 `bearer`、`x-api-key`、`x-goog-api-key` 与 `none`，可以是数组并按顺序尝试。`models.metadataUrl` 与 `metadataFormat: "rightcode-public"` 用于补充价格、上下文窗口与支持的协议。`protocols` 用模型 id 正则选择 `api` 与 `baseUrl`，`defaultProtocol` 用于没有匹配的模型。`modelDefaults` 提供 reasoning、上下文窗口、最大输出与输入类型，并支持按正则覆盖上下文窗口与最大输出。
+`models.url` 返回 OpenAI 格式的模型列表；`models.auth` 支持 `bearer`、`x-api-key`、`x-goog-api-key` 与 `none`，可以是数组并按顺序尝试。`models.metadataUrl` 与 `metadataFormat: "rightcode-public"` 用于补充价格、上下文窗口与支持的协议。`protocols` 用模型 id 正则选择 `api` 与 `baseUrl`，`defaultProtocol` 用于没有匹配的模型。`modelDefaults` 提供 reasoning、上下文窗口、最大输出与输入类型，并支持按正则覆盖上下文窗口与最大输出；`compat` 与 `compatRules` 提供 pi API 兼容字段，Right Code 对 Claude 5、Opus 4.7 与 Opus 4.8 设置 `forceAdaptiveThinking: true`，使 Opus 5.5 使用 adaptive thinking。
 
 Provider 实例是插件的使用记录，保存在 `PI_ARK_AGENT_DIR/provider-instances.json`，字段为 `id`、`name` 与 `plugin`。实例 id 由用户输入的 Provider name 生成小写 slug，冲突时追加数字后缀；`name` 是渠道名，作为 Provider 显示名。API key 由 pi credential store 保存到 `auth.json`，Provider id 是实例 id。
 

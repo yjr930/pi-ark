@@ -36,6 +36,8 @@ export interface ProviderPluginModelDefaults {
   maxTokens?: number;
   contextWindowRules?: ProviderPluginRule[];
   maxTokensRules?: ProviderPluginRule[];
+  compat?: Record<string, unknown>;
+  compatRules?: Array<{ match: string; compat: Record<string, unknown> }>;
 }
 
 export interface ProviderPluginModels {
@@ -154,6 +156,9 @@ const DEFAULT_RIGHT_CODE_PLUGIN = {
       { match: "^gemini", value: 65536 },
       { match: "^(claude|gpt|codex|grok)", value: 32000 },
     ],
+    compatRules: [
+      { match: "^claude-(opus|sonnet|fable|haiku)-(4-7|4-8|5)", compat: { forceAdaptiveThinking: true } },
+    ],
   },
 };
 
@@ -236,6 +241,14 @@ function parseModelDefaults(value: unknown): ProviderPluginModelDefaults | undef
   const maxTokens = positiveNumber(value.maxTokens, "modelDefaults.maxTokens");
   const contextWindowRules = parseRules(value.contextWindowRules, "modelDefaults.contextWindowRules");
   const maxTokensRules = parseRules(value.maxTokensRules, "modelDefaults.maxTokensRules");
+  if (value.compat !== undefined && !isRecord(value.compat)) throw new Error("modelDefaults.compat must be an object");
+  const compatRules = value.compatRules === undefined ? undefined : Array.isArray(value.compatRules) ? value.compatRules.map((rule, index) => {
+    if (!isRecord(rule)) throw new Error(`modelDefaults.compatRules[${index}] must be an object`);
+    const match = compileMatch(rule.match, `modelDefaults.compatRules[${index}].match`);
+    if (!match) throw new Error(`modelDefaults.compatRules[${index}].match is required`);
+    if (!isRecord(rule.compat)) throw new Error(`modelDefaults.compatRules[${index}].compat must be an object`);
+    return { match, compat: rule.compat };
+  }) : (() => { throw new Error("modelDefaults.compatRules must be an array"); })();
   return {
     ...(input ? { input: input as ("text" | "image")[] } : {}),
     ...(typeof value.reasoning === "boolean" ? { reasoning: value.reasoning } : {}),
@@ -244,6 +257,8 @@ function parseModelDefaults(value: unknown): ProviderPluginModelDefaults | undef
     ...(maxTokens ? { maxTokens } : {}),
     ...(contextWindowRules ? { contextWindowRules } : {}),
     ...(maxTokensRules ? { maxTokensRules } : {}),
+    ...(value.compat !== undefined ? { compat: value.compat as Record<string, unknown> } : {}),
+    ...(compatRules ? { compatRules } : {}),
   };
 }
 
@@ -294,14 +309,29 @@ function parsePlugin(id: string, path: string, value: unknown): ProviderPlugin {
   };
 }
 
+async function migrateRightCodeCompatRules(path: string): Promise<void> {
+  if (!existsSync(path)) return;
+  try {
+    const value: unknown = JSON.parse(await readFile(path, "utf8"));
+    if (!isRecord(value) || value.name !== "Right Code" || !isRecord(value.modelDefaults)) return;
+    if (Array.isArray(value.modelDefaults.compatRules)) return;
+    value.modelDefaults.compatRules = DEFAULT_RIGHT_CODE_PLUGIN.modelDefaults.compatRules;
+    await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  } catch {
+    // Invalid plugin files stay in place and surface through plugin diagnostics.
+  }
+}
+
 export async function ensureProviderPluginState(): Promise<void> {
   await mkdir(providerPluginDir, { recursive: true, mode: 0o700 });
+  const rightCodePath = join(providerPluginDir, "rightcode.json");
   if (existsSync(providerPluginMarkerPath)) {
     if (!existsSync(providerInstanceStatePath)) await writeFile(providerInstanceStatePath, `${JSON.stringify({ version: 1, instances: [] }, null, 2)}\n`, { mode: 0o600 });
+    await migrateRightCodeCompatRules(rightCodePath);
     return;
   }
-  const rightCodePath = join(providerPluginDir, "rightcode.json");
   if (!existsSync(rightCodePath)) await writeFile(rightCodePath, `${JSON.stringify(DEFAULT_RIGHT_CODE_PLUGIN, null, 2)}\n`, { mode: 0o600 });
+  else await migrateRightCodeCompatRules(rightCodePath);
   if (!existsSync(providerInstanceStatePath)) await writeFile(providerInstanceStatePath, `${JSON.stringify({ version: 1, instances: [] }, null, 2)}\n`, { mode: 0o600 });
   await writeFile(providerPluginMarkerPath, `${JSON.stringify({ version: 1, initializedAt: new Date().toISOString() }, null, 2)}\n`, { mode: 0o600 });
 }
@@ -567,6 +597,14 @@ function reasoningFor(id: string, plugin: ProviderPlugin): boolean {
   return plugin.modelDefaults?.reasoningMatch ? new RegExp(plugin.modelDefaults.reasoningMatch).test(id) : plugin.modelDefaults?.reasoning ?? false;
 }
 
+function compatFor(id: string, plugin: ProviderPlugin): Record<string, unknown> | undefined {
+  const compat = { ...(plugin.modelDefaults?.compat ?? {}) };
+  for (const rule of plugin.modelDefaults?.compatRules ?? []) {
+    if (new RegExp(rule.match).test(id)) Object.assign(compat, rule.compat);
+  }
+  return Object.keys(compat).length > 0 ? compat : undefined;
+}
+
 function priceNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -613,6 +651,7 @@ export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metad
     if (!entry && unknownOnly.has(id)) continue;
     const protocol = chooseProtocol(plugin, id, entry);
     if (!protocol) continue;
+    const compat = compatFor(id, plugin);
     models.set(id, {
       id,
       name: id,
@@ -623,6 +662,7 @@ export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metad
       cost: costFor(entry),
       contextWindow: contextWindowFor(id, entry, plugin),
       maxTokens: maxTokensFor(id, plugin),
+      ...(compat ? { compat: compat as never } : {}),
     });
   }
   return [...models.values()].sort((a, b) => a.id.localeCompare(b.id));

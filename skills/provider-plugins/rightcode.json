@@ -32,6 +32,9 @@
     "maxTokensRules": [
       { "match": "^gemini", "value": 65536 },
       { "match": "^(claude|gpt|codex|grok)", "value": 32000 }
+    ],
+    "compatRules": [
+      { "match": "^claude-(opus|sonnet|fable|haiku)-(4-7|4-8|5)", "compat": { "forceAdaptiveThinking": true } }
     ]
   }
 }

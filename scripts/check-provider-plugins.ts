@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 const catalog = {
   upstreams: [
     { name: "Codex", modality: "chat", supported_protocols: ["responses", "messages", "completions"], default_protocol: "responses", models: [{ name: "gpt-6-sol", is_available: true, tiers: [{ max_context_length: 272000 }], effective_price_config: { input_price: "2", output_price: "10", cache_read_input_price: "0.2", cache_creation_input_price: "2.5" } }] },
-    { name: "Claude", modality: "chat", supported_protocols: ["responses", "messages", "completions"], default_protocol: "messages", models: [{ name: "claude-opus-4-8", is_available: true }] },
+    { name: "Claude", modality: "chat", supported_protocols: ["responses", "messages", "completions"], default_protocol: "messages", models: [{ name: "claude-opus-4-8", is_available: true }, { name: "claude-opus-5-5", is_available: true }] },
     { name: "Gemini", modality: "chat", supported_protocols: ["responses", "messages", "completions", "gemini"], default_protocol: "gemini", models: [{ name: "gemini-3.8-flash", is_available: true, tiers: [{ max_context_length: 200 }] }] },
     { name: "Jev", modality: "chat", supported_protocols: ["jev"], default_protocol: "jev", models: [{ name: "jev-1.14.0", is_available: true }] },
   ],
@@ -61,14 +61,23 @@ try {
   assert.equal(rightCode.baseUrl, "https://rightapi.io/v1");
   assert.equal(rightCode.models?.metadataFormat, "rightcode-public");
   const template = JSON.parse(await readFile(resolve("skills/provider-plugins/rightcode.json"), "utf8"));
-  const generated = JSON.parse(await readFile(join(agentDir, "provider-plugins", "rightcode.json"), "utf8"));
+  const generatedPath = join(agentDir, "provider-plugins", "rightcode.json");
+  const generated = JSON.parse(await readFile(generatedPath, "utf8"));
   assert.deepEqual(template, generated);
-  const rightCodeModels = plugins.buildProviderModels(rightCode, ["gpt-6-sol", "claude-opus-4-8", "gemini-3.8-flash", "jev-1.14.0"], catalog);
+  const legacy = JSON.parse(await readFile(generatedPath, "utf8"));
+  delete legacy.modelDefaults.compatRules;
+  await writeFile(generatedPath, `${JSON.stringify(legacy, null, 2)}\n`);
+  await plugins.ensureProviderPluginState();
+  const migrated = JSON.parse(await readFile(generatedPath, "utf8"));
+  assert.equal(Array.isArray(migrated.modelDefaults.compatRules), true);
+  const rightCodeModels = plugins.buildProviderModels(rightCode, ["gpt-6-sol", "claude-opus-4-8", "claude-opus-5-5", "gemini-3.8-flash", "jev-1.14.0"], catalog);
   const rightCodeById = new Map(rightCodeModels.map((model) => [model.id, model]));
   assert.equal(rightCodeById.get("gpt-6-sol")?.api, "openai-responses");
   assert.equal(rightCodeById.get("gpt-6-sol")?.baseUrl, "https://rightapi.io/v1");
   assert.equal(rightCodeById.get("claude-opus-4-8")?.api, "anthropic-messages");
   assert.equal(rightCodeById.get("claude-opus-4-8")?.baseUrl, "https://rightapi.io");
+  assert.equal((rightCodeById.get("claude-opus-4-8")?.compat as { forceAdaptiveThinking?: boolean } | undefined)?.forceAdaptiveThinking, true);
+  assert.equal((rightCodeById.get("claude-opus-5-5")?.compat as { forceAdaptiveThinking?: boolean } | undefined)?.forceAdaptiveThinking, true);
   assert.equal(rightCodeById.get("gemini-3.8-flash")?.api, "google-generative-ai");
   assert.equal(rightCodeById.get("gemini-3.8-flash")?.baseUrl, "https://rightapi.io/v1beta");
   assert.equal(rightCodeById.has("jev-1.14.0"), false);
