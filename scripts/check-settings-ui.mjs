@@ -41,6 +41,12 @@ await page.route("**/api/settings/model-preferences", async (route) => {
   await route.fulfill({ json: modelPreferences });
 });
 const modelCheckbox = (name) => page.getByRole("checkbox", { name: new RegExp(`^(Hide|Show) ${name} in model menus$`) });
+const modelProviderFilter = page.getByRole("button", { name: "Filter models by Provider", exact: true });
+async function filterModelsByProvider(name) {
+  await modelProviderFilter.click();
+  await page.locator(".ark-select-menu").getByRole("option", { name, exact: true }).click();
+  await expect(modelProviderFilter).toContainText(name);
+}
 async function toggleModel(name, expectedDefault, expectedThinking) {
   const checkbox = modelCheckbox(name);
   const wasEnabled = await checkbox.getAttribute("aria-checked") === "true";
@@ -70,7 +76,7 @@ try {
   await page.locator(".workspace-list-item").first().waitFor();
   await appPage("Settings");
   await navigation().waitFor();
-  assert.deepEqual(await navigation().locator("button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Skills", "MCP", "Extensions", "Files", "Terminal", "Maintenance", "Account"]);
+  assert.deepEqual(await navigation().locator("button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Memory", "Skills", "MCP", "Extensions", "Files", "Terminal", "Maintenance", "Account"]);
   assert.equal(requests.get("/api/settings/system-prompt") || 0, 0);
   assert.equal(requests.get("/api/settings/release") || 0, 0);
   assert.equal(await page.getByText("Workspace configuration", { exact: true }).count(), 0);
@@ -85,6 +91,31 @@ try {
   await page.screenshot({ path: join(screenshots, "settings-paper-desktop.png") });
 
   await select("Models & providers");
+  await expect(page.locator(".model-preferences-heading")).toContainText("Models shown in Pi-Ark");
+  await expect(modelProviderFilter).toContainText("OpenAI Codex (legacy)");
+  assert.equal(await modelCheckbox("GPT-6").count(), 0);
+  await modelProviderFilter.click();
+  assert.deepEqual(await page.locator(".ark-select-menu .ark-select-copy strong").allTextContents(), ["OpenAI", "OpenAI Codex (legacy)"]);
+  assert.equal(await page.getByRole("option", { name: /all/i }).count(), 0);
+  await page.keyboard.press("Escape");
+  await filterModelsByProvider("OpenAI");
+  assert.equal(await modelCheckbox("GPT-5.6 Sol").count(), 0);
+  const providerTrigger = page.getByRole("button", { name: "Provider", exact: true });
+  await providerTrigger.click();
+  const providerSearch = page.getByLabel("Search Provider", { exact: true });
+  const providerLabels = page.locator(".ark-select-menu .ark-select-copy strong");
+  const allProviders = await providerLabels.allTextContents();
+  assert.ok(allProviders.length > 1);
+  const needle = allProviders[0].slice(0, 6).toLowerCase();
+  await providerSearch.fill(needle);
+  const filteredProviders = await providerLabels.allTextContents();
+  assert.ok(filteredProviders.length >= 1 && filteredProviders.length < allProviders.length);
+  assert.ok(filteredProviders.includes(allProviders[0]));
+  for (const label of filteredProviders) assert.ok(label.toLowerCase().includes(needle));
+  await page.screenshot({ path: join(screenshots, "settings-provider-search.png") });
+  await providerSearch.fill("");
+  await expect(providerLabels).toHaveCount(allProviders.length);
+  await providerSearch.press("Escape");
   await expect(modelCheckbox("GPT-6")).toHaveAttribute("aria-checked", "true");
   assert.equal(await page.locator(".model-visibility > *").count(), 0);
   assert.equal((await page.locator(".model-visibility").allTextContents()).join(""), "");
@@ -92,7 +123,9 @@ try {
   await toggleModel("GPT-6", "openai-codex/gpt-5.6-sol", "high");
   await toggleModel("Chat", "openai-codex/gpt-5.6-sol", "high");
   await toggleModel("Chat", "openai-codex/gpt-5.6-sol", "high");
+  await filterModelsByProvider("OpenAI Codex (legacy)");
   await toggleModel("GPT-5.6 Sol", "openai/gpt-6", "high");
+  await filterModelsByProvider("OpenAI");
   await expect(page.getByRole("button", { name: "GPT-6 is the default model", exact: true })).toHaveAttribute("aria-pressed", "true");
   await toggleModel("GPT-6", "openai/chat", "off");
   const writesBeforeLastModel = modelWrites.length;
@@ -101,6 +134,7 @@ try {
   await expect(modelCheckbox("Chat")).toHaveAttribute("aria-checked", "true");
   assert.equal(modelWrites.length, writesBeforeLastModel);
   const defaultResponse = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === "/api/settings/model-preferences");
+  await filterModelsByProvider("OpenAI Codex (legacy)");
   await page.getByRole("button", { name: "Use GPT-5.6 Sol as default", exact: true }).click();
   assert.equal((await defaultResponse).status(), 200);
   await expect(modelCheckbox("GPT-5.6 Sol")).toBeEnabled();
@@ -110,9 +144,11 @@ try {
   await page.reload();
   await navigation().waitFor();
   await select("Models & providers");
-  await expect(modelCheckbox("GPT-6")).toHaveAttribute("aria-checked", "false");
+  await expect(modelProviderFilter).toContainText("OpenAI Codex (legacy)");
   await expect(modelCheckbox("GPT-5.6 Sol")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByRole("button", { name: "GPT-5.6 Sol is the default model", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await filterModelsByProvider("OpenAI");
+  await expect(modelCheckbox("GPT-6")).toHaveAttribute("aria-checked", "false");
 
   await select("Agent behavior");
   assert.equal(await page.getByRole("heading", { name: "Agent tools", exact: true }).count(), 0);
@@ -224,7 +260,9 @@ try {
     const geometry = await page.locator(".settings-layout").evaluate((element) => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, viewport: window.innerWidth }; });
     assert.ok(geometry.left >= 0 && geometry.right <= geometry.viewport + 1);
     await select("Models & providers");
+    await filterModelsByProvider("OpenAI Codex (legacy)");
     const checkedColor = await modelCheckbox("GPT-5.6 Sol").evaluate((element) => getComputedStyle(element).backgroundColor);
+    await filterModelsByProvider("OpenAI");
     const uncheckedColor = await modelCheckbox("GPT-6").evaluate((element) => getComputedStyle(element).backgroundColor);
     assert.notEqual(checkedColor, uncheckedColor);
     assert.equal(await page.locator(".model-visibility > *").count(), 0);
@@ -243,6 +281,7 @@ try {
   assert.equal(chrome.sidebarShadow, "none");
   await page.screenshot({ path: join(screenshots, "settings-paper-mobile.png") });
   await select("Models & providers");
+  await filterModelsByProvider("OpenAI");
   await toggleModel("GPT-6", "openai-codex/gpt-5.6-sol", "low");
   await toggleModel("GPT-6", "openai-codex/gpt-5.6-sol", "low");
   await page.screenshot({ path: join(screenshots, "settings-models-mobile.png") });

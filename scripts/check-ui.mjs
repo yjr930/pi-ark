@@ -1520,7 +1520,7 @@ try {
   await page.locator(".workspace-list-item").first().waitFor();
   await page.locator(".sidebar-navigation").getByRole("button", { name: "Settings" }).click();
   await page.getByRole("navigation", { name: "Settings categories" }).waitFor();
-  assert.deepEqual(await page.locator(".settings-tabs > button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Skills", "MCP", "Extensions", "Files", "Terminal", "Maintenance", "Account"]);
+  assert.deepEqual(await page.locator(".settings-tabs > button").allTextContents(), ["Appearance", "Models & providers", "Agent behavior", "Memory", "Skills", "MCP", "Extensions", "Files", "Terminal", "Maintenance", "Account"]);
   await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Appearance", exact: true }).click();
   const conversationSection = page.locator(".settings-section").filter({ has: page.getByRole("heading", { name: "Conversation", exact: true }) });
   const hideReasoningSwitch = conversationSection.locator(".settings-row").filter({ hasText: "Hide reasoning" }).getByRole("switch");
@@ -1598,13 +1598,15 @@ try {
   await page.getByRole("navigation", { name: "Settings categories" }).getByRole("button", { name: "Models & providers", exact: true }).click();
   const modelPreferences = page.locator(".model-preferences");
   await modelPreferences.waitFor();
-  assert.equal(await modelPreferences.getByRole("checkbox").count(), 3);
+  assert.equal(await modelPreferences.getByRole("checkbox").count(), 2);
   assert.equal(await modelPreferences.getByRole("button", { name: "GPT-5.6 Sol is the default model" }).count(), 1);
   const modelSave = page.waitForResponse((response) => response.url().endsWith("/api/settings/model-preferences") && response.request().method() === "PUT");
   await modelPreferences.getByRole("button", { name: "Use GPT-6 Sol as default" }).click();
   await modelSave;
   await page.getByText("Default model saved.", { exact: true }).waitFor();
   assert.equal(await modelPreferences.getByRole("button", { name: "GPT-6 Sol is the default model" }).count(), 1);
+  await modelPreferences.getByRole("button", { name: "Filter models by Provider", exact: true }).click();
+  await page.locator(".ark-select-menu").getByRole("option", { name: "OpenAI", exact: true }).click();
   await modelPreferences.getByLabel("Search models").fill("chatgpt");
   assert.equal(await modelPreferences.getByRole("checkbox").count(), 1);
   await modelPreferences.getByLabel("Search models").fill("");

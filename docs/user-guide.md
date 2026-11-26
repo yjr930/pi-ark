@@ -593,10 +593,10 @@ Conversation 区域包含两个开关。Hide reasoning 控制所有 Workspace �
 
 ### Models & providers
 
-1. 在 Manage Provider 中选择需要认证或断开的 Provider。模型行右侧的星标继续决定新 Session 的 default。
+1. 在 Manage Provider 中搜索并选择需要认证或断开的 Provider，搜索框按 Provider 名称、标识、认证状态和说明匹配输入。模型行右侧的星标继续决定新 Session 的 default。
 2. 通过 API key 或 subscription account 完成认证。
 3. 需要让新发布的模型出现在列表时，点击 Models shown in Pi-Ark 标题行的 Refresh models。
-4. 在 Models shown in Pi-Ark 中选择需要出现在模型菜单中的模型。模型 checkbox 的填色状态表示启用，空白状态表示关闭。列表按 Provider 分组，并支持搜索。
+4. 在 Models shown in Pi-Ark 中选择需要出现在模型菜单中的模型。模型 checkbox 的填色状态表示启用，空白状态表示关闭。列表按 Provider 分组，标题行的 Provider 筛选器只列出已连接的 Provider，不提供全部选项，并默认选中当前管理的 Provider；搜索框在所选 Provider 内匹配模型。
 5. 点击模型行右侧的星标，将已勾选模型指定为新 Session 的 default。选择尚未勾选的模型作为 default 时，Pi-Ark 会同时勾选该模型。
 6. 选择 default model 支持的 Default thinking level。
 

@@ -61,6 +61,7 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
   const [providerId, setProviderId] = useState("");
   const [modelPreferences, setModelPreferences] = useState<ModelPreferences | null>(null);
   const [modelSearch, setModelSearch] = useState("");
+  const [modelProviderFilter, setModelProviderFilter] = useState("");
   const [modelsRefreshing, setModelsRefreshing] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [release, setRelease] = useState<ReleaseInfo | null>(null);
@@ -160,13 +161,22 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
 
   const selectedProvider = useMemo(() => global?.providers.find((provider) => provider.id === providerId), [global, providerId]);
   const selectedDefaultModel = useMemo(() => modelPreferences?.models.find((model) => model.provider === modelPreferences.defaultProvider && model.id === modelPreferences.defaultModel), [modelPreferences]);
+  const modelProviderOptions = useMemo(() => {
+    const providers = new Map<string, string>();
+    for (const model of modelPreferences?.models || []) providers.set(model.provider, model.providerName);
+    return [...providers.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }));
+  }, [modelPreferences]);
+  const activeModelProvider = useMemo(() => {
+    if (modelProviderOptions.some((option) => option.value === modelProviderFilter)) return modelProviderFilter;
+    return (modelProviderOptions.find((option) => option.value === providerId) || modelProviderOptions.find((option) => option.value === modelPreferences?.defaultProvider) || modelProviderOptions[0])?.value || "";
+  }, [modelProviderFilter, modelProviderOptions, providerId, modelPreferences?.defaultProvider]);
   const groupedModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
-    const visible = (modelPreferences?.models || []).filter((model) => !query || `${model.providerName} ${model.provider} ${model.name} ${model.id}`.toLowerCase().includes(query));
+    const visible = (modelPreferences?.models || []).filter((model) => model.provider === activeModelProvider && (!query || `${model.providerName} ${model.provider} ${model.name} ${model.id}`.toLowerCase().includes(query)));
     const groups = new Map<string, typeof visible>();
     for (const model of visible) groups.set(model.providerName, [...(groups.get(model.providerName) || []), model]);
     return [...groups.entries()];
-  }, [modelPreferences, modelSearch]);
+  }, [modelPreferences, modelSearch, activeModelProvider]);
 
   useEffect(() => {
     if (!active || !subscriptionFlow || subscriptionFlow.status !== "pending") return;
@@ -482,7 +492,7 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
           <section className="settings-section">
             <div className="settings-section-title"><Cpu size={17} /><div><h3>Provider and model</h3><p>Manage Provider credentials, choose the models shown in model menus, and set the default for new sessions.</p></div></div>
             <div className="settings-grid">
-              <label className="settings-field"><span>Manage Provider</span><Select ariaLabel="Provider" value={providerId} onChange={(value) => void selectProvider(value)} options={global.providers.map((provider) => ({ value: provider.id, label: provider.name, status: provider.configured ? "Configured" : undefined, description: provider.configured ? provider.authLabel || provider.authSource : "Authentication required" }))} /></label>
+              <label className="settings-field"><span>Manage Provider</span><Select ariaLabel="Provider" searchable searchPlaceholder="Search providers" value={providerId} onChange={(value) => void selectProvider(value)} options={global.providers.map((provider) => ({ value: provider.id, label: provider.name, status: provider.configured ? "Configured" : undefined, description: provider.configured ? provider.authLabel || provider.authSource : "Authentication required" }))} /></label>
               <label className="settings-field"><span>Default thinking level</span><Select ariaLabel="Default model thinking level" value={modelPreferences?.thinkingLevel || "off"} disabled={!selectedDefaultModel} onChange={(value) => { if (modelPreferences) void persistModelPreferences({ ...modelPreferences, thinkingLevel: value as GlobalSettings["thinkingLevel"] }, "Thinking default saved."); }} options={(selectedDefaultModel?.thinkingLevels || ["off"]).map((level) => ({ value: level, label: level }))} /></label>
             </div>
             <div className="provider-status-row"><div className="provider-status"><i className={selectedProvider?.configured ? "configured" : ""} /><span>{selectedProvider?.configured ? `Authenticated${selectedProvider.authLabel ? ` · ${selectedProvider.authLabel}` : selectedProvider.authSource ? ` · ${selectedProvider.authSource}` : ""}` : "Authentication required"}</span></div>{selectedProvider?.canDisconnect && <button type="button" className="secondary-button provider-disconnect" disabled={saving} onClick={() => setDisconnectOpen(true)}><Unplug size={13} />Disconnect</button>}</div>
@@ -490,7 +500,7 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
             {selectedProvider?.supportsSubscription && subscriptionMode && <SubscriptionLogin provider={selectedProvider} flow={subscriptionFlow} busy={subscriptionBusy} onStart={() => void startSubscriptionLogin()} onAnswer={answerSubscriptionLogin} onCancel={() => void cancelSubscriptionLogin()} />}
             {!subscriptionMode && <div className="settings-confirm-field"><label className="settings-field settings-api-key"><span>API key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && apiKey.trim()) void saveApiKey(); }} placeholder={selectedProvider?.configured ? "Leave empty to keep the current credential" : "Enter an API key"} /><small>Write-only. Saved by pi in its global credential store and never returned to the browser.</small></label>{(apiKey || !selectedProvider?.configured) && <div className="inline-setting-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelApiKeyEdit}>Cancel</button><button type="button" className="primary-button" disabled={saving || !apiKey.trim()} onClick={() => void saveApiKey()}>{saving ? <LoaderCircle size={14} /> : <Save size={14} />}Save API key</button></div>}</div>}
             <div className="model-preferences">
-              <div className="model-preferences-heading"><div><strong>Models shown in Pi-Ark</strong><span>Checked models appear in new and existing Session model menus. The starred model is the default for new Sessions.</span></div><button type="button" className="secondary-button model-refresh" disabled={loading || saving || modelsRefreshing} onClick={() => void refreshModelCatalog()}>{modelsRefreshing ? <LoaderCircle size={13} className="model-refresh-spin" /> : <RefreshCw size={13} />}{modelsRefreshing ? "Refreshing" : "Refresh models"}</button><label><Search size={13} /><input aria-label="Search models" value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder="Search models" /></label></div>
+              <div className="model-preferences-heading"><div className="model-preferences-title"><strong>Models shown in Pi-Ark</strong><span>Checked models appear in new and existing Session model menus. The starred model is the default for new Sessions.</span></div><div className="model-provider-filter"><Select ariaLabel="Filter models by Provider" value={activeModelProvider} onChange={setModelProviderFilter} options={modelProviderOptions} disabled={modelProviderOptions.length === 0} placeholder="No connected provider" /></div><button type="button" className="secondary-button model-refresh" disabled={loading || saving || modelsRefreshing} onClick={() => void refreshModelCatalog()}>{modelsRefreshing ? <LoaderCircle size={13} className="model-refresh-spin" /> : <RefreshCw size={13} />}{modelsRefreshing ? "Refreshing" : "Refresh models"}</button><label><Search size={13} /><input aria-label="Search models" value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder="Search models" /></label></div>
               <div className="model-preferences-list">{groupedModels.map(([providerName, providerModels]) => <div className="model-provider-group" key={providerName}><div className="model-provider-heading"><strong>{providerName}</strong><span>{providerModels.filter((model) => model.enabled).length} selected</span></div>{providerModels.map((model) => { const isDefault = model.provider === modelPreferences?.defaultProvider && model.id === modelPreferences.defaultModel; return <div className={`model-preference-row ${model.enabled ? "enabled" : ""}`} key={`${model.provider}/${model.id}`}><button type="button" className="model-visibility" role="checkbox" aria-checked={model.enabled} aria-label={`${model.enabled ? "Hide" : "Show"} ${model.name || model.id} in model menus`} disabled={saving || modelsRefreshing} onClick={() => toggleModel(model.provider, model.id)} /><div><strong>{model.name || model.id}</strong><small>{model.provider}/{model.id} · {model.contextWindow.toLocaleString()} context{model.reasoning ? " · reasoning" : ""}</small></div><button type="button" className={`model-default ${isDefault ? "selected" : ""}`} aria-label={isDefault ? `${model.name || model.id} is the default model` : `Use ${model.name || model.id} as default`} aria-pressed={isDefault} disabled={saving || modelsRefreshing} onClick={() => selectDefaultModel(model.provider, model.id)}><Star size={14} fill={isDefault ? "currentColor" : "none"} /></button></div>; })}</div>)}{groupedModels.length === 0 && <div className="model-preferences-empty">{modelPreferences?.models.length ? "No models match this search." : "Connect a Provider to choose models."}</div>}</div>
             </div>
           </section>
