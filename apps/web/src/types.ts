@@ -243,6 +243,42 @@ export interface ProviderOption {
   subscriptionName?: string;
   subscriptionLoginLabel?: string;
   usingSubscription: boolean;
+  custom?: boolean;
+  plugin?: string;
+  pluginName?: string;
+  pluginAvailable?: boolean;
+}
+
+export interface ProviderPluginView {
+  id: string;
+  name: string;
+  description?: string;
+  baseUrl: string;
+  path: string;
+}
+
+export interface ProviderPluginDiagnostic {
+  path: string;
+  message: string;
+}
+
+export interface ProviderPluginsResponse {
+  directory: string;
+  plugins: ProviderPluginView[];
+  errors: ProviderPluginDiagnostic[];
+}
+
+export interface ProviderInstanceResult {
+  global: GlobalSettings;
+  preferences: ModelPreferences;
+}
+
+export interface ProviderInstanceCreateResult extends ProviderInstanceResult {
+  providerId: string;
+}
+
+export interface ProviderPluginsReloadResult extends ProviderInstanceResult {
+  plugins: ProviderPluginsResponse;
 }
 
 export interface SubscriptionAuthEvent {
@@ -436,7 +472,6 @@ export interface ExtensionView {
   tools: ExtensionToolView[];
   commands: ExtensionCommandView[];
   diagnostics: string[];
-  description?: string;
 }
 
 export interface ExtensionDiagnostic {
@@ -446,7 +481,6 @@ export interface ExtensionDiagnostic {
 
 export interface ExtensionsResponse {
   directory: string;
-  builtin: ExtensionView[];
   extensions: ExtensionView[];
   diagnostics: ExtensionDiagnostic[];
 }

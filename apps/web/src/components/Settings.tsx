@@ -1,11 +1,11 @@
-import { BookOpen, Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, Puzzle, RefreshCw, RotateCcw, Save, Search, ShieldAlert, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
+import { BookOpen, Check, CircleAlert, Cpu, Download, Eye, FileText, HardDrive, KeyRound, LoaderCircle, LogOut, MessageSquareText, PackageOpen, Palette, PanelLeft, Plug, Plus, Puzzle, RefreshCw, RotateCcw, Save, Search, ShieldAlert, SlidersHorizontal, Sparkles, Star, TerminalSquare, Trash2, Type, Unplug } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { clearSessionCache, flushSessionCache, formatCacheSize, getSessionCacheSummary } from "../session-cache";
 import { themes } from "../theme";
 import { FONT_LEVELS, FONT_SCALE_STEP, MAX_FONT_SCALE, MIN_FONT_SCALE, levelPixels } from "../typography";
 import type { AppearanceSettings } from "../appearance";
-import type { GlobalSettings, ModelPreferences, ReleaseInfo, SubscriptionAuthFlow, GlobalPreferences, Workspace } from "../types";
+import type { GlobalSettings, ModelPreferences, ProviderPluginsResponse, ReleaseInfo, SubscriptionAuthFlow, GlobalPreferences, Workspace } from "../types";
 import { Select } from "./Select";
 import { McpSettings } from "./McpSettings";
 import { MemorySettings, type MemorySettingsHandle } from "./MemorySettings";
@@ -22,7 +22,7 @@ const categories = [
   { id: "memory", label: "Memory", description: "Changes save automatically and take effect on the next turn in the main Session.", icon: BookOpen },
   { id: "skills", label: "Skills", description: "Agent skills available globally and in each workspace.", icon: Sparkles },
   { id: "mcp", label: "MCP", description: "Agent tool servers, connection state, and browser runtime.", icon: Plug },
-  { id: "extensions", label: "Extensions", description: "Built-in and user-installed extensions with the tools they register.", icon: Puzzle },
+  { id: "extensions", label: "Extensions", description: "User-installed extensions and the tools they register.", icon: Puzzle },
   { id: "files", label: "Files", description: "File browsing and preview preferences.", icon: Eye },
   { id: "terminal", label: "Terminal", description: "Server shell profiles and browser font preferences.", icon: TerminalSquare },
   { id: "maintenance", label: "Maintenance", description: "Version, installation, service management, and browser cache.", icon: PackageOpen },
@@ -59,6 +59,13 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
   const [global, setGlobal] = useState<GlobalSettings | null>(null);
   const currentCategory = categories.find((item) => item.id === category)!;
   const [providerId, setProviderId] = useState("");
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [providerPlugins, setProviderPlugins] = useState<ProviderPluginsResponse | null>(null);
+  const [providerPluginId, setProviderPluginId] = useState("");
+  const [providerName, setProviderName] = useState("");
+  const [providerApiKey, setProviderApiKey] = useState("");
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [deleteProviderOpen, setDeleteProviderOpen] = useState(false);
   const [modelPreferences, setModelPreferences] = useState<ModelPreferences | null>(null);
   const [modelSearch, setModelSearch] = useState("");
   const [modelProviderFilter, setModelProviderFilter] = useState("");
@@ -208,6 +215,74 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
     if (subscriptionFlow?.status === "pending") await api.cancelSubscriptionLogin(subscriptionFlow.id).catch(() => undefined);
     const providerOption = global.providers.find((item) => item.id === provider);
     setProviderId(provider); setSubscriptionFlow(null); setSubscriptionMode(Boolean(providerOption?.usingSubscription)); setApiKey(""); setNotice(null);
+  }
+
+  function providerSelectOption(provider: GlobalSettings["providers"][number]) {
+    const auth = provider.configured ? provider.authLabel || provider.authSource || "Configured" : "Authentication required";
+    return { value: provider.id, label: provider.name, status: provider.configured ? "Configured" : undefined, description: provider.custom ? `${provider.pluginName || provider.plugin || "Provider plugin"} · ${auth}` : auth };
+  }
+
+  async function openAddProvider() {
+    setAddProviderOpen(true); setProviderPlugins(null); setProviderPluginId(""); setProviderName(""); setProviderApiKey(""); setNotice(null);
+    try {
+      const result = await api.providerPlugins();
+      setProviderPlugins(result);
+      setProviderPluginId(result.plugins[0]?.id || "");
+    } catch (reason) {
+      setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot load provider plugins" });
+    }
+  }
+
+  function closeAddProvider() {
+    if (providerBusy) return;
+    setAddProviderOpen(false); setProviderName(""); setProviderApiKey(""); setProviderPluginId("");
+  }
+
+  async function createCustomProvider() {
+    const name = providerName.trim();
+    if (!providerPluginId || !name) return;
+    setProviderBusy(true); setNotice(null);
+    try {
+      const result = await api.createProviderInstance({ pluginId: providerPluginId, name, apiKey: providerApiKey.trim() });
+      setGlobal(result.global);
+      setModelPreferences(result.preferences);
+      setProviderId(result.providerId);
+      setAddProviderOpen(false);
+      setProviderName(""); setProviderApiKey(""); setProviderPluginId("");
+      setNotice({ kind: "success", text: providerApiKey.trim() ? "Custom provider added. Click Refresh models to load its models." : "Custom provider added. Save an API key, then click Refresh models to load its models." });
+    } catch (reason) {
+      setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot add custom provider" });
+    } finally { setProviderBusy(false); }
+  }
+
+  async function reloadProviderPlugins() {
+    setProviderBusy(true); setNotice(null);
+    try {
+      const result = await api.reloadProviderPlugins();
+      setProviderPlugins(result.plugins);
+      setGlobal(result.global);
+      setModelPreferences(result.preferences);
+      if (!result.global.providers.some((provider) => provider.id === providerId)) setProviderId(result.global.providers.some((provider) => provider.id === result.global.provider) ? result.global.provider : result.global.providers[0]?.id || "");
+      setNotice({ kind: result.plugins.errors.length ? "error" : "success", text: result.plugins.errors.length ? `Provider plugins reloaded with ${result.plugins.errors.length} warnings.` : "Provider plugins reloaded." });
+    } catch (reason) {
+      setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot reload provider plugins" });
+    } finally { setProviderBusy(false); }
+  }
+
+  async function deleteCustomProvider() {
+    if (!selectedProvider?.custom) return;
+    const provider = selectedProvider;
+    setProviderBusy(true); setNotice(null);
+    try {
+      const result = await api.deleteProviderInstance(provider.id);
+      setGlobal(result.global);
+      setModelPreferences(result.preferences);
+      setProviderId(result.global.providers.some((provider) => provider.id === result.global.provider) ? result.global.provider : result.global.providers[0]?.id || "");
+      setDeleteProviderOpen(false);
+      setNotice({ kind: "success", text: `Custom provider ${provider.name} deleted.` });
+    } catch (reason) {
+      setNotice({ kind: "error", text: reason instanceof Error ? reason.message : "Cannot delete custom provider" });
+    } finally { setProviderBusy(false); }
   }
 
   async function refreshModelCatalog() {
@@ -494,16 +569,17 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
           <section className="settings-section">
             <div className="settings-section-title"><Cpu size={17} /><div><h3>Provider and model</h3><p>Manage Provider credentials, choose the models shown in model menus, and set the default for new sessions.</p></div></div>
             <div className="settings-grid">
-              <label className="settings-field"><span>Manage Provider</span><Select ariaLabel="Provider" searchable searchPlaceholder="Search providers" value={providerId} onChange={(value) => void selectProvider(value)} options={global.providers.map((provider) => ({ value: provider.id, label: provider.name, status: provider.configured ? "Configured" : undefined, description: provider.configured ? provider.authLabel || provider.authSource : "Authentication required" }))} /></label>
+              <label className="settings-field"><span>Manage Provider</span><Select ariaLabel="Provider" searchable searchPlaceholder="Search providers" value={providerId} onChange={(value) => void selectProvider(value)} options={global.providers.map(providerSelectOption)} /></label>
               <label className="settings-field"><span>Default thinking level</span><Select ariaLabel="Default model thinking level" value={modelPreferences?.thinkingLevel || "off"} disabled={!selectedDefaultModel} onChange={(value) => { if (modelPreferences) void persistModelPreferences({ ...modelPreferences, thinkingLevel: value as GlobalSettings["thinkingLevel"] }, "Thinking default saved."); }} options={(selectedDefaultModel?.thinkingLevels || ["off"]).map((level) => ({ value: level, label: level }))} /></label>
             </div>
-            <div className="provider-status-row"><div className="provider-status"><i className={selectedProvider?.configured ? "configured" : ""} /><span>{selectedProvider?.configured ? `Authenticated${selectedProvider.authLabel ? ` · ${selectedProvider.authLabel}` : selectedProvider.authSource ? ` · ${selectedProvider.authSource}` : ""}` : "Authentication required"}</span></div>{selectedProvider?.canDisconnect && <button type="button" className="secondary-button provider-disconnect" disabled={saving} onClick={() => setDisconnectOpen(true)}><Unplug size={13} />Disconnect</button>}</div>
+            <div className="provider-status-row"><div className="provider-status"><i className={selectedProvider?.configured ? "configured" : ""} /><span>{selectedProvider?.configured ? `Authenticated${selectedProvider.authLabel ? ` · ${selectedProvider.authLabel}` : selectedProvider.authSource ? ` · ${selectedProvider.authSource}` : ""}` : "Authentication required"}</span></div><div className="provider-status-actions">{selectedProvider?.custom && <span className="provider-plugin-label">{selectedProvider.pluginName || selectedProvider.plugin}</span>}{selectedProvider?.canDisconnect && <button type="button" className="secondary-button provider-disconnect" disabled={saving} onClick={() => setDisconnectOpen(true)}><Unplug size={13} />Disconnect</button>}{selectedProvider?.custom && <button type="button" className="secondary-button provider-delete" disabled={saving || providerBusy} onClick={() => setDeleteProviderOpen(true)}><Trash2 size={13} />Delete provider</button>}</div></div>
+            <div className="provider-custom-actions"><button type="button" className="secondary-button" disabled={saving || providerBusy} onClick={() => void openAddProvider()}><Plus size={13} />Add custom provider</button><button type="button" className="secondary-button" disabled={saving || providerBusy} onClick={() => void reloadProviderPlugins()}>{providerBusy ? <LoaderCircle size={13} className="model-refresh-spin" /> : <RefreshCw size={13} />}Reload provider plugins</button></div>
             {selectedProvider?.supportsSubscription && <div className="subscription-mode"><div><strong>Use subscription account</strong><span>{selectedProvider.subscriptionName}</span></div><Toggle checked={subscriptionMode} onChange={(checked) => void toggleSubscription(checked)} /></div>}
             {selectedProvider?.supportsSubscription && subscriptionMode && <SubscriptionLogin provider={selectedProvider} flow={subscriptionFlow} busy={subscriptionBusy} onStart={() => void startSubscriptionLogin()} onAnswer={answerSubscriptionLogin} onCancel={() => void cancelSubscriptionLogin()} />}
             {!subscriptionMode && <div className="settings-confirm-field"><label className="settings-field settings-api-key"><span>API key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && apiKey.trim()) void saveApiKey(); }} placeholder={selectedProvider?.configured ? "Leave empty to keep the current credential" : "Enter an API key"} /><small>Write-only. Saved by pi in its global credential store and never returned to the browser.</small></label>{(apiKey || !selectedProvider?.configured) && <div className="inline-setting-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelApiKeyEdit}>Cancel</button><button type="button" className="primary-button" disabled={saving || !apiKey.trim()} onClick={() => void saveApiKey()}>{saving ? <LoaderCircle size={14} /> : <Save size={14} />}Save API key</button></div>}</div>}
             <div className="model-preferences">
-              <div className="model-preferences-heading"><div className="model-preferences-title"><strong>Models shown in Pi-Ark</strong><span>Checked models appear in new and existing Session model menus. The starred model is the default for new Sessions.</span></div><div className="model-provider-filter"><Select ariaLabel="Filter models by Provider" value={activeModelProvider} onChange={setModelProviderFilter} options={modelProviderOptions} disabled={modelProviderOptions.length === 0} placeholder="No connected provider" /></div><button type="button" className="secondary-button model-refresh" disabled={loading || saving || modelsRefreshing} onClick={() => void refreshModelCatalog()}>{modelsRefreshing ? <LoaderCircle size={13} className="model-refresh-spin" /> : <RefreshCw size={13} />}{modelsRefreshing ? "Refreshing" : "Refresh models"}</button><label><Search size={13} /><input aria-label="Search models" value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder="Search models" /></label></div>
-              <div className="model-preferences-list">{groupedModels.map(([providerName, providerModels]) => <div className="model-provider-group" key={providerName}><div className="model-provider-heading"><strong>{providerName}</strong><span>{providerModels.filter((model) => model.enabled).length} selected</span></div>{providerModels.map((model) => { const isDefault = model.provider === modelPreferences?.defaultProvider && model.id === modelPreferences.defaultModel; return <div className={`model-preference-row ${model.enabled ? "enabled" : ""}`} key={`${model.provider}/${model.id}`}><button type="button" className="model-visibility" role="checkbox" aria-checked={model.enabled} aria-label={`${model.enabled ? "Hide" : "Show"} ${model.name || model.id} in model menus`} disabled={saving || modelsRefreshing} onClick={() => toggleModel(model.provider, model.id)} /><div><strong>{model.name || model.id}</strong><small>{model.provider}/{model.id} · {model.contextWindow.toLocaleString()} context{model.reasoning ? " · reasoning" : ""}</small></div><button type="button" className={`model-default ${isDefault ? "selected" : ""}`} aria-label={isDefault ? `${model.name || model.id} is the default model` : `Use ${model.name || model.id} as default`} aria-pressed={isDefault} disabled={saving || modelsRefreshing} onClick={() => selectDefaultModel(model.provider, model.id)}><Star size={14} fill={isDefault ? "currentColor" : "none"} /></button></div>; })}</div>)}{groupedModels.length === 0 && <div className="model-preferences-empty">{modelPreferences?.models.length ? "No models match this search." : "Connect a Provider to choose models."}</div>}</div>
+              <div className="model-preferences-heading"><div className="model-preferences-title"><strong>Models shown in Pi-Ark</strong><span>Checked models appear in new and existing Session model menus. The starred model is the default for new Sessions.</span></div><div className="model-provider-filter"><Select ariaLabel="Filter models by Provider" value={activeModelProvider} onChange={setModelProviderFilter} options={modelProviderOptions} disabled={modelProviderOptions.length === 0} placeholder={global.providers.some((provider) => provider.configured) ? "Refresh to load models" : "No connected provider"} /></div><button type="button" className="secondary-button model-refresh" disabled={loading || saving || modelsRefreshing} onClick={() => void refreshModelCatalog()}>{modelsRefreshing ? <LoaderCircle size={13} className="model-refresh-spin" /> : <RefreshCw size={13} />}{modelsRefreshing ? "Refreshing" : "Refresh models"}</button><label><Search size={13} /><input aria-label="Search models" value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder="Search models" /></label></div>
+              <div className="model-preferences-list">{groupedModels.map(([providerName, providerModels]) => <div className="model-provider-group" key={providerName}><div className="model-provider-heading"><strong>{providerName}</strong><span>{providerModels.filter((model) => model.enabled).length} selected</span></div>{providerModels.map((model) => { const isDefault = model.provider === modelPreferences?.defaultProvider && model.id === modelPreferences.defaultModel; return <div className={`model-preference-row ${model.enabled ? "enabled" : ""}`} key={`${model.provider}/${model.id}`}><button type="button" className="model-visibility" role="checkbox" aria-checked={model.enabled} aria-label={`${model.enabled ? "Hide" : "Show"} ${model.name || model.id} in model menus`} disabled={saving || modelsRefreshing} onClick={() => toggleModel(model.provider, model.id)} /><div><strong>{model.name || model.id}</strong><small>{model.provider}/{model.id} · {model.contextWindow.toLocaleString()} context{model.reasoning ? " · reasoning" : ""}</small></div><button type="button" className={`model-default ${isDefault ? "selected" : ""}`} aria-label={isDefault ? `${model.name || model.id} is the default model` : `Use ${model.name || model.id} as default`} aria-pressed={isDefault} disabled={saving || modelsRefreshing} onClick={() => selectDefaultModel(model.provider, model.id)}><Star size={14} fill={isDefault ? "currentColor" : "none"} /></button></div>; })}</div>)}{groupedModels.length === 0 && <div className="model-preferences-empty">{modelPreferences?.models.length ? "No models match this search." : global.providers.some((provider) => provider.configured) ? "Click Refresh models to load models." : "Connect a Provider to choose models."}</div>}</div>
             </div>
           </section>
           </div>
@@ -562,6 +638,8 @@ export function Settings({ active, appearance, onAppearanceChange, memoryCategor
         </>}
       </main>
     </div>
+    {addProviderOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !providerBusy) closeAddProvider(); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="add-provider-title"><div className="dialog-header no-close"><div className="dialog-icon"><Plus size={18} /></div><div><h2 id="add-provider-title">Add custom provider</h2><p>Choose an installed provider plugin, name the channel, and save its API key.</p></div></div><div className="dialog-provider-form"><label className="dialog-field"><span>Provider type</span><Select ariaLabel="Provider type" value={providerPluginId} onChange={setProviderPluginId} options={(providerPlugins?.plugins || []).map((plugin) => ({ value: plugin.id, label: plugin.name, description: plugin.description || plugin.baseUrl }))} disabled={providerBusy || !providerPlugins?.plugins.length} placeholder={providerPlugins ? "No provider plugins" : "Loading plugins…"} /></label><label className="dialog-field"><span>Provider name</span><input value={providerName} maxLength={80} onChange={(event) => setProviderName(event.target.value)} placeholder="e.g. RightCode Claude" disabled={providerBusy} /></label><label className="dialog-field"><span>API key</span><input type="password" autoComplete="off" value={providerApiKey} onChange={(event) => setProviderApiKey(event.target.value)} placeholder="Enter API key" disabled={providerBusy} /></label>{providerPlugins && providerPlugins.plugins.length === 0 && <div className="dialog-error">No provider plugins are installed. Ask the Agent to add a plugin in <code>{providerPlugins.directory}</code>.</div>}{providerPlugins && providerPlugins.errors.length > 0 && <div className="dialog-error">{providerPlugins.errors[0].message}</div>}</div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={providerBusy} onClick={closeAddProvider}>Cancel</button><button type="button" className="primary-button" disabled={providerBusy || !providerPluginId || !providerName.trim()} onClick={() => void createCustomProvider()}>{providerBusy ? <LoaderCircle size={14} /> : <Plus size={14} />}Add provider</button></div></div></div>}
+    {deleteProviderOpen && selectedProvider?.custom && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !providerBusy) setDeleteProviderOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-provider-title"><div className="dialog-header no-close"><div className="dialog-icon danger"><Trash2 size={18} /></div><div><h2 id="delete-provider-title">Delete {selectedProvider.name}?</h2><p>Pi-Ark removes this custom provider, its saved API key, and its model selections. The provider plugin stays installed.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={providerBusy} onClick={() => setDeleteProviderOpen(false)}>Cancel</button><button type="button" className="danger-button" disabled={providerBusy} onClick={() => void deleteCustomProvider()}>{providerBusy ? <LoaderCircle size={14} /> : <Trash2 size={14} />}Delete provider</button></div></div></div>}
     {disconnectOpen && selectedProvider && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setDisconnectOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="disconnect-provider-title"><div className="dialog-header no-close"><div className="dialog-icon danger"><Unplug size={18} /></div><div><h2 id="disconnect-provider-title">Disconnect {selectedProvider.name}?</h2><p>Pi-Ark will remove this Provider's saved credential. Sessions that need this Provider will require authentication again.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => setDisconnectOpen(false)}>Cancel</button><button type="button" className="danger-button" disabled={saving} onClick={() => void disconnectProvider()}>{saving ? <LoaderCircle size={14} /> : <Unplug size={14} />}Disconnect Provider</button></div></div></div>}
     {releaseUpdateOpen && release && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !releaseUpdating) setReleaseUpdateOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="release-update-title"><div className="dialog-header no-close"><div className="dialog-icon"><Download size={18} /></div><div><h2 id="release-update-title">Update Pi-Ark?</h2><p>Pi-Ark will install release {release.latestVersion}, switch the current release atomically, preserve this data directory, and restart the service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseUpdateOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={releaseUpdating} onClick={() => void updateRelease()}>{releaseUpdating ? <LoaderCircle size={14} /> : <Download size={14} />}Update Pi-Ark</button></div></div></div>}
     {releaseRollbackOpen && release && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !releaseUpdating) setReleaseRollbackOpen(false); }}><div className="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="release-rollback-title"><div className="dialog-header no-close"><div className="dialog-icon"><RotateCcw size={18} /></div><div><h2 id="release-rollback-title">Roll back Pi-Ark?</h2><p>Pi-Ark will switch from {release.version} to {release.previousVersion}, preserve this data directory, and restart the service.</p></div></div><div className="dialog-actions"><button type="button" className="secondary-button" disabled={releaseUpdating} onClick={() => setReleaseRollbackOpen(false)}>Cancel</button><button type="button" className="primary-button" disabled={releaseUpdating} onClick={() => void rollbackRelease()}>{releaseUpdating ? <LoaderCircle size={14} /> : <RotateCcw size={14} />}Roll back</button></div></div></div>}

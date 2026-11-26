@@ -2,7 +2,6 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Extension, LoadExtensionsResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { piArkAgentDir, type WorkspaceDefinition } from "./config.js";
-import { RIGHTAPI_EXTENSION_DESCRIPTION, RIGHTAPI_EXTENSION_PATH } from "./rightapi-extension.js";
 import { isPathWithin } from "./resource-loader.js";
 import type { WorkspaceService } from "./workspaces.js";
 
@@ -28,7 +27,6 @@ export interface ExtensionView {
   tools: ExtensionToolView[];
   commands: ExtensionCommandView[];
   diagnostics: string[];
-  description?: string;
 }
 
 export interface ExtensionDiagnostic {
@@ -38,7 +36,6 @@ export interface ExtensionDiagnostic {
 
 export interface ExtensionsResponse {
   directory: string;
-  builtin: ExtensionView[];
   extensions: ExtensionView[];
   diagnostics: ExtensionDiagnostic[];
 }
@@ -163,39 +160,25 @@ function viewFor(entry: ExtensionDirectoryEntry, result: LoadExtensionsResult): 
   };
 }
 
-const builtinExtensions: ExtensionView[] = [{
-  name: "Right Code provider",
-  path: RIGHTAPI_EXTENSION_PATH,
-  entry: RIGHTAPI_EXTENSION_PATH,
-  status: "loaded",
-  tools: [],
-  commands: [],
-  diagnostics: [],
-  description: RIGHTAPI_EXTENSION_DESCRIPTION,
-}];
-
 export class ExtensionService {
   constructor(
     private readonly workspaces: Pick<WorkspaceService, "list">,
     private readonly createLoader: (workspace: WorkspaceDefinition) => Promise<ExtensionsSource>,
     private readonly reloadSessions: () => Promise<number> = async () => 0,
-    private readonly providerDiagnostics: () => ExtensionDiagnostic[] = () => [],
   ) {}
 
   async list(workspace?: WorkspaceDefinition): Promise<ExtensionsResponse> {
     const target = workspace ?? this.workspaces.list()[0];
     const entries = scanExtensionEntries();
-    const extensionDiagnostics = this.providerDiagnostics();
-    if (!target) return { directory: userExtensionDir, builtin: builtinExtensions, extensions: [], diagnostics: [{ path: userExtensionDir, message: "Open a workspace to load extensions." }, ...extensionDiagnostics] };
+    if (!target) return { directory: userExtensionDir, extensions: [], diagnostics: [{ path: userExtensionDir, message: "Open a workspace to load extensions." }] };
     const loader = await this.createLoader(target);
     const result = loader.getExtensions();
     const views = entries.map((entry) => viewFor(entry, result));
     const diagnostics = [
       ...result.errors.filter((error) => !error.path.startsWith("<") && !entries.some((entry) => belongsToEntry(entry, error.path))).map((error) => ({ path: error.path, message: error.error })),
       ...(result.warnings ?? []).filter((warning) => !warning.path.startsWith("<") && !entries.some((entry) => belongsToEntry(entry, warning.path))).map((warning) => ({ path: warning.path, message: warning.warning })),
-      ...extensionDiagnostics,
     ];
-    return { directory: userExtensionDir, builtin: builtinExtensions, extensions: views, diagnostics };
+    return { directory: userExtensionDir, extensions: views, diagnostics };
   }
 
   async reloadIdleSessions(): Promise<number> {

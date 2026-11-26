@@ -70,15 +70,15 @@ export function ExtensionsSettings({ active }: { active: boolean }) {
     return <span className={`agent-resource-badge ${tool.active ? "managed" : "builtin"}`} key={tool.name} title={tool.active ? "Model can call this tool directly" : "Registered without automatic activation"}>{tool.name}{tool.active ? "" : " · on demand"}</span>;
   }
 
-  function renderExtension(extension: ExtensionView, builtin = false) {
+  function renderExtension(extension: ExtensionView) {
     return <div className="agent-resource-row" key={extension.path}>
-      <span className="agent-resource-lock" title={builtin ? "Built-in extension" : "User extension"}>{builtin ? <PackageOpen size={13} /> : <Puzzle size={13} />}</span>
+      <span className="agent-resource-lock" title="User extension"><Puzzle size={13} /></span>
       <div className="agent-resource-copy">
         <div className="agent-resource-title">
           <strong>{extension.name}</strong>
           <span className={`agent-resource-status ${extension.status === "loaded" ? "enabled" : "disabled"}`}>{statusLabels[extension.status]}</span>
         </div>
-        <p>{extension.description || (extension.tools.length > 0 ? `${extension.tools.length} registered ${extension.tools.length === 1 ? "tool" : "tools"}` : "No tools registered")}{!extension.description && extension.commands.length > 0 ? ` · ${extension.commands.length} ${extension.commands.length === 1 ? "command" : "commands"}` : ""}</p>
+        <p>{extension.tools.length > 0 ? `${extension.tools.length} registered ${extension.tools.length === 1 ? "tool" : "tools"}` : "No tools registered"}{extension.commands.length > 0 ? ` · ${extension.commands.length} ${extension.commands.length === 1 ? "command" : "commands"}` : ""}</p>
         <code className="agent-resource-path" title={extension.path}>{extension.path}</code>
         {(extension.tools.length > 0 || extension.commands.length > 0) && <div className="agent-resource-details">
           <dl>{extension.tools.length > 0 && <div><dt>Tools</dt><dd>{extension.tools.map(renderTool)}</dd></div>}{extension.commands.length > 0 && <div><dt>Commands</dt><dd>{extension.commands.map((command) => <code key={command.name}>/{command.name}</code>)}</dd></div>}</dl>
@@ -93,26 +93,18 @@ export function ExtensionsSettings({ active }: { active: boolean }) {
     <div className="agent-resource-overview">
       <div className="agent-resource-summary">
         {data ? <>
-          <span><strong>{loadedCount}</strong> user extensions loaded</span>
-          <span><strong>{data.builtin.length}</strong> built-in</span>
+          <span><strong>{loadedCount}</strong> extensions loaded</span>
           <span><strong>{toolCount}</strong> registered tools</span>
         </> : <span>{loading ? "Loading extensions" : "Extensions unavailable"}</span>}
       </div>
       <button type="button" className="secondary-button" disabled={loading || refreshing} onClick={() => void refresh()}>{refreshing || loading ? <LoaderCircle size={13} className="agent-resource-spin" /> : <RefreshCw size={13} />}Refresh</button>
     </div>
-    {data && data.builtin.length > 0 && <section className="settings-section">
-      <div className="settings-section-title">
-        <PackageOpen size={17} />
-        <div><h3>Built-in extensions</h3><p>Provider integrations shipped with Pi-Ark. They load in every Session and are updated with Pi-Ark.</p></div>
-      </div>
-      <div className="agent-resource-list">{data.builtin.map((extension) => renderExtension(extension, true))}</div>
-    </section>}
     <section className="settings-section">
       <div className="settings-section-title">
         <Puzzle size={17} />
         <div><h3>Installed extensions</h3><p>Extensions in the user extension directory. Extension tools become available to the Agent in new Sessions.</p></div>
       </div>
-      {loading && !data ? <div className="settings-inline-loading"><LoaderCircle size={16} className="agent-resource-spin" />Loading extensions</div> : data ? data.extensions.length > 0 ? <div className="agent-resource-list">{data.extensions.map((extension) => renderExtension(extension))}</div> : <div className="agent-resource-empty">No extensions are installed. Add a <code>.ts</code> or <code>.js</code> file to the extension directory to install one.</div> : <div className="agent-resource-empty">Open a workspace to load extensions.</div>}
+      {loading && !data ? <div className="settings-inline-loading"><LoaderCircle size={16} className="agent-resource-spin" />Loading extensions</div> : data ? data.extensions.length > 0 ? <div className="agent-resource-list">{data.extensions.map(renderExtension)}</div> : <div className="agent-resource-empty">No extensions are installed. Add a <code>.ts</code> or <code>.js</code> file to the extension directory to install one.</div> : <div className="agent-resource-empty">Open a workspace to load extensions.</div>}
     </section>
     {data && <section className="settings-section">
       <div className="settings-section-title"><PackageOpen size={17} /><div><h3>Install directory</h3><p>Pi-Ark loads one level of files and folders from this directory. A folder uses <code>index.ts</code> or a <code>package.json</code> with a <code>pi.extensions</code> entry.</p></div></div>

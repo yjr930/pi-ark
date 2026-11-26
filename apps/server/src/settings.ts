@@ -1,9 +1,9 @@
 import { join } from "node:path";
-import { DefaultResourceLoader, ModelRuntime, SettingsManager, resolveModelScopeWithDiagnostics, type ScopedModel } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SettingsManager, resolveModelScopeWithDiagnostics, type ScopedModel } from "@earendil-works/pi-coding-agent";
 import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { loadConfig, piArkAgentDir } from "./config.js";
 import type { AuthFlowInteraction } from "./auth-flows.js";
-import { createRightApiExtension } from "./rightapi-extension.js";
+import { createProviderPluginConfig, loadProviderInstances, loadProviderPlugins, providerInstanceStatePath, providerPluginDir, providerPluginSignature, saveProviderInstances, uniqueProviderInstanceId, type ProviderInstance, type ProviderModelCache, type ProviderPlugin, type ProviderPluginsResponse } from "./provider-plugins.js";
 
 export interface GlobalAgentDefaultsInput {
   steeringMode: "all" | "one-at-a-time";
@@ -33,71 +33,124 @@ export function createGlobalSettingsManager(cwd: string): SettingsManager {
 }
 
 export class SettingsService {
-  private extensionLoader?: DefaultResourceLoader;
-  private readonly extensionProviderIds = new Set<string>();
-  private readonly extensionVirtualModelRefs = new Set<string>();
-  private readonly extensionProviderDiagnostics: Array<{ path: string; message: string }> = [];
+  private providerPlugins: ProviderPlugin[] = [];
+  private providerInstances: ProviderInstance[] = [];
+  private providerPluginDiagnostics: Array<{ path: string; message: string }> = [];
+  private providerInstanceIds = new Set<string>();
+  private providerModelCaches = new Map<string, ProviderModelCache>();
 
-  private constructor(private readonly manager: SettingsManager, private readonly models: ModelRuntime, private readonly cwd: string) {}
+  private constructor(private readonly manager: SettingsManager, private readonly models: ModelRuntime) {}
 
   static async create(cwd: string): Promise<SettingsService> {
     const agentDir = piArkAgentDir;
     const manager = createGlobalSettingsManager(cwd);
     const models = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"), refreshOnCreate: true });
-    const service = new SettingsService(manager, models, cwd);
-    await service.reloadExtensions();
+    const service = new SettingsService(manager, models);
+    await service.reloadProviderPlugins();
     return service;
   }
 
-  async reloadExtensions(): Promise<void> {
-    this.extensionLoader ??= new DefaultResourceLoader({
-      cwd: this.cwd,
-      agentDir: piArkAgentDir,
-      settingsManager: this.manager,
-      extensionFactories: [createRightApiExtension()],
-      noSkills: true,
-      noPromptTemplates: true,
-      noThemes: true,
-      noContextFiles: true,
-    });
-    await this.extensionLoader.reload();
-    const result = this.extensionLoader.getExtensions();
-    for (const providerId of this.extensionProviderIds) this.models.unregisterProvider(providerId);
-    for (const reference of this.extensionVirtualModelRefs) {
-      const [providerId, modelId] = reference.split("\0");
-      if (providerId && modelId) this.models.unregisterVirtualModel(providerId, modelId);
-    }
-    this.extensionProviderIds.clear();
-    this.extensionVirtualModelRefs.clear();
-    this.extensionProviderDiagnostics.length = 0;
-    for (const { name, config, extensionPath } of result.runtime.pendingProviderRegistrations) {
+  async reloadProviderPlugins(): Promise<void> {
+    const catalog = await loadProviderPlugins();
+    const instanceState = await loadProviderInstances();
+    this.providerPlugins = catalog.plugins;
+    this.providerInstances = instanceState.state.instances;
+    this.providerPluginDiagnostics = [...catalog.errors, ...instanceState.errors];
+    const plugins = new Map(this.providerPlugins.map((plugin) => [plugin.id, plugin]));
+    for (const providerId of this.providerInstanceIds) this.models.unregisterProvider(providerId);
+    this.providerInstanceIds.clear();
+    const nextCaches = new Map<string, ProviderModelCache>();
+    for (const instance of this.providerInstances) {
+      const plugin = plugins.get(instance.plugin);
+      if (!plugin) {
+        this.providerPluginDiagnostics.push({ path: providerInstanceStatePath, message: `Provider "${instance.name}" uses missing plugin "${instance.plugin}"` });
+        continue;
+      }
+      const signature = providerPluginSignature(plugin, instance);
+      const previous = this.providerModelCaches.get(instance.id);
+      const cache = previous?.signature === signature ? previous : { signature, models: [] };
+      nextCaches.set(instance.id, cache);
       try {
-        this.models.registerProvider(name, config);
-        this.extensionProviderIds.add(name);
+        this.models.registerProvider(instance.id, createProviderPluginConfig(plugin, instance, cache));
+        this.providerInstanceIds.add(instance.id);
       } catch (error) {
-        this.extensionProviderDiagnostics.push({ path: extensionPath, message: error instanceof Error ? error.message : String(error) });
+        this.providerPluginDiagnostics.push({ path: plugin.path, message: error instanceof Error ? error.message : String(error) });
       }
     }
-    for (const { provider, extensionPath } of result.runtime.pendingNativeProviderRegistrations) {
-      try {
-        this.models.registerNativeProvider(provider);
-        this.extensionProviderIds.add(provider.id);
-      } catch (error) {
-        this.extensionProviderDiagnostics.push({ path: extensionPath, message: error instanceof Error ? error.message : String(error) });
-      }
-    }
-    for (const { definition, extensionPath } of result.runtime.pendingVirtualModelRegistrations) {
-      try {
-        this.models.registerVirtualModel(definition);
-        this.extensionVirtualModelRefs.add(`${definition.provider}\0${definition.id}`);
-      } catch (error) {
-        this.extensionProviderDiagnostics.push({ path: extensionPath, message: error instanceof Error ? error.message : String(error) });
-      }
-    }
+    this.providerModelCaches = nextCaches;
   }
 
-  getExtensionProviderDiagnostics(): Array<{ path: string; message: string }> {
-    return [...this.extensionProviderDiagnostics];
+  async getProviderPlugins(): Promise<ProviderPluginsResponse> {
+    const catalog = await loadProviderPlugins();
+    const instanceState = await loadProviderInstances();
+    const plugins = new Set(catalog.plugins.map((plugin) => plugin.id));
+    const missing = instanceState.state.instances
+      .filter((instance) => !plugins.has(instance.plugin))
+      .map((instance) => ({ path: providerInstanceStatePath, message: `Provider "${instance.name}" uses missing plugin "${instance.plugin}"` }));
+    return { directory: providerPluginDir, plugins: catalog.plugins, errors: [...catalog.errors, ...instanceState.errors, ...missing, ...this.providerPluginDiagnostics.filter((diagnostic) => !catalog.errors.some((error) => error.path === diagnostic.path && error.message === diagnostic.message) && !instanceState.errors.some((error) => error.path === diagnostic.path && error.message === diagnostic.message) && !missing.some((error) => error.message === diagnostic.message))] };
+  }
+
+  async createProviderInstance(input: { pluginId?: unknown; name?: unknown; apiKey?: unknown }) {
+    const pluginId = typeof input.pluginId === "string" ? input.pluginId.trim() : "";
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+    if (!pluginId) throw Object.assign(new Error("A provider plugin is required"), { statusCode: 400 });
+    if (!name) throw Object.assign(new Error("Provider name is required"), { statusCode: 400 });
+    if (name.length > 80) throw Object.assign(new Error("Provider name must be 80 characters or fewer"), { statusCode: 400 });
+    await this.reloadProviderPlugins();
+    const plugin = this.providerPlugins.find((candidate) => candidate.id === pluginId);
+    if (!plugin) throw Object.assign(new Error("Provider plugin is not installed"), { statusCode: 400 });
+    const taken = new Set([...this.models.getProviders().map((provider) => provider.id), ...this.providerInstances.map((instance) => instance.id)]);
+    const id = uniqueProviderInstanceId(name, taken);
+    const instance: ProviderInstance = { id, name, plugin: plugin.id };
+    const signature = providerPluginSignature(plugin, instance);
+    const cache: ProviderModelCache = { signature, models: [] };
+    this.models.registerProvider(id, createProviderPluginConfig(plugin, instance, cache));
+    try {
+      if (apiKey) await this.models.login(id, "api_key", {
+        prompt: async (prompt) => {
+          if (prompt.type === "text" || prompt.type === "secret") return apiKey;
+          if (prompt.type === "select" && prompt.options.length === 1) return prompt.options[0].id;
+          throw new Error("This provider requires an interactive pi /login flow");
+        },
+        notify: () => undefined,
+      });
+      await saveProviderInstances({ version: 1, instances: [...this.providerInstances, instance] });
+    } catch (error) {
+      this.models.unregisterProvider(id);
+      await this.models.logout(id).catch(() => undefined);
+      throw error;
+    }
+    this.providerInstances = [...this.providerInstances, instance];
+    this.providerInstanceIds.add(id);
+    this.providerModelCaches.set(id, cache);
+    return { providerId: id, global: await this.getGlobal(), preferences: await this.getModelPreferences() };
+  }
+
+  async deleteProviderInstance(providerId: string) {
+    const instance = this.providerInstances.find((candidate) => candidate.id === providerId);
+    if (!instance) throw Object.assign(new Error("Provider instance not found"), { statusCode: 404 });
+    const preferences = await this.getModelPreferences();
+    const selectedReferences = new Set(preferences.models.filter((model) => model.enabled).map((model) => `${model.provider}/${model.id}`));
+    await this.models.logout(providerId).catch(() => undefined);
+    this.models.unregisterProvider(providerId);
+    this.providerInstanceIds.delete(providerId);
+    this.providerModelCaches.delete(providerId);
+    this.providerInstances = this.providerInstances.filter((candidate) => candidate.id !== providerId);
+    await saveProviderInstances({ version: 1, instances: this.providerInstances });
+    const remaining = this.models.getAvailableSnapshot();
+    const enabled = remaining.filter((model) => selectedReferences.has(`${model.provider}/${model.id}`));
+    const selected = enabled.length > 0 ? enabled : remaining.slice(0, 1);
+    if (selected.length > 0) {
+      const configured = selected.find((model) => model.provider === preferences.defaultProvider && model.id === preferences.defaultModel) || selected[0];
+      this.manager.setEnabledModels(selected.length === remaining.length ? undefined : selected.map((model) => `${model.provider}/${model.id}`));
+      this.manager.setDefaultModelAndProvider(configured.provider, configured.id);
+      this.manager.setDefaultThinkingLevel(clampThinkingLevel(configured, preferences.thinkingLevel));
+      await this.manager.flush();
+      const errors = this.manager.drainErrors();
+      if (errors.length) throw new Error(errors.map(({ error }) => error.message).join("; "));
+    }
+    return { global: await this.getGlobal(), preferences: await this.getModelPreferences() };
   }
 
   private async getModelScope(): Promise<{ available: ReturnType<ModelRuntime["getAvailableSnapshot"]>; enabled: ReturnType<ModelRuntime["getAvailableSnapshot"]>; scopedModels: ScopedModel[] }> {
@@ -124,6 +177,8 @@ export class SettingsService {
     const modelId = fallback?.id || configuredModel || "";
     const model = fallback || this.models.getModel(provider, modelId);
     const configuredThinking = this.manager.getDefaultThinkingLevel() || "medium";
+    const instances = new Map(this.providerInstances.map((instance) => [instance.id, instance]));
+    const plugins = new Map(this.providerPlugins.map((plugin) => [plugin.id, plugin]));
     return {
       ...arkConfig.preferences,
       provider,
@@ -136,7 +191,9 @@ export class SettingsService {
       providers: this.models.getProviders().map((provider) => {
         const auth = this.models.getProviderAuthStatus(provider.id);
         const subscription = provider.auth.oauth?.isSubscription ? provider.auth.oauth : undefined;
-        return { id: provider.id, name: provider.name, configured: auth.configured, authSource: auth.source, authLabel: auth.label, canDisconnect: auth.source === "stored", supportsSubscription: Boolean(subscription), subscriptionName: subscription?.name, subscriptionLoginLabel: subscription?.loginLabel, usingSubscription: this.models.isUsingSubscription(provider.id) };
+        const instance = instances.get(provider.id);
+        const plugin = instance ? plugins.get(instance.plugin) : undefined;
+        return { id: provider.id, name: provider.name, configured: auth.configured, authSource: auth.source, authLabel: auth.label, canDisconnect: auth.source === "stored", supportsSubscription: Boolean(subscription), subscriptionName: subscription?.name, subscriptionLoginLabel: subscription?.loginLabel, usingSubscription: this.models.isUsingSubscription(provider.id), custom: Boolean(instance), plugin: instance?.plugin, pluginName: plugin?.name, pluginAvailable: Boolean(instance && plugin) };
       }).sort((a, b) => Number(b.configured) - Number(a.configured) || a.name.localeCompare(b.name)),
     };
   }

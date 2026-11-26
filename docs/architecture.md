@@ -74,11 +74,11 @@ docs/               产品、架构、使用和集成文档
 | Authentication | `apps/server/src/auth.ts` | scrypt password、持久化 session token 和 cookie |
 | Workspace and Files | `apps/server/src/workspaces.ts` | Workspace registry、目录建议、安全路径、文本与图片预览和文件下载 |
 | Agent runtime | `apps/server/src/agents.ts` | pi Session 生命周期（含资源刷新）、snapshot、snapshot-only client、queue、fork、rollback、attachments、自带工具注册、问题挂起与广播 |
-| Agent resources | `apps/server/src/resource-loader.ts` | skill 来源表、`skillsOverride`、工作区信任、资源安装提示、MCP、codemode 与 Right Code provider extension 和 Session resource loader |
+| Agent resources | `apps/server/src/resource-loader.ts` | skill 来源表、`skillsOverride`、工作区信任、资源安装提示、MCP、codemode、Provider 插件 extension 和 Session resource loader |
 | Skills | `apps/server/src/skills.ts` | skill 来源扫描、同名冲突、停用过滤、选择保存和空闲 Session 重载 |
 | MCP | `apps/server/src/mcp.ts` | `mcp.json` 初始化、server 列表（含工作区 `.pi/mcp.json`）、启用状态、浏览器运行时状态与安装 |
 | Extensions | `apps/server/src/extensions.ts` | 内置与用户扩展目录扫描、加载结果与诊断、扩展工具名收集和空闲 Session 重载 |
-| Right Code provider | `apps/server/src/rightapi-extension.ts` | 内置 Right Code Provider Extension、rightapi.io 模型发现、协议映射与价格上下文元数据 |
+| Provider plugins | `apps/server/src/provider-plugins.ts` | Provider 插件文件扫描与校验、实例存储、Provider 配置生成、模型发现与协议映射 |
 | Internal links | `apps/server/src/internal-links.ts` | Web 与 Server 共用的 Workspace、Session 和 Message 内部链接解析与生成 |
 | Session display | `apps/server/src/session-display.ts` | 完整活动分支的 display projection、短 Message ID、Compact 统计和旧数字目标的定位 |
 | Compact statistics | `apps/server/src/compaction-stats.ts` | 按压缩时的 projection 估算上下文组成，并关联压缩耗时 |
@@ -492,7 +492,7 @@ Pi-Ark 默认使用 `PI_ARK_HOME/pi-agent`。`PI_ARK_AGENT_DIR` 可以覆盖该�
 
 ### Global settings
 
-SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。`SettingsService.create()` 还创建一个只加载 Provider Extension 的 `DefaultResourceLoader`，`extensionFactories` 包含内置的 `createRightApiExtension()`，并发现 `PI_ARK_AGENT_DIR/extensions` 下的全局用户扩展。`reload()` 后，SettingsService 把 `pendingProviderRegistrations`、`pendingNativeProviderRegistrations` 与 `pendingVirtualModelRegistrations` 注册到同一个 ModelRuntime，因此 Provider 列表、模型偏好、Session 模型接口和模型校验都能看到扩展 Provider。项目 `.pi/extensions` 不加载，因为这里使用 `projectTrusted: false` 的 SettingsManager。注册失败会写入扩展诊断，显示在 Extensions 页面。
+SettingsService 使用 pi 的 SettingsManager 和 ModelRuntime。`SettingsService.create()` 调用 `reloadProviderPlugins()`，读取 `PI_ARK_AGENT_DIR/provider-plugins` 下的 Provider 插件与 `provider-instances.json`，对每个有效实例调用 `ModelRuntime.registerProvider(instance.id, createProviderPluginConfig(...))`。实例 id 来自用户输入的渠道名 slug，实例名称作为 Provider 显示名，API key 保存在 `auth.json`。插件缺失或配置无效的实例不注册，诊断保存在 SettingsService 并显示在 Add custom provider 对话框。Provider 实例进入 Provider 列表、模型偏好、Session 模型接口和模型校验。`POST /api/settings/provider-plugins/reload` 重新读取插件与实例并重新注册，随后重载空闲 Session。
 
 Global settings 分布在以下文件：
 
@@ -507,7 +507,7 @@ API key 通过 `ModelRuntime.login(provider, "api_key", interaction)` 写入。�
 
 模型 checkbox 使用 `SettingsManager.getEnabledModels()/setEnabledModels()`。SettingsService 通过 pi 的 `resolveModelScopeWithDiagnostics()` 解析 exact reference、glob 和 thinking suffix；Session model API、模型切换校验和新 Session 创建使用同一 scope。全部当前可用模型均勾选时，Pi-Ark 将 `enabledModels` 保存为 `undefined`，沿用 pi 的“全部可用模型”语义。模型偏好保存要求至少一个当前可用模型，并要求 default 属于已勾选模型。
 
-Settings 的 Refresh models 调用 `SettingsService.refreshModels()`，后者对同一个 `ModelRuntime` 执行 `refresh({ allowNetwork, force: true, signal })`：重新读取 `models.json`、重建 Provider 组合，并对带 `refreshModels` 的 Provider 执行其回调。pi 自带 Provider 的 `refreshModels` 在未设置 `PI_OFFLINE` 时请求 pi.dev 目录并把快照写入 `models-store.json`；内置 Right Code Provider 的 `refreshModels` 用保存的 API key 请求 `https://rightapi.io/v1/models`，并读取 `https://rightapi.io/models/public` 补充价格、上下文窗口与协议。刷新在服务进程内更新 model snapshot，页面、新 Session 和已有 Session 的模型菜单直接使用新清单，不需要重启服务。单个 Provider 的目录请求失败时保留之前的快照，接口把失败的 Provider 和错误信息返回页面。可用模型在此次刷新前后新增的 reference 作为 `added` 返回，页面据此提示新增数量。Right Code 的模型按名称映射到 Responses、Messages、Gemini 或 Completions，每个模型可以覆盖 Provider 的 `api` 与 `baseUrl`。
+Settings 的 Refresh models 调用 `SettingsService.refreshModels()`，后者对同一个 `ModelRuntime` 执行 `refresh({ allowNetwork, force: true, signal })`：重新读取 `models.json`、重建 Provider 组合，并对带 `refreshModels` 的 Provider 执行其回调。pi 自带 Provider 的 `refreshModels` 在未设置 `PI_OFFLINE` 时请求 pi.dev 目录并把快照写入 `models-store.json`；Provider 插件实例的 `refreshModels` 按插件配置请求模型列表，Right Code 请求 `https://rightapi.io/v1/models`，并读取 `https://rightapi.io/models/public` 补充价格、上下文窗口与协议。刷新在服务进程内更新 model snapshot，页面、新 Session 和已有 Session 的模型菜单直接使用新清单，不需要重启服务。单个 Provider 的目录请求失败时保留之前的快照，接口把失败的 Provider 和错误信息返回页面。可用模型在此次刷新前后新增的 reference 作为 `added` 返回，页面据此提示新增数量。插件模型按 `protocols` 正则映射到 Responses、Messages、Gemini 或 Completions，每个模型可以覆盖 Provider 的 `api` 与 `baseUrl`。
 
 断开 Provider 后，SettingsService 从断开前的已勾选模型中保留仍可用的模型。没有剩余已勾选模型且还有其他可用模型时，SettingsService 选择第一个可用模型，并同步 default 与 thinking level。
 
@@ -544,7 +544,7 @@ Flow、events 和待回答 prompt 保存在服务内存中。每个 Provider 同
 
 安装根目录由 `resource-loader.ts` 从自身模块位置向上解析，源码的 `apps/server/src` 与 release 的 `apps/server/dist` 都指向项目或安装根目录。没有仓库根目录时，`.agents/skills` 只扫描工作区目录。
 
-`createResourceLoader()` 把 Pi-Ark 管理的三个目录加入 `additionalSkillPaths`，`.pi`、`.agents` 与 `~/.agents` 由 loader 自身发现。`skillsOverride` 按 `skill.filePath` 对照来源表，过滤对应停用清单中的名称。`reload()` 传入 `resolveProjectTrust: async () => true`，并在 `config.ts` 的 `ensureWorkspaceTrust()` 中把工作区写入 `PI_ARK_AGENT_DIR/trust.json`。loader 同时挂载 `createMcpExtension()`、`createCodemodeExtension()` 与 `createRightApiExtension()`。`codemode` 注册为默认停用；Session 把 `codemode` 加入工具列表，再用初始活动工具集合将其排除。MCP extension 在 Session 启动时根据启用且 `exposure` 为 `codemode` 的 server 配置把 `codemode` 加入活动工具，连接后的工具即可从脚本调用。
+`createResourceLoader()` 把 Pi-Ark 管理的三个目录加入 `additionalSkillPaths`，`.pi`、`.agents` 与 `~/.agents` 由 loader 自身发现。`skillsOverride` 按 `skill.filePath` 对照来源表，过滤对应停用清单中的名称。`reload()` 传入 `resolveProjectTrust: async () => true`，并在 `config.ts` 的 `ensureWorkspaceTrust()` 中把工作区写入 `PI_ARK_AGENT_DIR/trust.json`。loader 同时挂载 `createMcpExtension()`、`createCodemodeExtension()` 与 `createProviderPluginsExtension()`。`codemode` 注册为默认停用；Session 把 `codemode` 加入工具列表，再用初始活动工具集合将其排除。MCP extension 在 Session 启动时根据启用且 `exposure` 为 `codemode` 的 server 配置把 `codemode` 加入活动工具，连接后的工具即可从脚本调用。
 
 `appendSystemPromptOverride` 在用户 append 之前插入 `Pi-Ark resource locations` 段，写明全局与工作区 skill 目录、`mcp.json` 位置，以及兼容目录的用途。
 
@@ -570,13 +570,23 @@ Settings 的 MCP 类别分两阶段读取：先调用 `/api/mcp/configured` 渲�
 
 `PI_ARK_AGENT_DIR/extensions` 是用户扩展目录，`ensurePiArkAgentState()` 在 Server 启动时创建该目录。`DefaultResourceLoader` 的 `agentDir` 指向 `PI_ARK_AGENT_DIR`，SDK 自动发现该目录下一层的 `.ts` 与 `.js` 文件、包含 `index.ts` 或 `index.js` 的目录，以及 `package.json` 中声明 `pi.extensions` 的目录。Workspace 下的 `.pi/extensions` 不加载，因为 pi-ark 以 `projectTrusted: false` 创建 `SettingsManager`。
 
-Pi-Ark 还内置 Right Code provider extension（`rightcode`）。它通过 `pi.registerProvider()` 注册 `https://rightapi.io` 中转站，`refreshModels` 使用保存的 API key 拉取模型，并通过 `https://rightapi.io/models/public` 补充价格与上下文窗口。`createResourceLoader()` 把它加入每个 Session 的 `extensionFactories`；SettingsService 用单独的 loader 把它和用户 Provider Extension 注册到 Settings 的 ModelRuntime。扩展注册的 Provider 可以在 Manage Provider 中选择、保存 API key、刷新模型、设置 default model，并用于 Session 请求。
-
-`ExtensionService.list()` 每次请求重新扫描用户扩展目录，并用与 Session 相同的配置创建 `DefaultResourceLoader`，读取 `getExtensions()` 得到的扩展、注册工具、命令、加载错误与警告。响应包含 `builtin` 与 `extensions`。`builtin` 是随 Pi-Ark 发布的内置扩展视图，当前为 Right Code provider（`builtin:rightcode`，Loaded，带说明，没有工具或命令）；`extensions` 是用户扩展列表。用户扩展的字段为 `name`、`path`、`entry`、`status`、`tools`、`commands` 与 `diagnostics`；`status` 取 `loaded` 或 `failed`，`tools` 中每项的 `active` 表示该工具会进入 Session 的模型工具列表，`commands` 中每项包含 `name` 与 `description`。SettingsService 的 Provider 注册诊断也会合并到 `diagnostics`。
+`ExtensionService.list()` 每次请求重新扫描用户扩展目录，并用与 Session 相同的配置创建 `DefaultResourceLoader`，读取 `getExtensions()` 得到的扩展、注册工具、命令、加载错误与警告。响应字段为 `directory`、`extensions` 与 `diagnostics`。用户扩展的字段为 `name`、`path`、`entry`、`status`、`tools`、`commands` 与 `diagnostics`；`status` 取 `loaded` 或 `failed`，`tools` 中每项的 `active` 表示该工具会进入 Session 的模型工具列表，`commands` 中每项包含 `name` 与 `description`。
 
 `AgentService` 在创建 Session 前调用 `extensionToolNames()` 收集用户扩展注册的工具名。只有 `exposure` 为 `direct` 或 `model-only`、且 `defaultActive` 不为 `false` 的工具加入 Session 的工具允许名单与初始活动工具。`<inline:...>` 与 `builtin:` 扩展的工具不参与收集，MCP 工具继续由 MCP extension 的 `codemode` 暴露机制管理。Global system prompt 预览使用同一套工具名，保证预览与运行时一致。
 
-扩展运行在 Session 的 extension runtime 中。pi-ark 调用 `session.bindExtensions({})`，SDK 使用空操作 UI 上下文与 `print` 模式，扩展的事件钩子、工具、命令、Provider 注册与会话状态写入可用，需要用户确认或输入的 UI 调用返回空结果。扩展文件变化后，新建 Session 使用最新内容。Extensions 页面的 Refresh 读取列表后调用 `POST /api/extensions/reload`，该端点先调用 `SettingsService.reloadExtensions()` 重新注册 Settings 使用的 Provider Extension，再通过 `AgentService.reloadIdleSessions()` 批量刷新符合条件的空闲 Session。
+扩展运行在 Session 的 extension runtime 中。pi-ark 调用 `session.bindExtensions({})`，SDK 使用空操作 UI 上下文与 `print` 模式，扩展的事件钩子、工具、命令、Provider 注册与会话状态写入可用，需要用户确认或输入的 UI 调用返回空结果。扩展文件变化后，新建 Session 使用最新内容。Extensions 页面的 Refresh 读取列表后调用 `POST /api/extensions/reload`，通过 `AgentService.reloadIdleSessions()` 批量刷新符合条件的空闲 Session。
+
+### Provider 插件
+
+`PI_ARK_AGENT_DIR/provider-plugins` 保存 Provider 插件，一个 JSON 文件是一个 Provider 类型；文件名是插件 id，只允许小写字母、数字、下划线与连字符。`ensureProviderPluginState()` 在首次初始化时写入 `rightcode.json`、空的 `provider-instances.json` 与 `PI_ARK_AGENT_DIR/.pi-ark-provider-plugins.json` 标记；之后删除插件文件不会在启动时恢复。
+
+插件字段包括 `version`、`name`、`description`、`baseUrl`、`api`、`models`、`protocols`、`defaultProtocol` 与 `modelDefaults`。`models.url` 提供 OpenAI 格式模型列表，`models.auth` 依次尝试 `bearer`、`x-api-key`、`x-goog-api-key` 或 `none`；`models.metadataUrl` 与 `metadataFormat: "rightcode-public"` 提供价格、上下文窗口与支持的协议；`models.fallbackToMetadata` 在模型列表不可用时使用公共目录的 chat 模型名称。`protocols` 用模型 id 正则选择 `api` 与 `baseUrl`，`defaultProtocol` 处理未匹配模型；`modelDefaults` 提供 reasoning、上下文窗口、最大输出与输入类型，并支持按正则覆盖上下文窗口与最大输出。插件配置校验失败时保留文件并返回诊断，不注册使用该插件的实例。
+
+Provider 实例保存在 `PI_ARK_AGENT_DIR/provider-instances.json`，字段为 `id`、`name` 与 `plugin`。实例 id 由用户输入的名称生成小写 slug，冲突时追加数字后缀；`name` 是渠道名，作为 Provider 显示名。API key 通过 `ModelRuntime.login(instance.id, "api_key")` 写入 `auth.json`。`SettingsService.createProviderInstance()` 注册 Provider、保存 credential 与实例文件；`deleteProviderInstance()` 删除 credential、注销 Provider、移除实例记录，并从已勾选模型与 default 中清理该 Provider。两个接口都会重载空闲 Session。
+
+`SettingsService.reloadProviderPlugins()` 读取插件与实例，注销旧实例 Provider 后重新注册；`ProviderModelCache` 以插件配置与实例的签名作为键，插件未变化时保留上次发现的模型，插件变化时清空缓存，之后需要 Refresh models。`createProviderPluginsExtension()` 在每个 Session 的 `extensionFactories` 中读取插件与实例并调用 `pi.registerProvider()`，保证 Session 的模型运行时拥有相同 Provider。
+
+Settings 的 Models & providers 区域提供 Add custom provider、Reload provider plugins、Provider 状态行的 Disconnect 与 Delete provider。添加对话框列出 `GET /api/settings/provider-plugins` 返回的有效插件，提交 `pluginId`、Provider 名称与 API key 到 `POST /api/settings/provider-instances`。删除调用 `DELETE /api/settings/provider-instances/:providerId`。Provider 类型插件通过文件安装与卸载，由 `provider-plugins` skill 指导 Agent 操作；Extensions 页面只管理 pi extension 工具，不显示 Provider 插件。
 
 `scripts/pi-ark.mjs` 的 `mcp` 子命令查找项目或安装包内的 pi core CLI，以 `PI_ARK_AGENT_DIR` 作为 `PI_CODING_AGENT_DIR`，把 `list`、`add`、`remove`、`login` 与 `logout` 参数透传给 `pi mcp`，并沿用子进程退出码。
 
@@ -618,7 +628,7 @@ Global preview 与实际 runtime 共用 DefaultResourceLoader 的创建流程。
 
 ### Settings 的页面缓存
 
-Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Appearance、Models & providers、Agent behavior、Memory、Skills、MCP、Extensions、Files、Terminal、Maintenance 和 Account。Appearance 的三个区域直接读写浏览器 localStorage，改动立即生效。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据。Global system prompt preview 在展开时加载；Memory 类别打开后读取全局默认值、主动提议提示词及所选 Workspace 的设置。Skills、MCP 与 Extensions 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
+Settings 首次访问后保持挂载，并使用独立的 Suspense 容器，与 Files 和 Terminal 的 lazy loading 分开。类别顺序为 Appearance、Models & providers、Agent behavior、Memory、Skills、MCP、Extensions、Files、Terminal、Maintenance 和 Account。Appearance 的三个区域直接读写浏览器 localStorage，改动立即生效。切换页面时隐藏 Settings 的 DOM，保留已加载数据、所选类别、草稿（提示词与 Terminal shell 配置）、disclosure 和各类别的滚动位置。该状态位于当前页面内存中。Global settings 与模型清单独立加载，首屏以 Global settings 为依据。Add custom provider 对话框在打开时读取 Provider 插件列表；Reload provider plugins 重新读取插件与实例，并刷新 Global settings 与模型数据。Global system prompt preview 在展开时加载；Memory 类别打开后读取全局默认值、主动提议提示词及所选 Workspace 的设置。Skills、MCP 与 Extensions 数据在首次进入对应类别时加载，Terminal 配置与 release 信息在首次进入对应类别时加载。
 
 Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的内容；选择普通 profile 且其他字段保持已保存内容时立即保存。Terminal 使用独立的保存队列与请求序号，保留请求期间的新编辑内容。该类别的 Refresh settings 等待已有保存队列，再请求 Server 的设置和 profiles，并保留尚未保存的草稿。Memory 类别的 Refresh settings 重新读取全局默认值、主动提议提示词和所选 Workspace 的设置。其余类别的 Refresh settings 读取 Global settings 和模型数据，Maintenance 同时刷新 release 信息；Skills 与 MCP 使用各自的 Refresh 读取资源列表。离开页面时清空尚未提交的 API key，并暂停 subscription 轮询。
 
@@ -657,6 +667,8 @@ Instance-aware CLI 的 `rollback` command 对调 `current` 与 `previous`，写�
 | `PI_ARK_AGENT_DIR/mcp.json` | MCP server 定义、`args`、`enabled`、`exposure`、`toolExposure`、`timeout` 与 `description` |
 | `PI_ARK_AGENT_DIR/trust.json` | 已信任的 Workspace 路径，供 pi core 读取工作区 `.pi` 配置 |
 | `PI_ARK_AGENT_DIR/extensions` | 用户扩展文件与扩展目录；Server 启动时创建，Session 创建时加载 |
+| `PI_ARK_AGENT_DIR/provider-plugins/` | Provider 插件 JSON；首次初始化写入 `rightcode.json`，用户可编辑或移走卸载 |
+| `PI_ARK_AGENT_DIR/provider-instances.json` | Provider 实例记录（`id`、`name`、`plugin`） |
 | `PI_ARK_AGENT_DIR/skills/` | Global user skills |
 | `PI_ARK_AGENT_DIR/models.json` | Custom provider/model config |
 | `PI_ARK_AGENT_DIR/SYSTEM.md` | 可选 Global replacement prompt |
@@ -781,6 +793,10 @@ interface TerminalInfo {
 | POST | `/api/settings/models/refresh` | 重新读取 `models.json` 并刷新 Provider 目录，返回 `{ preferences, added, errors }` |
 | POST | `/api/settings/providers/:providerId/api-key` | 保存指定 Provider 的 API key |
 | DELETE | `/api/settings/providers/:providerId/credential` | 删除指定 Provider 的保存 credential |
+| GET | `/api/settings/provider-plugins` | 返回 Provider 插件目录、有效插件与诊断 |
+| POST | `/api/settings/provider-plugins/reload` | 重新读取插件与实例、重新注册 Provider，重载空闲 Session，返回 `{ plugins, global, preferences }` |
+| POST | `/api/settings/provider-instances` | Body 为 `{ pluginId, name, apiKey }`，创建 Provider 实例并返回 `{ providerId, global, preferences }` |
+| DELETE | `/api/settings/provider-instances/:providerId` | 删除 Provider 实例、API key 与模型选择，返回 `{ global, preferences }` |
 | GET | `/api/settings/session-models` | 当前已勾选且可用的 Session models |
 | GET/PUT | `/api/settings/system-prompt` | 读取 effective prompt preview，或保存 Global append |
 | GET/PATCH | `/api/settings/memory` | 返回 `{ defaults, prompt }`（`prompt` 为内置的主动提议提示词）。PATCH 支持部分布尔字段（`enabled`、`autoIndex`、`proactive` 和 `reviewEntries`），省略字段保持原值 |
@@ -806,8 +822,8 @@ interface TerminalInfo {
 | PUT | `/api/mcp/servers/:name/advanced` | Body 为 `{ enabled: boolean }`，保存 playwright 的高级 capability 开关 |
 | GET | `/api/mcp/browser` | 返回浏览器运行时状态、版本、目录与日志 |
 | POST | `/api/mcp/install-browser` | 启动 Chromium headless shell 安装并返回当前状态 |
-| GET | `/api/extensions?workspaceId=` | 返回内置扩展、用户扩展目录、用户扩展列表、注册工具与命令、加载状态和诊断 |
-| POST | `/api/extensions/reload` | 重新加载 Settings 的 Provider Extension 与空闲 Session，返回 `{ reloaded }` |
+| GET | `/api/extensions?workspaceId=` | 返回用户扩展目录、用户扩展列表、注册工具与命令、加载状态和诊断 |
+| POST | `/api/extensions/reload` | 重新加载空闲 Session，返回 `{ reloaded }` |
 
 Skills、MCP 与 Extensions 的列表端点要求 `workspaceId`。MCP server 名称只允许字母、数字、`_` 与 `-`。`PUT /api/mcp/servers/:name/state` 的 body 包含 `enabled` 与 `workspaceId`，Project server 的开关写回工作区 `.pi/mcp.json`。`PUT /api/mcp/servers/:name/state` 与 `PUT /api/skills/selection` 保存后都会重新加载空闲 Session。
 
@@ -1036,4 +1052,4 @@ npm run release:build
 
 `check:terminal` 将对应的服务源码转为 JavaScript，再以独立 Node 进程使用临时配置与实际 PTY；该进程沿用安装版的 helper 启动方式，并在超时后清理进程树。该检查覆盖 Terminal 默认配置、合法与非法设置、旧 preferences 保存、跨平台 shell 解析、中文输入输出、多 Tab 隔离、断连继续运行、offset 增量回放、自然退出保留与关闭清理；该脚本也包含在 `check:behavior` 中。`check:terminal-appearance` 检查字体默认值、历史默认列表迁移、自定义字体、偏好事件与存储失败时的行为。`check:terminal-ui` 使用 `PI_ARK_CHECK_URL` 和 `PI_ARK_CHECK_WORKSPACE` 指定的独立 HTTPS 实例与工作目录，创建检查所需的临时 Workspace，并检查 Terminal 的浏览器交互。Terminal、Settings、Markdown 与完整 UI 检查的截图默认写入项目的 `.tmp/`，也可通过 `PI_ARK_CHECK_SCREENSHOT_DIR` 指定截图目录。
 
-Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state/Session list cache 与占用统计、流式 message_update 压缩与增量 snapshot 合并、running Session snapshot 预取、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Right Code 模型映射与 Settings 集成、Session actions、system prompt、删除命令识别与审批原因文本、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间、手动 compact 命令解析。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB Session 列表、draft/attachment/disclosure 恢复、running Session 预取后的立即打开、Browser cache 存储大小与清理、连接中断后的自动重连与草稿和阅读位置保持、`/` 候选中插入内置 compact 命令、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。
+Behavior scripts 覆盖 conversation segmentation、Session snapshot/UI state/Session list cache 与占用统计、流式 message_update 压缩与增量 snapshot 合并、running Session snapshot 预取、Server display pagination、active Session Fork、attachments、OAuth flow、模型偏好与 credential 断开、Provider 插件解析与模型映射、Provider 实例创建与删除、Session actions、system prompt、删除命令识别与审批原因文本、Workspace Files schema、preview 和 download metadata、WebSocket 心跳与重连等待时间、手动 compact 命令解析。Chromium script 覆盖主要页面交互、dialog、rollback、permalink、首次 loading snapshot、缓存 Session 的即时显示与后台更新、刷新后的 IndexedDB Session 列表、draft/attachment/disclosure 恢复、running Session 预取后的立即打开、Browser cache 存储大小与清理、连接中断后的自动重连与草稿和阅读位置保持、`/` 候选中插入内置 compact 命令、dark theme fold contrast、earlier message 加载、tool details、interrupted warning、Files 图片/超限下载、模型 checkbox/default 和 Settings 自动保存。

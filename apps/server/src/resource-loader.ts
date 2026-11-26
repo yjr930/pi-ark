@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCodemodeExtension, createMcpExtension, DefaultResourceLoader, type ExtensionFactory, type Skill } from "@earendil-works/pi-coding-agent";
-import { createRightApiExtension } from "./rightapi-extension.js";
+import { createProviderPluginsExtension } from "./provider-plugins.js";
 import { ensureWorkspaceTrust, loadSkillSelectionSync, piArkAgentDir, type SkillSelection, type WorkspaceDefinition } from "./config.js";
 import { createGlobalSettingsManager } from "./settings.js";
 
@@ -105,6 +105,7 @@ function resourceGuide(workspace: WorkspaceDefinition): string {
     "## Pi-Ark resource locations",
     `Install a skill for every workspace in ${globalSkillDir}. Install a skill for this workspace in ${workspaceSkillDir(workspace)}.`,
     `Install MCP servers in ${join(piArkAgentDir, "mcp.json")} through the $PI_ARK_CLI_NAME mcp command.`,
+    `Install custom Provider plugins in ${join(piArkAgentDir, "provider-plugins")}. Read the provider-plugins skill before adding, changing, or removing a plugin, and let the user create Provider instances in Settings.`,
     `Pi-Ark also loads skills from ${projectPiSkillDir(workspace)}, ${join(workspace.path, ".agents", "skills")} up to the repository root, and ${userAgentsSkillDir()}, and MCP servers from ${join(workspace.path, ".pi", "mcp.json")}. Those directories belong to the project. Add new resources to the Pi-Ark directories unless the user asks for a repository-scoped setup.`,
   ].join("\n\n");
 }
@@ -147,7 +148,7 @@ export async function createResourceLoader(options: CreateResourceLoaderOptions)
     appendSystemPrompt: existsSync(appendSystemPromptPath) ? [appendSystemPromptPath] : [],
     appendSystemPromptOverride: (base) => [resourceGuide(workspace), ...base, ...(options.globalAppend ? [options.globalAppend] : [])],
     additionalSkillPaths,
-    extensionFactories: [createMcpExtension(), createCodemodeExtension(), createRightApiExtension(), ...options.extensionFactories ?? []],
+    extensionFactories: [createMcpExtension(), createCodemodeExtension(), createProviderPluginsExtension(), ...options.extensionFactories ?? []],
     skillsOverride: ({ skills, diagnostics }) => ({ skills: skills.filter((skill) => !isDisabled(skill)), diagnostics }),
   });
   ensureWorkspaceTrust(workspace.path);

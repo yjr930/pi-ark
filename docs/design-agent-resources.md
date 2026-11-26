@@ -1,8 +1,8 @@
-# Agent 资源联合设计：Skills、MCP 与 Extensions
+# Agent 资源联合设计：Skills、MCP、Extensions 与 Provider 插件
 
 状态：已实现。页面行为见[功能与交互设计](product-and-interaction.md)，模块与数据流见[程序实现架构](architecture.md)，操作步骤见[使用手册](user-guide.md)。
 
-本文档合并三项设计：Skills 管理（Global 与 Workspace 两级）、内置 MCP server（`playwright` 与 `exa`）的接入，以及用户扩展（Extensions）的加载与工具接入。三者在 pi-ark 里属于同一类 Agent 资源，共用发现、诊断与生效流程。
+本文档合并四项设计：Skills 管理（Global 与 Workspace 两级）、内置 MCP server（`playwright` 与 `exa`）的接入、用户扩展（Extensions）的加载与工具接入，以及 Provider 插件与自定义 Provider 实例。这些资源在 pi-ark 里共用发现、诊断与生效流程。
 
 ## 实现入口
 
@@ -16,6 +16,7 @@
 | Skills 页面 | `apps/web/src/components/SkillsSettings.tsx` | 三段 skill 列表、Workspace 选择器、启用复选框和 Refresh |
 | MCP 页面 | `apps/web/src/components/McpSettings.tsx` | server 列表、启用开关、连接状态、诊断和浏览器运行时 |
 | 扩展服务 | `apps/server/src/extensions.ts` | 扫描 `PI_ARK_AGENT_DIR/extensions`、读取加载结果与诊断、收集扩展工具名 |
+| Provider 插件 | `apps/server/src/provider-plugins.ts` | 扫描插件 JSON、校验配置、存储 Provider 实例、注册 Provider 与模型发现 |
 | Extensions 页面 | `apps/web/src/components/ExtensionsSettings.tsx` | 扩展列表、加载状态、注册工具与命令、安装目录和 Refresh |
 | 命令行 | `scripts/pi-ark.mjs` | `pi-ark mcp` 子命令，透传 pi core 的 `mcp` 命令 |
 | 发布 | `scripts/build-release.mjs` | 把源码根目录的 `skills/` 复制到安装包 |
@@ -28,18 +29,19 @@
 - 网页检索与页面抓取通过内置的 `exa` 远程 server 提供，默认启用，不需要密钥。
 - 系统自带 skill 与 MCP server 的启用状态可在 Settings 页面修改，修改后对空闲 Session 生效，新建 Session 使用最新状态。
 - 通用 MCP server 通过 `pi-ark mcp` 命令与 `mcp.json` 管理，Settings 页面只展示列表与启用开关。
-- 用户可以通过文件系统安装 pi extension，扩展注册的工具与 Provider 在新建 Session 中可用，Settings 页面能查看加载状态与诊断。
-- 内置 Right Code Provider Extension，使用保存的 API key 从 rightapi.io 动态发现模型，不需要手工维护模型清单。
+- 用户可以通过文件系统安装 pi extension，扩展注册的工具在新建 Session 中可用，Settings 页面能查看加载状态与诊断。
+- 用户可以通过 Provider 插件定义中转站 Provider 类型，并在 Settings 中创建多个 Provider 实例；每个实例拥有自己的渠道名与 API key。插件文件可安装、编辑与卸载，Agent 通过 `provider-plugins` skill 维护。
 
 ## 2. 资源模型
 
-### 2.1 三类资源
+### 2.1 资源类型
 
 | 资源 | 提供的内容 | 生效方式 |
 |---|---|---|
 | Skill | 操作流程与领域说明 | 名称与描述进入 system prompt，正文按需读取 |
 | MCP server | 可执行工具 | 工具注册到 Session，按 exposure 决定模型可见性 |
-| Extension | 事件钩子、工具、命令、资源与 Provider | Session 创建时加载，注册的工具进入工具集合；注册的 Provider 进入 Session 与 Settings 的模型运行时 |
+| Extension | 事件钩子、工具、命令与资源 | Session 创建时加载，注册的工具进入工具集合 |
+| Provider 插件 | Provider 类型、base URL、模型列表地址、鉴权与协议映射 | Provider 实例注册为独立 Provider，进入 Settings 与 Session 的模型运行时 |
 
 ### 2.2 两类来源
 
@@ -52,9 +54,9 @@
 | User | Workspace | `<workspace>/.pi/skills/`（兼容位置） | 是 | 是 |
 | User | Workspace | `<workspace>/.agents/skills/`，并沿父目录读到仓库根目录（兼容位置） | 是 | 是 |
 | User | Global | `PI_ARK_AGENT_DIR/extensions/` | 是 | 否（移走文件即卸载） |
-| Built-in | Global | Server 代码中的 `createRightApiExtension()` | 否 | 否 |
+| User | Global | `PI_ARK_AGENT_DIR/provider-plugins/<id>.json` | 是 | 否（移走文件即卸载） |
 
-Built-in 与 User 来源由 pi-ark 管理。内置扩展随 Pi-Ark 发布，当前是 Right Code Provider Extension；用户扩展只支持 User Global，Workspace 下的 `.pi/extensions` 不加载。
+Built-in 与 User 来源由 pi-ark 管理。用户扩展只支持 User Global，Workspace 下的 `.pi/extensions` 不加载。Provider 插件也是 User Global 文件，卸载方式是移走插件文件；Provider 实例记录在 `PI_ARK_AGENT_DIR/provider-instances.json`。
 
 Pi-Ark 管理的目录是 `PI_ARK_AGENT_DIR/skills/` 与 `<workspace>/.pi-ark/skills/`。`.pi`、`.agents` 与 `~/.agents` 是 Pi 自身的发现位置，用于复用项目已有 skill；界面上可以停用，新增 skill 写入 Pi-Ark 管理的目录。
 
@@ -70,15 +72,19 @@ Pi-Ark 管理的目录是 `PI_ARK_AGENT_DIR/skills/` 与 `<workspace>/.pi-ark/sk
 
 Pi 只在受信任的项目里读取 `.pi/mcp.json`。Pi-Ark 把注册进配置的工作区视为已信任，写入 `PI_ARK_AGENT_DIR/trust.json`，Session 创建时以 `resolveProjectTrust` 返回已信任。
 
-### 2.4 Provider Extension
+### 2.4 Provider 插件
 
-Provider Extension 通过 `pi.registerProvider()` 注册模型 Provider。Provider 配置支持 `baseUrl`、`apiKey`、`api`、`headers`、`models` 与 `refreshModels`；`refreshModels` 在模型刷新时运行，可以用保存的 credential 请求上游模型列表并返回模型定义。`RefreshModelsContext` 提供 `credential`、`stored`、`publish()`、`allowNetwork`、`force`、`signal` 与 `baseUrl`。
+Provider 插件是 Pi-Ark 自己的 JSON 文件，不使用 pi extension。每个插件定义一个 Provider 类型，包含 `version`、`name`、`description`、`baseUrl`、`api`、`models`、`protocols`、`defaultProtocol` 与 `modelDefaults` 等字段。插件文件放在 `PI_ARK_AGENT_DIR/provider-plugins/<id>.json`，文件名是插件 id。
 
-Pi-Ark 内置 Right Code Provider Extension（Provider 标识 `rightcode`，显示名 Right Code）。它把中转站地址设为 `https://rightapi.io`，`refreshModels` 使用保存的 API key 请求 `https://rightapi.io/v1/models`，并读取无需认证的 `https://rightapi.io/models/public` 补充价格、上下文窗口与支持的协议。模型按名称映射到原生协议：Claude 使用 Anthropic Messages，GPT、Codex 与 Grok 使用 OpenAI Responses，Gemini 使用 Gemini 原生，其余模型优先 Messages 或 Completions。每个模型可以覆盖 Provider 的 `api` 与 `baseUrl`。
+`models.url` 返回 OpenAI 格式的模型列表；`models.auth` 支持 `bearer`、`x-api-key`、`x-goog-api-key` 与 `none`，可以是数组并按顺序尝试。`models.metadataUrl` 与 `metadataFormat: "rightcode-public"` 用于补充价格、上下文窗口与支持的协议。`protocols` 用模型 id 正则选择 `api` 与 `baseUrl`，`defaultProtocol` 用于没有匹配的模型。`modelDefaults` 提供 reasoning、上下文窗口、最大输出与输入类型，并支持按正则覆盖上下文窗口与最大输出。
 
-SettingsService 创建独立的 `DefaultResourceLoader`，挂载内置 Right Code extension，并发现 `PI_ARK_AGENT_DIR/extensions` 下的用户扩展。loader 把 `pendingProviderRegistrations`、`pendingNativeProviderRegistrations` 与 `pendingVirtualModelRegistrations` 注册到 Settings 的 ModelRuntime，因此扩展 Provider 进入 Manage Provider、模型偏好、Session 模型接口和模型校验。`POST /api/extensions/reload` 会重新注册 Settings 的 Provider Extension。`createResourceLoader()` 把内置 Right Code extension 加入每个 Session，用户扩展仍由 loader 自动发现。
+Provider 实例是插件的使用记录，保存在 `PI_ARK_AGENT_DIR/provider-instances.json`，字段为 `id`、`name` 与 `plugin`。实例 id 由用户输入的 Provider name 生成小写 slug，冲突时追加数字后缀；`name` 是渠道名，作为 Provider 显示名。API key 由 pi credential store 保存到 `auth.json`，Provider id 是实例 id。
 
-Extensions 页面先显示 Built-in extensions。Right Code provider 行显示 Loaded、说明与 `builtin:rightcode` 路径；它不写入用户扩展目录，随 Pi-Ark 更新。用户扩展可以继续注册自己的 Provider，刷新模型时调用各自的 `refreshModels`。
+SettingsService 启动时读取插件与实例，对每个有效实例调用 `ModelRuntime.registerProvider()`，Provider 配置的 `refreshModels` 使用实例保存的 credential 调用插件的模型发现逻辑。失败或插件缺失的实例不注册，错误进入 Provider 插件诊断。`createResourceLoader()` 挂载 `createProviderPluginsExtension()`，新 Session 读取插件与实例并注册同样的 Provider；修改插件或实例后，`/reload` 或新 Session 生效。
+
+`provider-plugins` skill 记录插件目录、JSON 格式、Right Code 默认插件、安装与卸载步骤、Provider 实例创建与维护方式。`ensureProviderPluginState()` 只在首次初始化时写入 `rightcode.json` 与空实例文件；之后删除插件文件不会自动恢复。
+
+Right Code 默认插件使用 `https://rightapi.io/v1`、`https://rightapi.io/v1/models` 与 `https://rightapi.io/models/public`。每个 Right Code 渠道创建一个实例并使用该渠道的 API key。Claude 使用 Messages，GPT、Codex 与 Grok 使用 Responses，Gemini 使用 Gemini 原生，DeepSeek、GLM、Kimi 与 MiniMax 优先 Messages。插件参数由用户维护，更新后点击 Reload provider plugins。
 
 ## 3. 目录与发布布局
 
@@ -89,6 +95,8 @@ $PI_ARK_AGENT_DIR/skills/<skill-name>/SKILL.md       # User Global
 <workspace>/.pi/skills/<skill-name>/SKILL.md         # 兼容位置，Pi 自身读取
 <workspace>/.agents/skills/<skill-name>/SKILL.md     # 兼容位置，Pi 自身读取
 ~/.agents/skills/<skill-name>/SKILL.md               # 兼容位置，Pi 自身读取
+$PI_ARK_AGENT_DIR/provider-plugins/<plugin-id>.json  # Provider 类型插件
+$PI_ARK_AGENT_DIR/provider-instances.json            # Provider 实例记录
 ```
 
 - `scripts/build-release.mjs` 在打包时把源码根目录的 `skills/` 复制到安装包，并随安装进入安装根目录。
@@ -124,13 +132,13 @@ MCP server 的定义与启用状态主要写在 `PI_ARK_AGENT_DIR/mcp.json`，pi
 
 | 模块 | 职责 |
 |---|---|
-| `resource-loader.ts` | 定义 skill 来源表（Pi-Ark 目录、`.pi`、`.agents`、`~/.agents`），创建带 `additionalSkillPaths` 与 `skillsOverride` 的 `DefaultResourceLoader`，挂载 MCP 与 codemode extension，并把资源位置与安装规则写入 system prompt |
+| `resource-loader.ts` | 定义 skill 来源表（Pi-Ark 目录、`.pi`、`.agents`、`~/.agents`），创建带 `additionalSkillPaths` 与 `skillsOverride` 的 `DefaultResourceLoader`，挂载 MCP、codemode 与 Provider 插件 extension，并把资源位置与安装规则写入 system prompt |
 | `skills.ts` | `SkillService` 扫描全部 skill 来源、处理同名冲突、应用停用清单、保存选择并重新加载空闲 Session |
 | `mcp.ts` | `McpService` 初始化 `mcp.json`、读取 `pi mcp list --json`（含工作区 `.pi/mcp.json`）、保存启用状态、检查并安装浏览器运行时 |
-| `extensions.ts` | `ExtensionService` 扫描内置与用户扩展、读取加载结果与诊断、收集扩展工具名并重载空闲 Session |
-| `rightapi-extension.ts` | 内置 Right Code Provider Extension、rightapi.io 模型发现与协议映射 |
+| `extensions.ts` | `ExtensionService` 扫描用户扩展、读取加载结果与诊断、收集扩展工具名并重载空闲 Session |
+| `provider-plugins.ts` | Provider 插件文件扫描与校验、实例存储、Provider 注册、模型发现与协议映射 |
 | `config.ts` | `SkillSelection` 的归一化、校验、读取与原子保存；启动时创建扩展目录 |
-| `index.ts` | 创建 `SkillService` 与 `McpService`，注册 Skills 与 MCP 端点 |
+| `index.ts` | 创建 `SkillService`、`McpService` 与 Provider 插件实例端点；启动时初始化 Provider 插件目录与实例文件 |
 
 - Skill 行字段为 `name`、`description`、`scope`、`source`、`origin`、`location`、`enabled` 与 `explicitOnly`。
 - Skill 的 `location` 是 skill 目录；MCP server 的启动命令或 URL 由列表结果的 `transport` 字段返回。

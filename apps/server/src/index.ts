@@ -13,6 +13,7 @@ import { McpService } from "./mcp.js";
 import { SkillService } from "./skills.js";
 import { ExtensionService } from "./extensions.js";
 import { createResourceLoader } from "./resource-loader.js";
+import { ensureProviderPluginState } from "./provider-plugins.js";
 import { PiCoreService } from "./pi-core.js";
 import { SettingsService, type GlobalAgentDefaultsInput, type GlobalSettingsInput, type ModelPreferencesInput } from "./settings.js";
 import { TerminalService } from "./terminal.js";
@@ -27,6 +28,7 @@ import { registerMemoryRoutes } from "./memory-routes.js";
 
 const previousAgentDir = process.env.PI_ARK_MIGRATE_AGENT_DIR || process.env.PI_CODING_AGENT_DIR;
 await ensurePiArkAgentState(previousAgentDir);
+await ensureProviderPluginState();
 process.env.PI_CODING_AGENT_DIR = piArkAgentDir;
 const config = await loadConfig();
 const [key, cert] = await Promise.all([readFile(config.tls.keyPath), readFile(config.tls.certPath)]);
@@ -61,7 +63,7 @@ const memory = new WorkspaceMemory(join(arkHome, "memory"), undefined, loadMemor
 const agents = new AgentService(settings, workspaces, memory, ensureMemoryStore);
 const skills = new SkillService(workspaces, () => agents.reloadIdleSessions());
 const mcp = new McpService(() => agents.reloadIdleSessions());
-const extensions = new ExtensionService(workspaces, async (workspace) => createResourceLoader({ workspace, globalAppend: (await loadGlobalPreferences()).agent.systemPrompt.append }), () => agents.reloadIdleSessions(), () => settings.getExtensionProviderDiagnostics());
+const extensions = new ExtensionService(workspaces, async (workspace) => createResourceLoader({ workspace, globalAppend: (await loadGlobalPreferences()).agent.systemPrompt.append }), () => agents.reloadIdleSessions());
 const fileSearch = new FileSearchIndex();
 await mcp.ensureConfig();
 
@@ -162,6 +164,22 @@ app.get<{ Querystring: { latest?: string } }>("/api/settings/release", async (re
 app.post("/api/settings/release/update", async () => piCore.update());
 app.post("/api/settings/release/rollback", async () => piCore.rollback());
 app.get<{ Querystring: { provider: string } }>("/api/settings/models", async (request) => ({ models: settings.getModels(request.query.provider) }));
+app.get("/api/settings/provider-plugins", async () => settings.getProviderPlugins());
+app.post("/api/settings/provider-plugins/reload", async () => {
+  await settings.reloadProviderPlugins();
+  await agents.reloadIdleSessions();
+  return { plugins: await settings.getProviderPlugins(), global: await settings.getGlobal(), preferences: await settings.getModelPreferences() };
+});
+app.post<{ Body: { pluginId?: unknown; name?: unknown; apiKey?: unknown } }>("/api/settings/provider-instances", async (request) => {
+  const result = await settings.createProviderInstance(request.body ?? {});
+  await agents.reloadIdleSessions();
+  return result;
+});
+app.delete<{ Params: { providerId: string } }>("/api/settings/provider-instances/:providerId", async (request) => {
+  const result = await settings.deleteProviderInstance(request.params.providerId);
+  await agents.reloadIdleSessions();
+  return result;
+});
 app.get("/api/settings/model-preferences", async () => settings.getModelPreferences());
 app.put<{ Body: ModelPreferencesInput }>("/api/settings/model-preferences", async (request) => settings.saveModelPreferences(request.body));
 app.post("/api/settings/models/refresh", async () => settings.refreshModels());
@@ -193,7 +211,7 @@ app.put<{ Body: unknown }>("/api/skills/selection", async (request) => {
 });
 app.post("/api/skills/reload", async () => ({ reloaded: await skills.reloadIdleSessions() }));
 app.get<{ Querystring: { workspaceId?: string } }>("/api/extensions", async (request) => extensions.list(workspaceFromQuery(request.query.workspaceId)));
-app.post("/api/extensions/reload", async () => { await settings.reloadExtensions(); return { reloaded: await extensions.reloadIdleSessions() }; });
+app.post("/api/extensions/reload", async () => ({ reloaded: await extensions.reloadIdleSessions() }));
 app.get<{ Querystring: { workspaceId?: string } }>("/api/mcp", async (request) => mcp.list(workspaceFromQuery(request.query.workspaceId)));
 app.put<{ Params: { name: string }; Body: { enabled?: unknown; workspaceId?: string } }>("/api/mcp/servers/:name/state", async (request) => {
   if (typeof request.body?.enabled !== "boolean") throw Object.assign(new Error("MCP server state must be a boolean"), { statusCode: 400 });

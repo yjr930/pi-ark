@@ -269,12 +269,12 @@ Terminal 命令使用 Pi-Ark 服务账号的系统权限，并以 Workspace 目�
 Settings 中的 Server 设置由实例保存，其中 Memory 提供全局默认值和 Workspace 覆盖选项。Appearance 与 Terminal 字体的设置保存在当前浏览器中。桌面端的左侧按类别导航，右侧显示当前类别；移动端使用可横向滚动的类别导航。移动端的顶部栏跟随当前 theme，侧栏在展开时显示阴影。类别如下：
 
 - Appearance：Theme 区域使用紧凑的色样按钮（Ark Dark、Graphite、Midnight、Paper、Snow）；Text size 区域用滑杆调整全部界面文字的整体倍率，范围 90% 到 130%，并列出七个字号等级的名称、用途与当前像素值；Sidebar 区域包含 Working session count 开关；Conversation 区域包含 Hide reasoning 和 Keep line breaks。这些设置都保存在当前浏览器，改动立即生效。
-- Models & providers：Provider credential 管理、write-only API key、subscription login、内置 Right Code Provider、Extension Provider、模型清单刷新与 `refreshModels` 模型发现、模型可见清单、default model 和 default thinking level。
+- Models & providers：Provider 插件与自定义 Provider 实例、Provider credential 管理、write-only API key、subscription login、模型清单刷新与插件模型发现、模型可见清单、default model 和 default thinking level。
 - Agent behavior：全局 System prompt append、按需展开的 effective prompt preview、可选 replacement/append 文件路径、Steering、Follow-up、automatic compaction、automatic retry 和 Delete commands 审批开关。
 - Memory：全局默认值、Workspace 覆盖选项和主动提议提示词预览。
 - Skills：Built-in、Global 与当前 Workspace 的 skill 列表和启用状态。
 - MCP：MCP server 列表、启用开关、连接状态、诊断与浏览器运行时。
-- Extensions：内置 Provider Extension、用户安装的扩展、加载状态、注册工具与命令、诊断和安装目录。
+- Extensions：用户安装的扩展、加载状态、注册工具与命令、诊断和安装目录。
 - Files：dotfile 显示和文本、Markdown 与图片的最大预览大小。
 - Terminal：Server shell profile、自定义程序的绝对路径、附加参数、环境变量、浏览器字体和键盘操作说明。
 - Maintenance：Pi-Ark version、bundled pi core version、install mode、release channel、latest/previous release、install/data/package paths、更新、回退，以及指向稳定 CLI 的完整 Node 调用命令（status、logs 与 restart 等）；Browser cache 显示当前实例与账号的缓存占用的存储大小，并提供 Clear browser cache。
@@ -288,7 +288,9 @@ Settings 在首次访问后保留在当前页面的内存中。页面切换保�
 
 Models shown in Pi-Ark 标题行在标题说明右侧依次提供 Provider 筛选器、Refresh models 按钮与搜索框。Provider 筛选器只列出模型清单中已有模型的已连接 Provider，不提供全部选项；初次进入时选中当前管理的 Provider，该 Provider 没有模型时选中 default model 所在的 Provider，其次列表中的第一个 Provider。列表只显示所选 Provider 的模型，搜索框在所选 Provider 内匹配模型名称与标识。点击 Refresh models 后按钮显示 Refreshing，模型 checkbox 与星标暂时不可操作；刷新完成后列表原地更新，提示显示新增模型数量，没有新增时显示 No new models。刷新不重启服务，当前 Session 的模型保持不变。部分 Provider 目录请求失败时，列表保留刷新前的内容，并提示失败的 Provider 名称。
 
-内置的 Right Code Provider（标识为 `rightcode`）由 Pi-Ark 的 Provider Extension 提供，使用 `https://rightapi.io` 作为中转站。用户在 Manage Provider 选择 Right Code 并保存 API key 后，点击 Refresh models 会调用该扩展的 `refreshModels`，用保存的 key 请求 `https://rightapi.io/v1/models`，把该 key 可用的模型加入列表。模型按名称映射到 Responses、Messages、Gemini 或 Completions 原生协议；`https://rightapi.io/models/public` 用于补充价格、上下文窗口与支持的协议等元数据。Provider Extension 也可以来自 `PI_ARK_AGENT_DIR/extensions`，Pi-Ark 在 Settings 的模型运行时与 Agent Session 中加载它们；两类扩展注册的 Provider 都会出现在 Manage Provider 中。点击 Refresh models 后，Settings 页面同时读取最新的 Provider 状态。
+自定义 Provider 由 Provider 插件与 Provider 实例组成。Provider 插件是 `PI_ARK_AGENT_DIR/provider-plugins` 下的 JSON 文件，定义 Provider 类型、base URL、模型列表地址、鉴权方式与协议映射；首次初始化会写入 Right Code 插件 `rightcode.json`。Provider 实例在 Settings 中创建：点击 Add custom provider，选择 Provider type，输入渠道名作为 Provider name，粘贴 API key，然后点击 Add provider。实例使用插件配置注册为独立 Provider，名称是用户输入的渠道名，Provider 标识由名称生成。Refresh models 调用该插件实例的模型发现逻辑。Reload provider plugins 重新读取插件文件并重新注册实例，插件参数更新后使用这个操作。
+
+Provider 状态行显示插件名称，并提供 Disconnect 与 Delete provider。Disconnect 只删除该实例保存的 API key，保留实例与插件；Delete provider 删除实例、API key 与模型选择，Provider 插件文件保留。Provider 插件本身通过文件安装与卸载，由 Agent 使用 `provider-plugins` skill 操作，Extensions 页面不管理 Provider 插件。Right Code 插件默认提供 `https://rightapi.io` 的地址与协议映射；每个渠道创建一个实例并使用该渠道的 API key，Refresh models 请求 `https://rightapi.io/v1/models`，并用 `https://rightapi.io/models/public` 补充价格、上下文窗口与支持的协议。
 
 Settings 默认在选择、切换或输入完成后立即保存，页面底部不提供统一 Save 操作。Theme 在选择时立即预览并写入服务配置；模型 checkbox、default model、default thinking level 和 Agent defaults 在选择后保存。Manage Provider 选择器用于切换当前管理的 Provider，展开后顶部提供搜索框，按 Provider 名称、标识、认证状态和说明匹配输入的字符串。新 Session 的 default 由模型行右侧的星标决定。API key 与 Global system prompt append 需要用户确认，因此 Save 和 Cancel 显示在各自的 section 内。Terminal 的自定义程序、附加参数和环境变量通过 Save shell settings 提交，Cancel 恢复已保存的配置；选择普通 shell profile 且其他字段保持已保存内容时，选择结果立即保存。pi 保存 API key 和 OAuth credential，浏览器接收 credential 状态与来源。使用保存 credential 的 Provider 显示 Disconnect；确认后，Pi-Ark 删除该 credential，并从仍可用的已勾选模型中保留 default，或选择第一个仍可用模型。需要安装实例标识的 subscription login 由 Server 自动生成并复用 Global device ID，页面省略该输入项。同一个 Provider 再次启动 subscription login 时，Server 会取消此前仍在等待的登录，使新的登录 flow 可以继续。
 
@@ -322,9 +324,9 @@ Refresh 重新执行列表读取并更新连接状态、注册动作数量和诊
 
 ### Extensions
 
-Extensions 类别先显示 Built-in extensions，再显示用户扩展目录、已加载扩展数量、注册工具数量和扩展列表。Built-in extensions 当前包含 Right Code provider，行内显示名称、Loaded、说明与 `builtin:rightcode` 路径；它随 Pi-Ark 更新，用户不需要在扩展目录放置文件。用户扩展列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、加载状态（Loaded 或 Failed）、注册工具数量、扩展路径、工具标记、命令和诊断。工具标记显示工具名，带 ` · on demand` 表示工具已注册但没有自动激活；不带该后缀表示模型可以直接调用。扩展命令同时进入 Composer 的 `/` 列表，选中后插入 `/命令名`。加载失败的行显示错误原因，没有注册工具的扩展显示 No tools registered。
+Extensions 类别显示用户扩展目录、已加载扩展数量、注册工具数量和扩展列表。列表使用 URL 指定的 Workspace，没有指定时使用第一个 Workspace。每行包含名称、加载状态（Loaded 或 Failed）、注册工具数量、扩展路径、工具标记、命令和诊断。工具标记显示工具名，带 ` · on demand` 表示工具已注册但没有自动激活；不带该后缀表示模型可以直接调用。扩展命令同时进入 Composer 的 `/` 列表，选中后插入 `/命令名`。加载失败的行显示错误原因，没有注册工具的扩展显示 No tools registered。
 
-Refresh 重新读取扩展目录与加载结果，重新注册 Settings 使用的 Provider Extension，然后批量刷新符合条件的空闲 Session。通知会显示完成刷新的 Session 数量；没有 Session 完成刷新时，通知提示新建 Session 可使用更新后的扩展。页面首次进入 Extensions 类别时读取一次，停留在该类别期间不自动刷新。页面不提供启用开关、安装与删除按钮；用户把 `.ts` 或 `.js` 文件放入 Install directory 显示的目录，或放入包含 `index.ts` 或 `index.js` 的目录、包含 `pi.extensions` 声明的 `package.json` 目录，然后新建 Session。列表为空时显示添加文件的提示。
+Refresh 重新读取扩展目录与加载结果，然后批量刷新符合条件的空闲 Session。通知会显示完成刷新的 Session 数量；没有 Session 完成刷新时，通知提示新建 Session 可使用更新后的扩展。页面首次进入 Extensions 类别时读取一次，停留在该类别期间不自动刷新。页面不提供启用开关、安装与删除按钮；用户把 `.ts` 或 `.js` 文件放入 Install directory 显示的目录，或放入包含 `index.ts` 或 `index.js` 的目录、包含 `pi.extensions` 声明的 `package.json` 目录，然后新建 Session。列表为空时显示添加文件的提示。
 
 扩展的交互式 UI 调用在 Pi-Ark 中返回空结果。扩展可以通过事件钩子、注册工具、命令与会话状态写入工作。
 

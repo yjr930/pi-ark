@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "Right Code",
+  "description": "Right Code relay at rightapi.io. Create one provider instance for each channel.",
+  "baseUrl": "https://rightapi.io/v1",
+  "api": "openai-completions",
+  "models": {
+    "url": "https://rightapi.io/v1/models",
+    "format": "openai",
+    "auth": ["bearer", "x-api-key", "x-goog-api-key"],
+    "metadataUrl": "https://rightapi.io/models/public",
+    "metadataFormat": "rightcode-public",
+    "fallbackToMetadata": true
+  },
+  "protocols": [
+    { "match": "^claude", "kind": "messages", "api": "anthropic-messages", "baseUrl": "https://rightapi.io" },
+    { "match": "^(gpt|codex|o[0-9])", "kind": "responses", "api": "openai-responses", "baseUrl": "https://rightapi.io/v1" },
+    { "match": "^gemini", "kind": "gemini", "api": "google-generative-ai", "baseUrl": "https://rightapi.io/v1beta" },
+    { "match": "^grok", "kind": "responses", "api": "openai-responses", "baseUrl": "https://rightapi.io/v1" },
+    { "match": "^(deepseek|glm|kimi|minimax)", "kind": "messages", "api": "anthropic-messages", "baseUrl": "https://rightapi.io" }
+  ],
+  "defaultProtocol": { "kind": "completions", "api": "openai-completions", "baseUrl": "https://rightapi.io/v1" },
+  "modelDefaults": {
+    "input": ["text"],
+    "reasoningMatch": "^(claude|gpt|codex|gemini|grok)",
+    "contextWindow": 128000,
+    "maxTokens": 16384,
+    "contextWindowRules": [
+      { "match": "^(gpt|codex)", "value": 272000 },
+      { "match": "^(claude|gemini|grok)", "value": 200000 }
+    ],
+    "maxTokensRules": [
+      { "match": "^gemini", "value": 65536 },
+      { "match": "^(claude|gpt|codex|grok)", "value": 32000 }
+    ]
+  }
+}

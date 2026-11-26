@@ -106,7 +106,6 @@ try {
   const providerLabels = page.locator(".ark-select-menu .ark-select-copy strong");
   const allProviders = await providerLabels.allTextContents();
   assert.ok(allProviders.length > 1);
-  assert.ok(allProviders.includes("Right Code"));
   const configuredStatus = page.locator(".ark-select-menu em").filter({ hasText: "Configured" }).first();
   if (await configuredStatus.count()) {
     const fit = await configuredStatus.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, text: element.textContent || "" }));
@@ -276,12 +275,6 @@ try {
     await select("Appearance");
     if (theme === "Ark Dark") await page.screenshot({ path: join(screenshots, "settings-dark-desktop.png") });
   }
-  await select("Extensions");
-  await page.getByRole("heading", { name: "Built-in extensions", exact: true }).waitFor();
-  const builtinExtensionRow = page.locator(".agent-resource-row").filter({ hasText: "Right Code provider" });
-  assert.equal(await builtinExtensionRow.count(), 1);
-  await expect(builtinExtensionRow.getByText("Loaded", { exact: true })).toBeVisible();
-  await page.screenshot({ path: join(screenshots, "settings-extensions-builtin.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   const closeSidebar = page.getByRole("button", { name: "Close sidebar", exact: true });
   if (await closeSidebar.isVisible()) await closeSidebar.click();
@@ -301,6 +294,29 @@ try {
   await append.waitFor();
   assert.equal(await append.inputValue(), content);
   await page.screenshot({ path: join(screenshots, "settings-agent-mobile.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await select("Models & providers");
+  await page.getByRole("button", { name: "Add custom provider", exact: true }).click();
+  const addProviderDialog = page.getByRole("dialog", { name: "Add custom provider" });
+  await addProviderDialog.waitFor();
+  await addProviderDialog.getByRole("button", { name: "Provider type" }).click();
+  const providerTypeLabels = await page.locator(".ark-select-menu .ark-select-copy strong").allTextContents();
+  assert.ok(providerTypeLabels.includes("Right Code"));
+  assert.ok(providerTypeLabels.includes("UI Mock Relay"));
+  await page.locator(".ark-select-menu").getByText("UI Mock Relay", { exact: true }).click();
+  await addProviderDialog.getByLabel("Provider name").fill("UI Mock Relay");
+  await addProviderDialog.getByLabel("API key").fill("sk-ui");
+  await addProviderDialog.getByRole("button", { name: "Add provider", exact: true }).click();
+  await addProviderDialog.waitFor({ state: "detached" });
+  await expect(providerTrigger).toContainText("UI Mock Relay");
+  await page.screenshot({ path: join(screenshots, "settings-custom-provider.png") });
+  await page.getByRole("button", { name: "Delete provider", exact: true }).click();
+  const deleteProviderDialog = page.getByRole("dialog", { name: /Delete UI Mock Relay\?/ });
+  await deleteProviderDialog.waitFor();
+  await deleteProviderDialog.getByRole("button", { name: "Delete provider", exact: true }).click();
+  await deleteProviderDialog.waitFor({ state: "detached" });
+  await expect(providerTrigger).not.toContainText("UI Mock Relay");
+  await page.screenshot({ path: join(screenshots, "settings-custom-provider-deleted.png") });
   assert.equal([...requests.keys()].some((path) => /^\/api\/workspaces\/[^/]+\/(settings|system-prompt)$/.test(path)), false);
   console.log(`Settings UI checks passed; screenshots: ${screenshots}`);
 } catch (error) {

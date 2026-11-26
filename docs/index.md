@@ -14,7 +14,7 @@
 | [Claude Code 调研：Agent 间的通信机制](research-claude-code-agent-communication.md) | 开发 | Subagent 委派、Agent Teams 的消息与任务表、跨会话消息（[资料时效](research-claude-code-agent-communication.md#资料时效)） |
 | [Claude Code 调研：Memory](research-claude-code-memory.md) | 开发 | 项目指令、自动记忆、会话记录和上下文压缩（[资料时效](research-claude-code-memory.md#资料时效)、[从业者分析](research-claude-code-memory.md#从业者分析)） |
 | [Pi-Ark Memory 设计](design-memory.md) | 产品设计、开发 | Workspace 的长期经验、用户确认、按需召回和设计依据 |
-| [Agent 资源联合设计](design-agent-resources.md) | 产品设计、开发 | Skills、MCP 与 Extensions 的分层来源、启用管理、实现入口、内置 skill 与浏览器能力接入 |
+| [Agent 资源联合设计](design-agent-resources.md) | 产品设计、开发 | Skills、MCP、Extensions 与 Provider 插件的分层来源、启用管理、实现入口、内置 skill 与浏览器能力接入 |
 | [交互式提问工具](design-question-tool.md) | 产品设计、开发 | 提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面 |
 | [删除指令审批](design-tool-approval.md) | 产品设计、开发 | 删除命令的识别范围、开关、`tool_call` 拦截、审批状态、子会话转交与界面 |
 
@@ -38,7 +38,7 @@
 - Pi 集成调研记录技术选型依据和上游 pi API 背景。
 - Claude Code 调研分别记录 system prompt、agent 间的通信机制和 memory 设计，按官方文档、发布记录和带版本的第三方资料标明出处。
 - Pi-Ark Memory 设计记录跨 Session 的使用流程、借鉴依据和后续计划。
-- Agent 资源联合设计记录 Skills、MCP 与 Extensions 的资源模型、服务端与页面实现入口，以及内置 `browser`、`mcp-servers` 与 `skill-authoring` skill、`playwright` server、MCP 密钥目录与用户扩展目录的接入。
+- Agent 资源联合设计记录 Skills、MCP、Extensions 与 Provider 插件的资源模型、服务端与页面实现入口，以及内置 `browser`、`mcp-servers`、`skill-authoring` 与 `provider-plugins` skill、`playwright` server、MCP 密钥目录、用户扩展目录与 Provider 插件目录的接入。
 - 交互式提问工具文档记录提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面行为。
 - 删除指令审批文档记录删除命令的识别范围、开关、拦截时机、审批状态、子会话转交与界面行为。
 
@@ -51,6 +51,6 @@
 - 修改安装、启动、环境变量、CLI 或部署方式时，更新 README、使用手册和程序实现架构文档。
 - 修改 pi SDK 的集成方式时，更新程序实现架构文档和 Pi 集成调研。
 - 新增文档或调整文档职责时，更新本索引和 `AGENTS.md` 中的文档索引。
-- 调整 Skills、MCP、Extensions 或内置 skill 的来源、启用状态、页面行为、配置格式或浏览器运行时行为时，更新 Agent 资源联合设计文档、功能与交互设计、程序实现架构和使用手册。
+- 调整 Skills、MCP、Extensions 或 Provider 插件，或调整内置 skill 的来源、启用状态、页面行为、配置格式或浏览器运行时行为时，更新 Agent 资源联合设计文档、功能与交互设计、程序实现架构和使用手册。
 - 修改提问工具的参数、挂起行为、答案通道或问题卡片时，更新交互式提问工具文档、功能与交互设计、程序实现架构和使用手册。
 - 修改删除命令的识别范围、审批开关、审批状态、接口或审批卡片时，更新删除指令审批文档、功能与交互设计、程序实现架构和使用手册。
