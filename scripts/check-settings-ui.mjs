@@ -107,6 +107,11 @@ try {
   const allProviders = await providerLabels.allTextContents();
   assert.ok(allProviders.length > 1);
   assert.ok(allProviders.includes("Right Code"));
+  const configuredStatus = page.locator(".ark-select-menu em").filter({ hasText: "Configured" }).first();
+  if (await configuredStatus.count()) {
+    const fit = await configuredStatus.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, text: element.textContent || "" }));
+    assert.ok(fit.scrollWidth <= fit.clientWidth + 1, `Provider status is truncated: ${fit.text} (${fit.scrollWidth}px > ${fit.clientWidth}px)`);
+  }
   const needle = allProviders[0].slice(0, 6).toLowerCase();
   await providerSearch.fill(needle);
   const filteredProviders = await providerLabels.allTextContents();

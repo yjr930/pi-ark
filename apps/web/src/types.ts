@@ -277,6 +277,7 @@ export interface ModelOption {
 
 export interface SessionModelOption extends Omit<ModelOption, "input"> {
   provider: string;
+  providerName?: string;
 }
 
 export interface ModelPreferenceOption extends SessionModelOption {

@@ -364,7 +364,7 @@ Composer 为空时显示 `Send message here`。在 composer 中输入内容并�
 
 ### 选择当前 Session 的 model
 
-Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前值。Model 选项来自 Settings → Global → Provider and model 中已经勾选且当前具有可用认证的模型；Thinking 选项来自 pi 为当前模型声明的 capability。
+Composer 底部提供 model 与 thinking 选择器，选择器直接显示当前模型名称。Model 选项来自 Settings → Global → Provider and model 中已经勾选且当前具有可用认证的模型；每个选项的第二行显示 `Provider 名称 · model id`，同名模型可以按 Provider 区分。Thinking 选项来自 pi 为当前模型声明的 capability。
 
 这里的选择只更新当前 Session。新 Session 使用 Settings → Global → Provider and model 中带星标的 default model。
 

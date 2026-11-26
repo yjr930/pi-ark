@@ -38,12 +38,12 @@ export function Select({ value, options, onChange, ariaLabel, ariaDescribedBy, d
 
   return <div className={`ark-select ${open ? "open" : ""}`} ref={rootRef}>
     <button type="button" className="ark-select-trigger" aria-label={ariaLabel} aria-describedby={ariaDescribedBy} aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} disabled={disabled} onClick={() => open ? close() : setOpen(true)}>
-      <span>{selected?.label || placeholder}</span>{selected?.status && <small>{selected.status}</small>}<ChevronDown size={14} />
+      <span>{selected?.label || placeholder}</span>{selected?.status && <small title={selected.status}>{selected.status}</small>}<ChevronDown size={14} />
     </button>
     {open && <div className="ark-select-menu" id={listId} role="listbox" aria-label={ariaLabel}>
       {searchable && <div className="ark-select-search"><Search size={13} aria-hidden="true" /><input type="text" autoFocus value={query} placeholder={searchPlaceholder} aria-label={`Search ${ariaLabel}`} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key !== "Enter" || event.nativeEvent.isComposing) return; const first = matched[0]; if (first) choose(first); }} /></div>}
       {matched.map((option) => <button type="button" role="option" aria-selected={option.value === value} className={option.value === value ? "selected" : ""} key={option.value} onClick={() => choose(option)}>
-        <span className="ark-select-check">{option.value === value && <Check size={13} />}</span><span className="ark-select-copy"><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span>{option.status && <em>{option.status}</em>}
+        <span className="ark-select-check">{option.value === value && <Check size={13} />}</span><span className="ark-select-copy"><strong title={option.label}>{option.label}</strong>{option.description && <small title={option.description}>{option.description}</small>}</span>{option.status && <em title={option.status}>{option.status}</em>}
       </button>)}
       {matched.length === 0 && <div className="ark-select-empty" role="presentation">{options.length === 0 ? "No options available" : "No options match this search"}</div>}
     </div>}

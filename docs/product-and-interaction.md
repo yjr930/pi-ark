@@ -204,7 +204,7 @@ Composer 支持三种召唤方式：输入 `/` 打开内置命令、skill 与扩
 
 输入框为空时显示 `Send message here`。输入框会随内容增长，最多显示十行，之后使用内部滚动。Enter 发送，Shift+Enter 换行；输入法正在组合文字时，Enter 交给输入法处理。Send 与 Stop 始终显示；Agent active 时 Send 提交 Follow-up，Session idle 时 Send 提交普通 prompt，Stop 在 Session idle 时为 disabled。
 
-Composer 提供当前 Session 的 model 与 thinking 选择器，选择器直接显示当前值，不显示 `MODEL` 与 `THINKING` 提示文字。Model 列表来自当前可用凭证，Thinking 选项来自所选 model 的 pi capability。选择结果只影响当前 Session。
+Composer 提供当前 Session 的 model 与 thinking 选择器，选择器直接显示当前模型名称，不显示 `MODEL` 与 `THINKING` 提示文字。Model 列表来自当前可用凭证，每个选项的第二行显示 `Provider 名称 · model id`，同名模型可以按 Provider 区分。Thinking 选项来自所选 model 的 pi capability。选择结果只影响当前 Session。
 
 Conversation 在用户位于底部附近时跟随新输出；用户向上滚动后，后续 event 保留当前阅读位置。User message 的顶部越过 conversation 顶部时，该 message 显示为不透明的 sticky User bar；向上滚动并让原 message 重新进入顶部后，bar 立即切换到前一个 user message。点击 sticky User bar 的任意位置会定位到原 message，并将目标 message 放在 sticky bar 下方且保留 8 px 间距。已经展开的 run collapse summary 以不透明的 sticky row 固定在 User bar 下方。Message permalink 继续使用平滑定位。
 

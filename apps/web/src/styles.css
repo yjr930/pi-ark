@@ -557,7 +557,7 @@ html, body { color: var(--text); background: var(--bg); }
   .composer-model .ark-select-trigger { position: relative; }
   .composer-model .ark-select-menu { right: 0; left: 0; width: auto; }
 }
-.ark-select-menu em { max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ark-select-menu em { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Subagent rows split into a session jump on the left and the disclosure on the right. */
 .feed-tool-split { min-width: 0; width: 100%; display: flex; align-items: center; gap: 8px; }
 .feed-tool-jump { min-width: 0; display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--text-soft); text-decoration: none; }

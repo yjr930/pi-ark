@@ -183,7 +183,8 @@ export class SettingsService {
 
   async getSessionModels() {
     const scope = await this.getModelScope();
-    return scope.enabled.map((model) => ({ provider: model.provider, id: model.id, name: model.name, reasoning: model.reasoning, contextWindow: model.contextWindow, thinkingLevels: getSupportedThinkingLevels(model) }));
+    const providerNames = new Map(this.models.getProviders().map((provider) => [provider.id, provider.name]));
+    return scope.enabled.map((model) => ({ provider: model.provider, providerName: providerNames.get(model.provider) || model.provider, id: model.id, name: model.name, reasoning: model.reasoning, contextWindow: model.contextWindow, thinkingLevels: getSupportedThinkingLevels(model) }));
   }
 
   async getSessionModelConfiguration(): Promise<{ model: ReturnType<ModelRuntime["getModel"]>; scopedModels: ScopedModel[] }> {
