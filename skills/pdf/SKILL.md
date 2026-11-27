@@ -21,7 +21,7 @@ description: 读取 PDF 文件的内容。用 poppler 抽取每页文字，再�
 command -v pdfinfo pdftotext pdfimages pdftoppm
 ```
 
-缺少命令时先安装 poppler，Linux 用 `apt-get install -y poppler-utils`，macOS 用 `brew install poppler`。脚本检测到缺少命令时以 `缺少命令` 开头报错，并给出发行版对应的安装命令。
+缺少命令时先安装 poppler：Debian 与 Ubuntu 用 `apt-get install -y poppler-utils`，Fedora 与 RHEL 用 `dnf install poppler-utils`，macOS 用 `brew install poppler`，Windows 用 `scoop install poppler`（或 `conda install -c conda-forge poppler`）。脚本检测到缺少命令时以 `缺少命令` 开头报错，并按当前平台给出一条安装命令。
 
 ## 读取流程
 
@@ -80,6 +80,7 @@ node <skill-dir>/scripts/pdf.mjs pages <file.pdf> --pages 2,7-9
 ```
 
 - 默认 150 DPI、JPEG 质量 85。A4 页面在这个分辨率下是 1240x1754 像素，read 工具按原尺寸发送。
+- poppler 0.58.0 之前的版本没有 `-jpegopt`。脚本遇到拒绝该参数的输出时去掉它重试一次，渲染仍然完成，输出行标注 `poppler default quality`。
 - 默认输出目录是 `.tmp/pdf/<文件名>-<DPI>dpi/`，每个页面生成一个 `page-001.jpg`，脚本逐行打印生成的文件路径。
 - 表格小字看不清时用 `--dpi 200`。超过 2000 像素的图片会被 read 工具缩小。
 - 需要无损输出时用 `--format png`，文件体积明显大于 JPEG。

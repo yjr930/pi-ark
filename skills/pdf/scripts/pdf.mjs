@@ -35,16 +35,27 @@ function fail(message, exitCode = 2) {
 }
 
 async function run(command, args) {
+  const result = await execute(command, args);
+  if (!result.ok) fail(`${command} 执行失败：${result.error}`, 3);
+  return result.stdout;
+}
+
+function installHint() {
+  if (process.platform === "darwin") return "macOS 用 brew install poppler";
+  if (process.platform === "win32") return "Windows 用 scoop install poppler，或者 conda install -c conda-forge poppler";
+  return "Debian 与 Ubuntu 用 apt-get install -y poppler-utils，Fedora 与 RHEL 用 dnf install poppler-utils";
+}
+
+// 与 run 的区别是不退出进程，供需要重试的调用使用。
+async function execute(command, args) {
   try {
     const { stdout } = await execFileAsync(command, args, { maxBuffer: MAX_BUFFER, encoding: "utf8" });
-    return stdout;
+    return { ok: true, stdout, error: "" };
   } catch (error) {
     if (error?.code === "ENOENT") {
-      const install = process.platform === "darwin" ? "brew install poppler" : "apt-get install -y poppler-utils";
-      fail(`缺少命令 ${command}。先安装 poppler（Linux: ${install}；macOS: brew install poppler），再重新运行。`, 4);
+      fail(`缺少命令 ${command}。先安装 poppler（${installHint()}），再重新运行。`, 4);
     }
-    const detail = String(error?.stderr || error?.message || error).trim();
-    fail(`${command} 执行失败：${detail}`, 3);
+    return { ok: false, stdout: String(error?.stdout ?? ""), error: String(error?.stderr || error?.message || error).trim() };
   }
 }
 
@@ -265,17 +276,36 @@ async function pagesCommand(file, options) {
   await mkdir(directory, { recursive: true });
 
   const extension = options.format === "jpeg" ? "jpg" : "png";
-  const filter = options.format === "jpeg" ? ["-jpeg", "-jpegopt", "quality=85"] : ["-png"];
+  // -jpegopt 从 poppler 0.58.0 起提供。旧版本拒绝该参数时去掉它重试一次，JPEG 质量用 poppler 的默认值。
+  let jpegOptions = options.format === "jpeg";
+  const renderArgs = (page, target) => [
+    ...(options.format === "jpeg" ? (jpegOptions ? ["-jpeg", "-jpegopt", "quality=85"] : ["-jpeg"]) : ["-png"]),
+    "-r",
+    String(options.dpi),
+    "-f",
+    String(page),
+    "-l",
+    String(page),
+    "-singlefile",
+    file,
+    target,
+  ];
   const rendered = [];
   for (const page of requested) {
     const target = join(directory, `page-${String(page).padStart(3, "0")}`);
-    await run("pdftoppm", [...filter, "-r", String(options.dpi), "-f", String(page), "-l", String(page), "-singlefile", file, target]);
+    let result = await execute("pdftoppm", renderArgs(page, target));
+    if (!result.ok && jpegOptions) {
+      jpegOptions = false;
+      result = await execute("pdftoppm", renderArgs(page, target));
+    }
+    if (!result.ok) fail(`pdftoppm 执行失败：${result.error}`, 3);
     const path = `${target}.${extension}`;
     const { size } = await stat(path);
     rendered.push({ page, path, kilobytes: Math.ceil(size / 1024) });
   }
 
-  const lines = [`out: ${directory}`, `rendered: ${rendered.length} page(s) at ${options.dpi} dpi (${options.format})`];
+  const quality = options.format === "jpeg" && !jpegOptions ? ", poppler default quality" : "";
+  const lines = [`out: ${directory}`, `rendered: ${rendered.length} page(s) at ${options.dpi} dpi (${options.format}${quality})`];
   for (const item of rendered) lines.push(`page ${item.page} -> ${item.path} (${item.kilobytes} KB)`);
   if (rendered.length > BATCH_NOTE_THRESHOLD) lines.push(`note: read the images in batches of ${BATCH_NOTE_THRESHOLD} or fewer, highest information pages first`);
   process.stdout.write(`${lines.join("\n")}\n`);

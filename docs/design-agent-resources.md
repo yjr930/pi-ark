@@ -198,9 +198,9 @@ MCP server 的定义与启用状态主要写在 `PI_ARK_AGENT_DIR/mcp.json`，pi
 - 双通道：`pdftotext` 抽取每页文字，`pdftoppm` 按页渲染图片，两路结果合并成对文档的理解。
 - `scripts/pdf.mjs` 提供 `probe`、`text` 与 `pages` 三个子命令，只用 Node 标准库，运行依赖 poppler 的 `pdfinfo`、`pdftotext`、`pdfimages` 与 `pdftoppm`。
 - `probe` 按页面特征给出通道建议：非空白字符不足 50 个的页面为 `render-required`，有大图或有 5 行以上表格状排版的页面为 `render-recommended`，其余为 `text-only`。文档超过 40 页时只打印摘要与压缩后的页码列表。
-- 渲染默认 150 DPI 与 JPEG 质量 85，A4 页面得到 1240x1754 像素，位于 read 工具的 2000 像素缩放上限以内。
+- 渲染默认 150 DPI 与 JPEG 质量 85，A4 页面得到 1240x1754 像素，位于 read 工具的 2000 像素缩放上限以内。poppler 0.58.0 之前的版本拒绝 `-jpegopt` 时，脚本去掉该参数重试一次，输出行标注 `poppler default quality`。
 - 文字通道默认按阅读顺序输出，`--layout` 保留横向排版供表格页使用；`--out` 把长文本写入文件，再用 read 的 `offset` 与 `limit` 分段读取。
-- 缺少 poppler 时脚本以 `缺少命令` 报错，并给出 Linux 与 macOS 的安装命令；模型不接受图片输入时退回文字通道。
+- 缺少 poppler 时脚本以 `缺少命令` 报错，并按平台给出一条安装命令（Debian 与 Ubuntu 的 `apt-get`、Fedora 与 RHEL 的 `dnf`、macOS 的 `brew`、Windows 的 `scoop` 或 conda-forge）；模型不接受图片输入时退回文字通道。
 
 ## 8. MCP 接入
 
