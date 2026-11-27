@@ -578,6 +578,83 @@ function ruleValue(id: string, rules: ProviderPluginRule[] | undefined, fallback
   return match?.value ?? fallback;
 }
 
+const PI_MODEL_CATALOG_BASE_URL = "https://pi.dev/api/models/providers";
+const PI_MODEL_CATALOG_PROVIDERS = ["anthropic", "openai", "openai-codex", "google", "xai", "deepseek"];
+const PI_MODEL_CATALOG_TTL_MS = 10 * 60 * 1000;
+const PI_MODEL_CATALOG_VARIANT_SUFFIX = /-(?:xhigh|high|medium|low|tiered|\d{8})$/;
+
+export interface PiCatalogModel {
+  id: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  thinkingLevelMap?: Record<string, string | null>;
+}
+
+let piCatalogCache: { fetchedAt: number; models: Map<string, PiCatalogModel> } | undefined;
+
+function piCatalogModel(value: unknown): PiCatalogModel | undefined {
+  if (!isRecord(value) || typeof value.id !== "string" || !value.id.trim()) return undefined;
+  const contextWindow = typeof value.contextWindow === "number" && Number.isFinite(value.contextWindow) && value.contextWindow > 0 ? value.contextWindow : undefined;
+  const maxTokens = typeof value.maxTokens === "number" && Number.isFinite(value.maxTokens) && value.maxTokens > 0 ? value.maxTokens : undefined;
+  const thinkingLevelMap = isRecord(value.thinkingLevelMap)
+    ? Object.fromEntries(Object.entries(value.thinkingLevelMap).filter(([, level]) => typeof level === "string" || level === null)) as Record<string, string | null>
+    : undefined;
+  return {
+    id: value.id.trim(),
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(maxTokens ? { maxTokens } : {}),
+    ...(thinkingLevelMap && Object.keys(thinkingLevelMap).length > 0 ? { thinkingLevelMap } : {}),
+  };
+}
+
+export function buildPiCatalog(payloads: unknown[]): Map<string, PiCatalogModel> {
+  const models = new Map<string, PiCatalogModel>();
+  for (const payload of payloads) {
+    if (!Array.isArray(payload)) continue;
+    for (const entry of payload) {
+      const model = piCatalogModel(entry);
+      if (model && !models.has(model.id)) models.set(model.id, model);
+    }
+  }
+  return models;
+}
+
+/** Resolve a relay model id such as `gemini-4-neon-high` against the pi model catalog. */
+export function lookupPiCatalogModel(id: string, catalog: Map<string, PiCatalogModel> | undefined): PiCatalogModel | undefined {
+  if (!catalog) return undefined;
+  const direct = catalog.get(id);
+  if (direct) return direct;
+  let normalized = id;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const next = normalized.replace(PI_MODEL_CATALOG_VARIANT_SUFFIX, "");
+    if (next === normalized) break;
+    normalized = next;
+    const model = catalog.get(normalized);
+    if (model) return model;
+  }
+  return undefined;
+}
+
+/**
+ * Pi publishes vendor model specs for its built-in providers. Relay model ids use the same vendor
+ * names, so this catalog is the source for context window, output limit and thinking levels, while
+ * relay price tiers stay the source for pricing only.
+ */
+export async function fetchPiCatalog(fetchImpl: typeof fetch = fetch, signal?: AbortSignal): Promise<Map<string, PiCatalogModel> | undefined> {
+  if (process.env.PI_OFFLINE !== undefined) return undefined;
+  if (piCatalogCache && Date.now() - piCatalogCache.fetchedAt < PI_MODEL_CATALOG_TTL_MS) return piCatalogCache.models;
+  const responses = await Promise.allSettled(PI_MODEL_CATALOG_PROVIDERS.map(async (provider) => {
+    const response = await fetchImpl(`${PI_MODEL_CATALOG_BASE_URL}/${provider}?types=chat`, { headers: { accept: "application/json" }, ...(signal ? { signal } : {}) });
+    if (!response.ok) return undefined;
+    return await response.json() as unknown;
+  }));
+  const payloads = responses.flatMap((result) => (result.status === "fulfilled" && result.value !== undefined ? [result.value] : []));
+  const models = buildPiCatalog(payloads);
+  if (models.size === 0) return undefined;
+  piCatalogCache = { fetchedAt: Date.now(), models };
+  return models;
+}
+
 function contextWindowFor(id: string, entry: MetadataEntry | undefined, plugin: ProviderPlugin): number {
   const tiers = Array.isArray(entry?.model.tiers) ? entry.model.tiers : [];
   const lengths = tiers
@@ -591,6 +668,15 @@ function contextWindowFor(id: string, entry: MetadataEntry | undefined, plugin: 
 
 function maxTokensFor(id: string, plugin: ProviderPlugin): number {
   return ruleValue(id, plugin.modelDefaults?.maxTokensRules, plugin.modelDefaults?.maxTokens ?? 16384);
+}
+
+/** Google's Gemini API accepts only its four discrete thinking levels; other pi levels map to unsupported. */
+const GOOGLE_THINKING_LEVELS = new Set(["minimal", "low", "medium", "high"]);
+
+function thinkingLevelMapFor(api: ProviderPluginApi, spec: PiCatalogModel | undefined): Record<string, string | null> | undefined {
+  if (!spec?.thinkingLevelMap) return undefined;
+  if (api !== "google-generative-ai") return spec.thinkingLevelMap;
+  return Object.fromEntries(Object.entries(spec.thinkingLevelMap).map(([level, mapped]) => [level, typeof mapped === "string" && !GOOGLE_THINKING_LEVELS.has(mapped.toLowerCase()) ? null : mapped]));
 }
 
 function reasoningFor(id: string, plugin: ProviderPlugin): boolean {
@@ -641,7 +727,7 @@ function chooseProtocol(plugin: ProviderPlugin, id: string, entry: MetadataEntry
   return undefined;
 }
 
-export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metadata: RightApiPublicCatalog | undefined): ProviderModelConfig[] {
+export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metadata: RightApiPublicCatalog | undefined, catalog?: Map<string, PiCatalogModel>): ProviderModelConfig[] {
   const index = publicModelIndex(metadata);
   const unknownOnly = publicUnknownOnlyModelNames(metadata);
   const models = new Map<string, ProviderModelConfig>();
@@ -652,6 +738,8 @@ export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metad
     const protocol = chooseProtocol(plugin, id, entry);
     if (!protocol) continue;
     const compat = compatFor(id, plugin);
+    const spec = lookupPiCatalogModel(id, catalog);
+    const thinkingLevelMap = thinkingLevelMapFor(protocol.api, spec);
     models.set(id, {
       id,
       name: id,
@@ -660,8 +748,9 @@ export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metad
       reasoning: reasoningFor(id, plugin),
       input: plugin.modelDefaults?.input ?? ["text"],
       cost: costFor(entry),
-      contextWindow: contextWindowFor(id, entry, plugin),
-      maxTokens: maxTokensFor(id, plugin),
+      contextWindow: spec?.contextWindow ?? contextWindowFor(id, entry, plugin),
+      maxTokens: spec?.maxTokens ?? maxTokensFor(id, plugin),
+      ...(thinkingLevelMap ? { thinkingLevelMap: thinkingLevelMap as never } : {}),
       ...(compat ? { compat: compat as never } : {}),
     });
   }
@@ -669,10 +758,13 @@ export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metad
 }
 
 export async function discoverProviderModels(plugin: ProviderPlugin, apiKey: string | undefined, signal: AbortSignal | undefined, fetchImpl: typeof fetch = fetch): Promise<ProviderModelConfig[]> {
-  const metadata = await fetchMetadata(plugin, fetchImpl, signal).catch(() => undefined);
+  const [metadata, catalog] = await Promise.all([
+    fetchMetadata(plugin, fetchImpl, signal).catch(() => undefined),
+    fetchPiCatalog(fetchImpl, signal).catch(() => undefined),
+  ]);
   const ids = await fetchModelIds(plugin, apiKey, fetchImpl, signal, metadata);
   if (ids.length === 0) throw new Error("Provider returned no chat models");
-  return buildProviderModels(plugin, ids, metadata);
+  return buildProviderModels(plugin, ids, metadata, catalog);
 }
 
 export function createProviderPluginsExtension(): ExtensionFactory {
