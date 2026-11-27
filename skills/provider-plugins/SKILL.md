@@ -57,7 +57,7 @@ Provider 插件定义一种 Provider 类型，例如 Right Code。用户可以�
 - `models.url`：返回模型列表的地址，按 OpenAI 的 `{ "data": [{ "id": "..." }] }`、`{ "models": [...] }` 或数组解析。
 - `models.format`：目前只支持 `openai`。
 - `models.auth`：请求模型列表时使用的鉴权方式，可以是字符串或数组。可选 `bearer`、`x-api-key`、`x-goog-api-key`、`none`。按顺序尝试，前一个返回 401 或 403 时再试下一个。
-- `models.metadataUrl`：可选，用于补充价格、上下文窗口与支持的协议。当前支持 Right Code 的公共目录格式。
+- `models.metadataUrl`：可选，用于补充价格与支持的协议。当前支持 Right Code 的公共目录格式。公共目录的 `tiers` 是价格分档，`max_context_length` 是长上下文加价的分界点。
 - `models.metadataFormat`：使用 `metadataUrl` 时必须设为 `rightcode-public`。
 - `models.fallbackToMetadata`：模型列表请求失败或为空时，是否使用公共目录中的 chat 模型名称。
 - `protocols`：按顺序匹配模型 id 的规则。第一个 `match` 正则命中的规则决定模型使用的 `api` 与 `baseUrl`。`kind` 取 `responses`、`messages`、`completions` 或 `gemini`。
@@ -65,11 +65,12 @@ Provider 插件定义一种 Provider 类型，例如 Right Code。用户可以�
 - `modelDefaults.input`：模型输入类型，`text` 或 `image`。
 - `modelDefaults.reasoning`：默认是否支持 thinking。
 - `modelDefaults.reasoningMatch`：匹配的模型使用 thinking。
-- `modelDefaults.contextWindow` 与 `modelDefaults.maxTokens`：默认上下文窗口与最大输出。
-- `modelDefaults.contextWindowRules` 与 `modelDefaults.maxTokensRules`：按模型 id 正则覆盖默认值。
+- `modelDefaults.contextWindow` 与 `modelDefaults.maxTokens`：模型不在 Pi 模型目录、公共目录也没有给出长度时使用的默认上下文窗口与最大输出。
+- `modelDefaults.contextWindowRules` 与 `modelDefaults.maxTokensRules`：同一回退层级的按模型 id 正则覆盖。
 - `modelDefaults.compat`：应用到所有模型的 pi API 兼容字段。
 - `modelDefaults.compatRules`：按模型 id 正则覆盖 `compat`，例如 `{ "forceAdaptiveThinking": true }`。
-- 公共目录中的价格与上下文窗口会覆盖 `modelDefaults` 的默认上下文窗口。
+
+模型参数的取值顺序是：先按模型 id 从 Pi 的模型目录 `https://pi.dev/api/models/providers/<provider>` 取 `contextWindow`、`maxTokens` 与 `thinkingLevelMap`，目录覆盖 anthropic、openai、openai-codex、google、xai 与 deepseek；id 未直接命中时依次去掉 `-high`、`-low`、`-medium`、`-xhigh`、`-tiered` 与八位日期后缀再查。目录没有命中时使用公共目录 `tiers` 的长度，再没有时用 `modelDefaults` 的规则与默认值。`PI_OFFLINE` 环境下跳过目录请求，按公共目录与插件规则取值。
 
 `models.url` 与 `models.metadataUrl` 至少提供一个。Right Code 同时使用两个。
 
@@ -139,3 +140,5 @@ Provider 插件定义一种 Provider 类型，例如 Right Code。用户可以�
 - Refresh models 没有模型：检查 `models.url`、`models.auth`、`models.format`，以及公共目录是否可用。
 - 请求返回 `requires adaptive thinking`：在插件的 `modelDefaults.compatRules` 中为对应模型设置 `{ "forceAdaptiveThinking": true }`，然后 Reload provider plugins。
 - 插件已更新但模型仍用旧地址：点击 Reload provider plugins，再点击 Refresh models。
+- 模型的上下文窗口或输出上限与模型实际能力不一致：先看 Pi 模型目录里的同名模型是否已经更新，再点击 Refresh models 重新取值；目录没有的模型才由 `contextWindowRules` 与 `maxTokensRules` 决定。
+- 模型缺少 `xhigh` 或 `max` 思考档位：这些档位来自 Pi 模型目录的 `thinkingLevelMap`，目录未命中的模型需要插件在 `modelDefaults` 里自己定义才可选。
