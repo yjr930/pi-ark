@@ -83,18 +83,21 @@ try {
   assert.equal(rightCodeById.has("jev-1.14.0"), false);
 
   const piModels = plugins.buildPiCatalog([[
-    { id: "gemini-3.8-flash", contextWindow: 1048576, maxTokens: 65536, thinkingLevelMap: { off: null, low: "low", medium: "medium", high: "high" } },
+    { id: "gemini-3.8-flash", contextWindow: 1048576, maxTokens: 65536, thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" } },
     { id: "gpt-6-sol", contextWindow: 272000, maxTokens: 128000 },
+    { id: "claude-sonnet-5", contextWindow: 1000000, maxTokens: 128000, thinkingLevelMap: { xhigh: "xhigh", max: "max" } },
   ]]);
   assert.equal(plugins.lookupPiCatalogModel("gemini-3.8-flash-high", piModels)?.contextWindow, 1048576);
   assert.equal(plugins.lookupPiCatalogModel("claude-haiku-4-5-20251001", piModels), undefined);
-  const catalogModels = plugins.buildProviderModels(rightCode, ["gpt-6-sol", "gemini-3.8-flash", "gemini-3.8-flash-high", "claude-opus-5-5"], catalog, piModels);
+  const catalogModels = plugins.buildProviderModels(rightCode, ["gpt-6-sol", "gemini-3.8-flash", "gemini-3.8-flash-high", "claude-opus-5-5", "claude-sonnet-5"], catalog, piModels);
   const catalogById = new Map(catalogModels.map((model) => [model.id, model]));
   assert.equal(catalogById.get("gemini-3.8-flash")?.contextWindow, 1048576);
   assert.equal(catalogById.get("gemini-3.8-flash")?.maxTokens, 65536);
-  assert.deepEqual(catalogById.get("gemini-3.8-flash")?.thinkingLevelMap, { off: null, low: "low", medium: "medium", high: "high" });
+  assert.deepEqual(catalogById.get("gemini-3.8-flash")?.thinkingLevelMap, { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: null });
   assert.equal(catalogById.get("gemini-3.8-flash-high")?.contextWindow, 1048576);
   assert.equal(catalogById.get("gpt-6-sol")?.maxTokens, 128000);
+  assert.deepEqual(catalogById.get("claude-sonnet-5")?.thinkingLevelMap, { xhigh: "xhigh", max: "max" });
+  assert.equal(catalogById.get("claude-sonnet-5")?.contextWindow, 1000000);
   assert.equal(catalogById.get("claude-opus-5-5")?.contextWindow, 200000);
   assert.equal(catalogById.get("claude-opus-5-5")?.maxTokens, 32000);
 

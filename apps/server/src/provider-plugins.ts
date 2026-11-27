@@ -670,6 +670,15 @@ function maxTokensFor(id: string, plugin: ProviderPlugin): number {
   return ruleValue(id, plugin.modelDefaults?.maxTokensRules, plugin.modelDefaults?.maxTokens ?? 16384);
 }
 
+/** Google's Gemini API accepts only its four discrete thinking levels; other pi levels map to unsupported. */
+const GOOGLE_THINKING_LEVELS = new Set(["minimal", "low", "medium", "high"]);
+
+function thinkingLevelMapFor(api: ProviderPluginApi, spec: PiCatalogModel | undefined): Record<string, string | null> | undefined {
+  if (!spec?.thinkingLevelMap) return undefined;
+  if (api !== "google-generative-ai") return spec.thinkingLevelMap;
+  return Object.fromEntries(Object.entries(spec.thinkingLevelMap).map(([level, mapped]) => [level, typeof mapped === "string" && !GOOGLE_THINKING_LEVELS.has(mapped.toLowerCase()) ? null : mapped]));
+}
+
 function reasoningFor(id: string, plugin: ProviderPlugin): boolean {
   return plugin.modelDefaults?.reasoningMatch ? new RegExp(plugin.modelDefaults.reasoningMatch).test(id) : plugin.modelDefaults?.reasoning ?? false;
 }
@@ -730,6 +739,7 @@ export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metad
     if (!protocol) continue;
     const compat = compatFor(id, plugin);
     const spec = lookupPiCatalogModel(id, catalog);
+    const thinkingLevelMap = thinkingLevelMapFor(protocol.api, spec);
     models.set(id, {
       id,
       name: id,
@@ -740,7 +750,7 @@ export function buildProviderModels(plugin: ProviderPlugin, ids: string[], metad
       cost: costFor(entry),
       contextWindow: spec?.contextWindow ?? contextWindowFor(id, entry, plugin),
       maxTokens: spec?.maxTokens ?? maxTokensFor(id, plugin),
-      ...(spec?.thinkingLevelMap ? { thinkingLevelMap: spec.thinkingLevelMap as never } : {}),
+      ...(thinkingLevelMap ? { thinkingLevelMap: thinkingLevelMap as never } : {}),
       ...(compat ? { compat: compat as never } : {}),
     });
   }

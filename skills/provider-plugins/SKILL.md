@@ -70,7 +70,7 @@ Provider 插件定义一种 Provider 类型，例如 Right Code。用户可以�
 - `modelDefaults.compat`：应用到所有模型的 pi API 兼容字段。
 - `modelDefaults.compatRules`：按模型 id 正则覆盖 `compat`，例如 `{ "forceAdaptiveThinking": true }`。
 
-模型参数的取值顺序是：先按模型 id 从 Pi 的模型目录 `https://pi.dev/api/models/providers/<provider>` 取 `contextWindow`、`maxTokens` 与 `thinkingLevelMap`，目录覆盖 anthropic、openai、openai-codex、google、xai 与 deepseek；id 未直接命中时依次去掉 `-high`、`-low`、`-medium`、`-xhigh`、`-tiered` 与八位日期后缀再查。目录没有命中时使用公共目录 `tiers` 的长度，再没有时用 `modelDefaults` 的规则与默认值。`PI_OFFLINE` 环境下跳过目录请求，按公共目录与插件规则取值。
+模型参数的取值顺序是：先按模型 id 从 Pi 的模型目录 `https://pi.dev/api/models/providers/<provider>` 取 `contextWindow`、`maxTokens` 与 `thinkingLevelMap`，目录覆盖 anthropic、openai、openai-codex、google、xai 与 deepseek；id 未直接命中时依次去掉 `-high`、`-low`、`-medium`、`-xhigh`、`-tiered` 与八位日期后缀再查。Gemini 原生协议只接受 `minimal`、`low`、`medium`、`high` 四档，目录里的 `xhigh` 与 `max` 在这类模型上按不支持处理，避免 Google 适配器报 `Unsupported Google thinking level mapping`。目录没有命中时使用公共目录 `tiers` 的长度，再没有时用 `modelDefaults` 的规则与默认值。`PI_OFFLINE` 环境下跳过目录请求，按公共目录与插件规则取值。
 
 `models.url` 与 `models.metadataUrl` 至少提供一个。Right Code 同时使用两个。
 
