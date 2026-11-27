@@ -61,6 +61,12 @@ try {
   assert.equal(builtinBrowser.location, join(builtinSkillDir, "browser"));
   assert.equal(builtinBrowser.enabled, true);
 
+  const builtinPdf = initial.builtin.find((skill) => skill.name === "pdf");
+  assert.ok(builtinPdf, "the built-in pdf skill must be listed");
+  assert.equal(builtinPdf.location, join(builtinSkillDir, "pdf"));
+  assert.equal(builtinPdf.enabled, true);
+  assert.match(builtinPdf.description, /PDF/);
+
   const globalSkill = initial.global.find((skill) => skill.name === "global-check");
   assert.ok(globalSkill, "the global skill must be listed");
   assert.equal(globalSkill.scope, "global");

@@ -167,6 +167,7 @@ MCP server 的定义与启用状态主要写在 `PI_ARK_AGENT_DIR/mcp.json`，pi
 |---|---|---|
 | `browser` | 用 MCP `playwright` server 打开网页、点击、输入、截图 | `playwright` MCP server 已启用且浏览器运行时已安装 |
 | `mcp-servers` | 接入、验证和维护 MCP server，包含密钥通道与排查步骤 | 无 |
+| `pdf` | 抽取 PDF 每页文字，并按页渲染图片，两路结果合并成对文档的理解 | poppler 的 `pdfinfo`、`pdftotext`、`pdfimages` 与 `pdftoppm` |
 | `skill-authoring` | 创建、修改或安装 skill 到 Pi-Ark 管理的目录 | 无 |
 
 后续新增内置 skill 时同时更新本表与 `docs/index.md`。
@@ -191,6 +192,15 @@ MCP server 的定义与启用状态主要写在 `PI_ARK_AGENT_DIR/mcp.json`，pi
 - 列出密钥的三条通道与推荐顺序，密钥目录为 `PI_ARK_AGENT_DIR/secrets`。
 - 给出用户自行写入密钥的四步流程，密钥内容不进入对话。
 - 给出验证命令与排查顺序，包括 `mcp.log` 与 OAuth 登录。
+
+### 7.4 pdf skill 的内容要点
+
+- 双通道：`pdftotext` 抽取每页文字，`pdftoppm` 按页渲染图片，两路结果合并成对文档的理解。
+- `scripts/pdf.mjs` 提供 `probe`、`text` 与 `pages` 三个子命令，只用 Node 标准库，运行依赖 poppler 的 `pdfinfo`、`pdftotext`、`pdfimages` 与 `pdftoppm`。
+- `probe` 按页面特征给出通道建议：非空白字符不足 50 个的页面为 `render-required`，有大图或有 5 行以上表格状排版的页面为 `render-recommended`，其余为 `text-only`。文档超过 40 页时只打印摘要与压缩后的页码列表。
+- 渲染默认 150 DPI 与 JPEG 质量 85，A4 页面得到 1240x1754 像素，位于 read 工具的 2000 像素缩放上限以内。
+- 文字通道默认按阅读顺序输出，`--layout` 保留横向排版供表格页使用；`--out` 把长文本写入文件，再用 read 的 `offset` 与 `limit` 分段读取。
+- 缺少 poppler 时脚本以 `缺少命令` 报错，并给出 Linux 与 macOS 的安装命令；模型不接受图片输入时退回文字通道。
 
 ## 8. MCP 接入
 

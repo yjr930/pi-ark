@@ -38,7 +38,7 @@
 - Pi 集成调研记录技术选型依据和上游 pi API 背景。
 - Claude Code 调研分别记录 system prompt、agent 间的通信机制和 memory 设计，按官方文档、发布记录和带版本的第三方资料标明出处。
 - Pi-Ark Memory 设计记录跨 Session 的使用流程、借鉴依据和后续计划。
-- Agent 资源联合设计记录 Skills、MCP、Extensions 与 Provider 插件的资源模型、服务端与页面实现入口，以及内置 `browser`、`mcp-servers`、`skill-authoring` 与 `provider-plugins` skill、`playwright` server、MCP 密钥目录、用户扩展目录与 Provider 插件目录的接入。
+- Agent 资源联合设计记录 Skills、MCP、Extensions 与 Provider 插件的资源模型、服务端与页面实现入口，以及内置 `browser`、`pdf`、`mcp-servers`、`skill-authoring` 与 `provider-plugins` skill、`playwright` server、MCP 密钥目录、用户扩展目录与 Provider 插件目录的接入。
 - 交互式提问工具文档记录提问工具的参数、两种挂起模式、答案通道、状态推导、子会话转交与界面行为。
 - 删除指令审批文档记录删除命令的识别范围、开关、拦截时机、审批状态、子会话转交与界面行为。
 

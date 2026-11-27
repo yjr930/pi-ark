@@ -676,6 +676,8 @@ Delete commands 开关控制删除指令审批。开启时，Agent 的 bash 命�
 
 `browser` 是内置 skill，它的启用状态跟随 `playwright` MCP server。Skills 页面不在 `browser` 行提供开关；`playwright` 未启用时，该行显示 Disabled 与 “Enable playwright in MCP to use this skill.”。到 Settings → MCP 启用 `playwright` 后，`browser` 随之启用。
 
+内置 skill 还包括 `pdf`、`mcp-servers`、`skill-authoring` 与 `provider-plugins`。`pdf` 让 Agent 读取 PDF：先抽取每页文字，再把需要看版式的页面渲染成图片一起阅读。它使用系统的 poppler（`pdfinfo`、`pdftotext`、`pdfimages` 与 `pdftoppm`），缺少这些命令时 Agent 会给出 Linux 与 macOS 的安装命令。
+
 #### Skill 文件位置
 
 Pi-Ark 从以下目录读取 skill：
